@@ -649,6 +649,12 @@ async def get_active_catalog(tenant_id):
     return cat, items
 
 
+@api.get("/catalog/active")
+async def catalog_active(cu: CurrentUser = Depends(get_current)):
+    cat, items = await get_active_catalog(cu.tenant_id)
+    return {"catalog": cat, "items": items}
+
+
 # ===========================================================================
 # QUOTES
 # ===========================================================================
@@ -726,21 +732,48 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
         raise HTTPException(404, "Quote not found")
     if q["status"] != "draft":
         raise HTTPException(400, "Only draft quotes can be edited")
-    lines = body.get("lines", q["lines"])
-    for l in lines:
-        if l.get("unit_price_ht") is not None and l.get("qty") is not None:
-            try:
-                l["line_ht"] = round(float(l["qty"]) * float(l["unit_price_ht"]), 2)
-            except (TypeError, ValueError):
-                pass
+
+    def _num(v):
+        if v in (None, ""):
+            return None
+        try:
+            return float(str(v).replace(",", "."))
+        except (TypeError, ValueError):
+            return None
+
+    raw_lines = body.get("lines", q.get("lines", []))
+    lines = []
+    for l in raw_lines:
+        qty = _num(l.get("qty"))
+        price = _num(l.get("unit_price_ht"))
+        vat = _num(l.get("vat_rate"))
+        line = {
+            "request_label": l.get("request_label") or l.get("description"),
+            "description": (l.get("description") or "").strip() or "\u2014",
+            "category": l.get("category"),
+            "matched_item_code": l.get("matched_item_code"),
+            "matched_label": l.get("matched_label"),
+            "qty": qty,
+            "unit": (l.get("unit") or None),
+            "unit_price_ht": price,
+            "vat_rate": vat,
+            "score": l.get("score", 0),
+            "reasons": l.get("reasons") or [],
+        }
+        if qty is not None and price is not None:
+            line["line_ht"] = round(qty * price, 2)
+            prev = l.get("status")
+            line["status"] = prev if prev in ("matched", "proposed", "confirmed") else "confirmed"
+        else:
+            line["line_ht"] = None
+            line["status"] = "to_confirm"
+        lines.append(line)
+
     total_ht, total_vat, total_ttc = match_engine.recompute_totals(lines)
     update = {"lines": lines, "total_ht": total_ht, "total_vat": total_vat, "total_ttc": total_ttc}
-    if "client" in body:
-        update["client"] = body["client"]
-    if "site" in body:
-        update["site"] = body["site"]
-    if "object" in body:
-        update["object"] = body["object"]
+    for f in ("client", "site", "object", "client_final"):
+        if f in body:
+            update[f] = body[f]
     await db.quotes.update_one({"id": quote_id}, {"$set": update})
     await audit(cu.tenant_id, cu.email, "quote.edit", quote_id)
     q.update(update)

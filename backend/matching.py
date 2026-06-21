@@ -115,7 +115,8 @@ def recompute_totals(lines: list):
     total_ht = 0.0
     total_vat = 0.0
     for l in lines:
-        if l.get("line_ht") is not None and l.get("status") in ("matched", "proposed", "confirmed"):
-            total_ht += float(l["line_ht"])
-            total_vat += round(float(l["line_ht"]) * float(l.get("vat_rate") or 0) / 100, 2)
+        if l.get("line_ht") is not None:
+            ht = float(l["line_ht"])
+            total_ht += ht
+            total_vat += round(ht * float(l.get("vat_rate") or 0) / 100, 2)
     return round(total_ht, 2), round(total_vat, 2), round(total_ht + total_vat, 2)
