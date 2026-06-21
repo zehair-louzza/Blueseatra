@@ -339,6 +339,52 @@ async def get_tenant_ai_settings(tenant_id):
 
 
 # ===========================================================================
+# COMPANY PROFILE (for quote / pro forma PDF header & footer)
+# ===========================================================================
+class CompanyProfile(BaseModel):
+    company_name: Optional[str] = None
+    subtitle: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    country: Optional[str] = "France"
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    siret: Optional[str] = None
+    tva_intra: Optional[str] = None
+    capital: Optional[str] = None
+    ape: Optional[str] = None
+    assurance: Optional[str] = None
+    iban: Optional[str] = None
+    validity: Optional[str] = "3 mois"
+    payment_terms: Optional[str] = None
+    acceptance_text: Optional[str] = None
+
+
+async def get_company_profile(tenant_id):
+    p = await db.company_profiles.find_one({"tenant_id": tenant_id}, {"_id": 0})
+    if not p:
+        tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+        p = {"company_name": tenant["name"] if tenant else "Blueseatra", "validity": "3 mois"}
+    return p
+
+
+@api.get("/company-profile")
+async def company_profile_get(cu: CurrentUser = Depends(get_current)):
+    return await get_company_profile(cu.tenant_id)
+
+
+@api.put("/company-profile")
+async def company_profile_put(body: CompanyProfile,
+                              cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    doc = {k: v for k, v in body.model_dump().items()}
+    doc["tenant_id"] = cu.tenant_id
+    doc["updated_at"] = now_iso()
+    await db.company_profiles.update_one({"tenant_id": cu.tenant_id}, {"$set": doc}, upsert=True)
+    await audit(cu.tenant_id, cu.email, "company_profile.update")
+    return {"ok": True}
+
+
+# ===========================================================================
 # REQUESTS
 # ===========================================================================
 async def process_request(request_id: str, tenant_id: str):
@@ -627,6 +673,7 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
         "number": f"BS-{datetime.now().year}-{count + 1:04d}",
         "status": "draft", "version": 1,
         "client": req["extracted"].get("client"), "site": req["extracted"].get("site"),
+        "object": req["extracted"].get("description"),
         "language": req.get("language"),
         "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
         "total_ttc": round(total_ht + total_vat, 2),
@@ -677,6 +724,8 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
         update["client"] = body["client"]
     if "site" in body:
         update["site"] = body["site"]
+    if "object" in body:
+        update["object"] = body["object"]
     await db.quotes.update_one({"id": quote_id}, {"$set": update})
     await audit(cu.tenant_id, cu.email, "quote.edit", quote_id)
     q.update(update)
@@ -722,7 +771,8 @@ async def quote_pdf(quote_id: str, token: Optional[str] = None,
     if not q:
         raise HTTPException(404, "Quote not found")
     tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
-    pdf_bytes = pdf_service.generate_quote_pdf(q, tenant["name"] if tenant else "Blueseatra")
+    profile = await get_company_profile(tenant_id)
+    pdf_bytes = pdf_service.generate_quote_pdf(q, tenant["name"] if tenant else "Blueseatra", profile)
     return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
                              headers={"Content-Disposition": f"attachment; filename=devis_{q['number']}.pdf"})
 

@@ -74,6 +74,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             lines.append({
                 "request_label": li.get("label"),
                 "description": li.get("label"),
+                "category": item.get("category") or li.get("category"),
                 "matched_item_code": item.get("item_code"),
                 "matched_label": item.get("item_label"),
                 "qty": eff_qty,
@@ -89,6 +90,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             lines.append({
                 "request_label": li.get("label"),
                 "description": li.get("label"),
+                "category": li.get("category"),
                 "matched_item_code": None,
                 "matched_label": None,
                 "qty": qty,

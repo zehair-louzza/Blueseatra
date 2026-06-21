@@ -32,7 +32,7 @@ export default function QuoteEditor() {
     setBusy(true);
     try {
       const lines = q.lines.map((l) => ({ ...l, qty: l.qty === '' ? 0 : Number(l.qty), unit_price_ht: l.unit_price_ht === null || l.unit_price_ht === '' ? null : Number(l.unit_price_ht) }));
-      const { data } = await api.patch(`/quotes/${id}`, { lines, client: q.client, site: q.site });
+      const { data } = await api.patch(`/quotes/${id}`, { lines, client: q.client, site: q.site, object: q.object });
       setQ(data); toast.success(t('quote.save'));
     } catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
     finally { setBusy(false); }
@@ -102,6 +102,10 @@ export default function QuoteEditor() {
         <div className="lg:col-span-4">
           <Card className="card-shadow sticky top-20 border-0 p-5" data-testid="quote-totals-panel">
             <div className="space-y-2 text-sm">
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase text-muted-foreground">{t('quote.object')}</label>
+                {isDraft ? <Input value={q.object || ''} onChange={(e) => setQ({ ...q, object: e.target.value })} className="h-8" data-testid="quote-object-input" /> : <div className="font-medium">{q.object || '\u2014'}</div>}
+              </div>
               <div className="space-y-1.5">
                 <label className="text-xs uppercase text-muted-foreground">{t('quote.client')}</label>
                 {isDraft ? <Input value={q.client || ''} onChange={(e) => setQ({ ...q, client: e.target.value })} className="h-8" /> : <div className="font-medium">{q.client || '\u2014'}</div>}
