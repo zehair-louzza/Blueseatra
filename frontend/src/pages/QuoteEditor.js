@@ -114,6 +114,14 @@ export default function QuoteEditor() {
                 <label className="text-xs uppercase text-muted-foreground">{t('quote.site')}</label>
                 {isDraft ? <Input value={q.site || ''} onChange={(e) => setQ({ ...q, site: e.target.value })} className="h-8" /> : <div className="font-medium">{q.site || '\u2014'}</div>}
               </div>
+              {q.meta && (q.meta.di_number || q.meta.response_deadline || q.meta.client_final) && (
+                <div className="rounded-lg bg-muted/40 p-2.5 text-xs" data-testid="quote-meta-refs">
+                  {q.meta.client_final && <div className="flex justify-between"><span className="text-muted-foreground">{t('req.client_final')}</span><span className="font-medium">{q.meta.client_final}</span></div>}
+                  {q.meta.di_number && <div className="flex justify-between"><span className="text-muted-foreground">{t('req.di')}</span><span className="font-mono">{q.meta.di_number}</span></div>}
+                  {q.meta.request_number && <div className="flex justify-between"><span className="text-muted-foreground">{t('req.request_no')}</span><span className="font-mono">{q.meta.request_number}</span></div>}
+                  {q.meta.response_deadline && <div className="flex justify-between"><span className="text-muted-foreground">{t('req.deadline')}</span><span className="font-medium">{q.meta.response_deadline}</span></div>}
+                </div>
+              )}
               <div className="my-3 h-px bg-border" />
               <Row label={t('quote.total_ht')} value={`${q.total_ht} ${q.currency}`} />
               <Row label={t('quote.total_vat')} value={`${q.total_vat} ${q.currency}`} />

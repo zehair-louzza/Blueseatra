@@ -62,6 +62,12 @@ def build_quote_lines(extracted: dict, catalog: list):
             qty = float(li.get("qty") or 1)
         except (TypeError, ValueError):
             qty = 1.0
+        # rich description: label + dimensions / specs / location
+        extra = [str(li.get(k)) for k in ("dimensions", "specs", "location") if li.get(k)]
+        desc = li.get("label") or ""
+        if extra:
+            sep = " \u00b7 "
+            desc = desc + " (" + sep.join(extra) + ")"
         if m and m["status"] in ("matched", "proposed"):
             item = m["item"]
             eff_qty = max(qty, float(item.get("min_qty") or 0))
@@ -73,7 +79,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             total_vat += line_vat
             lines.append({
                 "request_label": li.get("label"),
-                "description": li.get("label"),
+                "description": desc,
                 "category": item.get("category") or li.get("category"),
                 "matched_item_code": item.get("item_code"),
                 "matched_label": item.get("item_label"),
@@ -89,7 +95,7 @@ def build_quote_lines(extracted: dict, catalog: list):
         else:
             lines.append({
                 "request_label": li.get("label"),
-                "description": li.get("label"),
+                "description": desc,
                 "category": li.get("category"),
                 "matched_item_code": None,
                 "matched_label": None,

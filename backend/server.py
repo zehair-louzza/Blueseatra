@@ -668,13 +668,28 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
     lines, total_ht, total_vat = match_engine.build_quote_lines(req["extracted"], items)
     count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
     quote_id = new_id()
+    ex = req["extracted"]
+    client_recipient = ex.get("donneur_d_ordre") or ex.get("client_final") or ex.get("client")
+    site_val = ex.get("intervention_address") or ex.get("intervention_site") or ex.get("site")
     quote = {
         "id": quote_id, "tenant_id": cu.tenant_id, "request_id": request_id,
         "number": f"BS-{datetime.now().year}-{count + 1:04d}",
         "status": "draft", "version": 1,
-        "client": req["extracted"].get("client"), "site": req["extracted"].get("site"),
-        "object": req["extracted"].get("description"),
+        "client": client_recipient, "site": site_val,
+        "client_final": ex.get("client_final"),
+        "object": ex.get("description"),
         "language": req.get("language"),
+        "meta": {
+            "doc_type": ex.get("doc_type"),
+            "request_number": ex.get("request_number"),
+            "di_number": ex.get("di_number"),
+            "followup_number": ex.get("followup_number"),
+            "response_deadline": ex.get("response_deadline"),
+            "donneur_d_ordre": ex.get("donneur_d_ordre"),
+            "client_final": ex.get("client_final"),
+            "intervention_site": ex.get("intervention_site"),
+            "required_deliverables": ex.get("required_deliverables") or [],
+        },
         "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
         "total_ttc": round(total_ht + total_vat, 2),
         "currency": items[0]["currency"] if items else "EUR",

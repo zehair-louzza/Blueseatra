@@ -205,7 +205,30 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
                            ("LINEABOVE", (0, 0), (-1, 0), 1, GREEN_LINE),
                            ("LINEBELOW", (0, 0), (-1, 0), 1, GREEN_LINE),
                        ])))
-        e.append(Spacer(1, 12))
+        e.append(Spacer(1, 8))
+
+    # ---- Reference metadata (request N / DI / client final / deadline) -------
+    meta = quote.get("meta") or {}
+    chips = []
+    if meta.get("request_number"):
+        chips.append(("R\u00e9f. demande", str(meta["request_number"])))
+    if meta.get("di_number"):
+        chips.append(("N\u00b0 dossier DI", str(meta["di_number"])))
+    if meta.get("client_final") or quote.get("client_final"):
+        chips.append(("Client final", str(meta.get("client_final") or quote.get("client_final"))))
+    if meta.get("response_deadline"):
+        chips.append(("R\u00e9ponse avant", str(meta["response_deadline"])))
+    if chips:
+        cells = [Paragraph(f"<font color='#6A7B8A'>{k} :</font> <b>{v}</b>", S["small"]) for k, v in chips]
+        # pad to a row layout (max 4 columns)
+        meta_tbl = Table([cells], colWidths=[doc.width / len(cells)] * len(cells))
+        meta_tbl.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        e.append(meta_tbl)
+    e.append(Spacer(1, 6))
 
     # ---- Line items table grouped by category --------------------------------
     col_w = [22, doc.width - 22 - 40 - 64 - 38 - 72, 40, 64, 38, 72]
@@ -294,6 +317,14 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
     e.append(totals_wrap)
     e.append(Spacer(1, 14))
 
+    # ---- Required deliverables (from the incoming request) -------------------
+    deliverables = (quote.get("meta") or {}).get("required_deliverables") or []
+    if deliverables:
+        e.append(Paragraph("<b>D\u00e9tails fournis dans ce devis</b>", S["pay"]))
+        for d in deliverables[:8]:
+            e.append(Paragraph("&ndash;&nbsp;" + str(d), S["small"]))
+        e.append(Spacer(1, 10))
+
     # ---- Payment terms + acceptance ------------------------------------------
     pay_terms = p.get("payment_terms") or "\u2022 30 % \u00e0 la signature du devis\n\u2022 40 % en cours de travaux\n\u2022 30 % \u00e0 la livraison"
     pay_block = [Paragraph("<b>Modalit\u00e9s de paiement</b>", S["pay"])]
@@ -320,6 +351,15 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
     ]))
     e.append(KeepTogether(bottom))
     e.append(Spacer(1, 6))
+    # ---- TVA legal mention (auto-liquidation / franchise 293B) ---------------
+    if p.get("tva_intra"):
+        tva_mention = (f"TVA intracommunautaire : {p['tva_intra']}. "
+                       "TVA due par le preneur assujetti \u2014 auto-liquidation en application de "
+                       "l\u2019article 242 nonies A, I-13 de l\u2019annexe II au CGI.")
+    else:
+        tva_mention = "TVA non applicable, selon l\u2019article 293 B du CGI."
+    e.append(Paragraph(f"<font size=7.5 color='#2C3E50'>{tva_mention}</font>", S["small"]))
+    e.append(Spacer(1, 3))
     e.append(Paragraph(
         f"<font size=7 color='#6A7B8A'>Source tarifaire : {quote.get('pricing_snapshot', {}).get('catalog_name', '-')} "
         f"v{quote.get('pricing_snapshot', {}).get('version_number', '-')}. "

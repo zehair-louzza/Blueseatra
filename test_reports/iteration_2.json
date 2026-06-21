@@ -1,0 +1,82 @@
+{
+  "summary": "Completed comprehensive REGRESSION testing of Blueseatra NEW FIELDS for real maintenance broker PDFs. Backend: 100% pass rate (28/28 tests). All NEW fields validated: doc_type, request_number, di_number, response_deadline, donneur_d_ordre, client_final, intervention_site, intervention_address, contact{name,email,phone}, required_deliverables[], constraints[], keywords[], line_items with dimensions/location/specs. Quote meta fields working. Company profile tva_intra field functional. PDF generation working. Multilingual AI extraction (FR/EN) verified. Frontend code review confirms all UI components display new fields correctly.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "Backend: AUTH - Signup creates user+tenant+demo catalog",
+    "Backend: AUTH - GET /auth/me returns user info",
+    "Backend: FRENCH MAINTENANCE REQUEST - AI extraction completed in ~6s",
+    "Backend: NEW FIELDS - doc_type: demande_devis",
+    "Backend: NEW FIELDS - request_number: 26061000",
+    "Backend: NEW FIELDS - di_number: 26060951",
+    "Backend: NEW FIELDS - response_deadline: 2026-06-15",
+    "Backend: NEW FIELDS - donneur_d_ordre: PRESTA MAINTENANCE",
+    "Backend: NEW FIELDS - client_final: SFR",
+    "Backend: NEW FIELDS - intervention_site: CC Carrefour Belle Epine - Thiais (94)",
+    "Backend: NEW FIELDS - intervention_address: Centre Commercial Belle Epine, 94320 Thiais",
+    "Backend: NEW FIELDS - contact: {name: Jean Dupont, email: j.dupont@prestamaintenance.fr, phone: 06 12 34 56 78}",
+    "Backend: NEW FIELDS - required_deliverables: 5 items (Durée d'intervention, Nombre de techniciens, Fournitures avec références, Délai d'exécution, Fiches techniques produits)",
+    "Backend: NEW FIELDS - constraints: 2 items (horaires d'ouverture, accès par entrée livraison)",
+    "Backend: NEW FIELDS - line_items[0].label: Mise en place serrure + mécanisme porte magasin",
+    "Backend: NEW FIELDS - line_items[0].category: serrurerie",
+    "Backend: NEW FIELDS - line_items[0].dimensions: H 2m10 x L 1m20",
+    "Backend: NEW FIELDS - line_items[0].specs: Acier galvanisé, finition RAL 7016 (gris anthracite)",
+    "Backend: ENGLISH MAINTENANCE REQUEST - Language detected: en",
+    "Backend: ENGLISH REQUEST - donneur_d_ordre: GMS MAINTENANCE, client_final: PROMOD, 3 line items extracted",
+    "Backend: QUOTE DRAFT - meta.request_number: 26061000",
+    "Backend: QUOTE DRAFT - meta.di_number: 26060951",
+    "Backend: QUOTE DRAFT - meta.response_deadline: 2026-06-15",
+    "Backend: QUOTE DRAFT - meta.donneur_d_ordre: PRESTA MAINTENANCE",
+    "Backend: QUOTE DRAFT - meta.client_final: SFR",
+    "Backend: QUOTE DRAFT - meta.required_deliverables: 5 items",
+    "Backend: QUOTE DRAFT - client field correctly set to donneur_d_ordre (PRESTA MAINTENANCE)",
+    "Backend: COMPANY PROFILE - GET /company-profile returns profile",
+    "Backend: COMPANY PROFILE - PUT with tva_intra: FR12345678901",
+    "Backend: COMPANY PROFILE - tva_intra field saved and retrieved correctly",
+    "Backend: QUOTE PDF - GET /quotes/{id}/pdf returns valid PDF (4066 bytes, %PDF header)",
+    "Backend: QUOTE OPERATIONS - PATCH /quotes/{id} edit works",
+    "Backend: QUOTE OPERATIONS - POST /quotes/{id}/validate works",
+    "Backend: QUOTE OPERATIONS - POST /quotes/{id}/send works",
+    "Backend: CATALOG IMPORT - CSV import with serrurerie items (2 rows imported, 0 errors)",
+    "Backend: CATALOG IMPORT - Catalog activated successfully",
+    "Backend: DASHBOARD - GET /dashboard returns KPIs",
+    "Backend: MEMBERS - GET /members lists team members",
+    "Backend: AUDIT - GET /audit returns log entries",
+    "Backend: SETTINGS - GET /settings/integrations returns provider_models",
+    "Frontend Code Review: RequestDetail.js displays all NEW fields (donneur_d_ordre, client_final, request_number, di_number, response_deadline, intervention_site, intervention_address, required_deliverables list with data-testid, line_items with dimensions/location/specs)",
+    "Frontend Code Review: QuoteEditor.js shows meta references block (data-testid='quote-meta-refs') with client_final, di_number, request_number, response_deadline",
+    "Frontend Code Review: QuoteEditor.js has Object field (data-testid='quote-object-input')",
+    "Frontend Code Review: Settings.js has Tabs component with AI (Integrations) and Company (Entreprise) tabs",
+    "Frontend Code Review: Settings.js CompanyProfile component includes tva_intra field",
+    "Frontend Code Review: Language toggle (FR/EN) implemented in header"
+  ],
+  
+  "test_report_links": [
+    "/app/backend_test_regression.py",
+    "/app/backend_test_regression_output.log"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (28/28 regression tests passed)",
+    "frontend": "100% (code review confirms all NEW fields implemented correctly with proper data-testid attributes)"
+  },
+  
+  "action_item_for_main_agent": "",
+  
+  "updated_files": [
+    "/app/backend_test_regression.py"
+  ],
+  
+  "should_call_test_agent_after_fix": "false",
+  "should_main_agent_test_itself": "false"
+}

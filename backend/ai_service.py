@@ -17,24 +17,40 @@ EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
 DEFAULT_PROVIDER = "openai"
 DEFAULT_MODEL = "gpt-5.4"
 
-EXTRACTION_SYSTEM = """You are Blueseatra's document understanding engine for a B2B quoting platform.
-Extract a structured business request from the provided content, which may be in ANY language.
-Return ONLY valid minified JSON (no markdown, no commentary) with EXACTLY this schema:
+EXTRACTION_SYSTEM = """You are Blueseatra's document understanding engine for a B2B facility-maintenance quoting platform.
+You receive INCOMING quote requests ("demande de devis"), mission orders ("ordre de mission"), emails or photos, in ANY language.
+These typically come from a maintenance broker (donneur d'ordre, e.g. PRESTA MAINTENANCE, GMS MAINTENANCE) on behalf of an end client / retail brand (enseigne, e.g. SFR, PROMOD).
+Extract a structured object and return ONLY valid minified JSON (no markdown, no commentary) with EXACTLY this schema:
 {
  "language": "ISO 639-1 code of the source content",
- "client": "string or null",
- "site": "string or null",
- "description": "short summary in the source language",
+ "doc_type": "demande_devis | ordre_de_mission | email | autre",
+ "request_number": "the request/order number (N\u00b0 de la demande / d'ordre de mission) or null",
+ "issue_date": "YYYY-MM-DD or null",
+ "response_deadline": "YYYY-MM-DD or null (date limite de r\u00e9ponse / date de retour souhait\u00e9e)",
+ "donneur_d_ordre": "the broker/issuer the quote must be addressed to, or null",
+ "client_final": "the end client / retail brand (enseigne) or null",
+ "di_number": "N\u00b0 dossier DI or null",
+ "followup_number": "suite intervention n\u00b0 or null",
+ "contact": {"name": "string or null", "email": "string or null", "phone": "string or null"},
+ "intervention_site": "site / store name (enseigne + magasin) or null",
+ "intervention_address": "full address of the lieu d'intervention or null",
+ "description": "short summary of the requested works in the source language",
  "urgency": "low|normal|high",
- "constraints": ["string"],
+ "required_deliverables": ["what the quote must contain, e.g. dur\u00e9e d'intervention, nombre de techniciens, fournitures avec r\u00e9f\u00e9rences, d\u00e9lai, fiches techniques"],
+ "constraints": ["access, horaires, nuit, RAL/color, security, etc."],
  "keywords": ["string"],
  "line_items": [
-   {"label": "string", "category": "string or null", "qty": number, "unit": "hr|m2|ml|u|ens or null", "dimensions": "string or null", "notes": "string or null"}
+   {"label": "string (the prestation/work)", "category": "string or null", "qty": number, "unit": "hr|m2|ml|u|ens or null",
+    "dimensions": "string or null (e.g. H 1m80 x L 1m00)", "location": "string or null (local/zone/pi\u00e8ce)",
+    "specs": "string or null (RAL, mat\u00e9riau, r\u00e9f\u00e9rence)", "notes": "string or null"}
  ],
  "confidence": number between 0 and 1
 }
-Rules: Never invent prices. Infer qty/unit only when clearly stated; otherwise qty=1 and unit=null.
-Categories should be lowercase business families (e.g. peinture, placo, fibre, maintenance, deplacement, main_oeuvre, protection, consommables)."""
+Rules:
+- Never invent prices. Infer qty/unit only when clearly stated; otherwise qty=1 and unit=null.
+- Split distinct works into separate line_items. Capture dimensions, RAL/colors and material specs in the dedicated fields.
+- Categories should be lowercase business families (e.g. serrurerie, peinture, placo, fibre, climatisation, clotures, maintenance, deplacement, main_oeuvre, protection, consommables).
+- Dates must be normalized to YYYY-MM-DD when possible."""
 
 
 def _parse_json(raw: str):
