@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/lib/api';
+import { api , apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ export default function CatalogImport() {
       setPreview(data);
       if (!catalogName) setCatalogName(file.name.replace(/\.csv$/i, ''));
       setStep(1);
-    } catch (err) { toast.error(err.response?.data?.detail || 'Preview failed'); }
+    } catch (err) { toast.error(apiError(err, 'Preview failed')); }
     finally { setBusy(false); }
   };
 
@@ -47,7 +47,7 @@ export default function CatalogImport() {
       if (data.error_rows > 0) { const e = await api.get(`/import-jobs/${data.job_id}/errors`); setErrors(e.data); }
       setStep(3);
       toast.success(t('wiz.done_msg'));
-    } catch (err) { toast.error(err.response?.data?.detail || 'Import failed'); }
+    } catch (err) { toast.error(apiError(err, 'Import failed')); }
     finally { setBusy(false); }
   };
 

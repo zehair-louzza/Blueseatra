@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/lib/api';
+import { api , apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -50,7 +50,7 @@ export default function Requests() {
       toast.success(t('req.processing'));
       setOpen(false); setTitle(''); setText(''); setFile(null);
       await load();
-    } catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
+    } catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setSubmitting(false); }
   };
 

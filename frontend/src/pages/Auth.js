@@ -1,3 +1,4 @@
+import { apiError } from '@/lib/api';
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -35,7 +36,7 @@ export function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try { await login(email, password); navigate('/app'); }
-    catch (err) { toast.error(err.response?.data?.detail || 'Login failed'); }
+    catch (err) { toast.error(apiError(err, 'Login failed')); }
     finally { setLoading(false); }
   };
 
@@ -74,7 +75,7 @@ export function SignupPage() {
     e.preventDefault();
     setLoading(true);
     try { await signup(form); navigate('/app'); }
-    catch (err) { toast.error(err.response?.data?.detail || 'Signup failed'); }
+    catch (err) { toast.error(apiError(err, 'Signup failed')); }
     finally { setLoading(false); }
   };
 

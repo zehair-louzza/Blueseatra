@@ -25,3 +25,15 @@ api.interceptors.response.use(
 );
 
 export const getToken = () => localStorage.getItem('bs_token');
+
+// Normalize any axios/FastAPI error into a safe display string (handles 422 arrays)
+export const apiError = (err, fallback = 'Something went wrong') => {
+  const d = err?.response?.data?.detail;
+  if (d === undefined || d === null) return err?.message || fallback;
+  if (typeof d === 'string') return d;
+  if (Array.isArray(d)) {
+    return d.map((e) => (typeof e === 'string' ? e : (e?.msg || JSON.stringify(e)))).join(', ') || fallback;
+  }
+  if (typeof d === 'object') return d.msg || JSON.stringify(d);
+  return String(d);
+};

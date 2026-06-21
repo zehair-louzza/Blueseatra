@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { api, API, getToken } from '@/lib/api';
+import { api, API, getToken , apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -93,7 +93,7 @@ export default function QuoteEditor() {
       const lines = q.lines.map((l) => ({ ...l, qty: num(l.qty), unit_price_ht: num(l.unit_price_ht), vat_rate: num(l.vat_rate) }));
       const { data } = await api.patch(`/quotes/${id}`, { lines, client: q.client, site: q.site, object: q.object, client_final: q.client_final });
       setQ(data); toast.success(t('quote.save'));
-    } catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
+    } catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
   const validate = async () => {
@@ -102,7 +102,7 @@ export default function QuoteEditor() {
       const lines = q.lines.map((l) => ({ ...l, qty: num(l.qty), unit_price_ht: num(l.unit_price_ht), vat_rate: num(l.vat_rate) }));
       await api.patch(`/quotes/${id}`, { lines, client: q.client, site: q.site, object: q.object });
       await api.post(`/quotes/${id}/validate`); toast.success(t('status.validated')); await load();
-    } catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
+    } catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
   const send = async () => { await api.post(`/quotes/${id}/send`); toast.success(t('status.sent')); load(); };

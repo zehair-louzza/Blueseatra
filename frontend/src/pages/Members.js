@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/lib/api';
+import { api , apiError } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -30,7 +30,7 @@ export default function Members() {
   const add = async (e) => {
     e.preventDefault(); setBusy(true);
     try { await api.post('/members', form); toast.success(t('members.add')); setOpen(false); setForm({ name: '', email: '', password: '', role: 'operator' }); load(); }
-    catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
+    catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
 

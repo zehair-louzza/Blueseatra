@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/lib/api';
+import { api , apiError } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -32,7 +32,7 @@ function AiSettings({ canManage }) {
   const save = async () => {
     setBusy(true);
     try { await api.put('/settings/integrations', form); toast.success(t('settings.saved')); if (form.ai_key) setKeySet(true); setForm({ ...form, ai_key: '' }); }
-    catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
+    catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
 
@@ -89,7 +89,7 @@ function CompanyProfile({ canManage }) {
   const save = async () => {
     setBusy(true);
     try { await api.put('/company-profile', form); toast.success(t('settings.company.saved')); }
-    catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
+    catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
 

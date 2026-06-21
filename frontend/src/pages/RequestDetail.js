@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/lib/api';
+import { api , apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/Spinner';
@@ -27,7 +27,7 @@ export default function RequestDetail() {
   const makeQuote = async () => {
     setBusy(true);
     try { const { data } = await api.post('/quotes/draft', { request_id: id }); navigate(`/app/quotes/${data.id}`); }
-    catch (err) { toast.error(err.response?.data?.detail || 'Failed'); }
+    catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
 
