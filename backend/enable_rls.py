@@ -1,0 +1,37 @@
+"""Enable Row Level Security (RLS) on all public tables.
+
+Why: Supabase exposes public-schema tables through PostgREST (the auto REST API
+reachable with the public `anon` key). Without RLS, that API could read/write
+our data. This app does NOT use PostgREST — it connects directly to Postgres
+with the table-owner role, which BYPASSES RLS. So enabling RLS with no policies
+denies anon/authenticated access while leaving the app fully functional.
+
+Idempotent: safe to run multiple times. Run after creating/altering tables.
+
+    cd /app/backend && python enable_rls.py
+"""
+import asyncio
+
+from sqlalchemy import text
+
+from database import engine
+from pg_adapter import MODELS
+
+
+async def enable_rls():
+    if engine is None:
+        raise SystemExit("DATABASE_URL not set.")
+    tables = [m.__tablename__ for m in MODELS.values()]
+    async with engine.begin() as conn:
+        for t in tables:
+            # ENABLE (not FORCE): the owner/admin role our app uses keeps full access.
+            await conn.execute(text(f'ALTER TABLE public."{t}" ENABLE ROW LEVEL SECURITY;'))
+            # Belt-and-suspenders: explicitly remove PostgREST role privileges.
+            await conn.execute(text(f'REVOKE ALL ON public."{t}" FROM anon, authenticated;'))
+            print(f"  RLS enabled + privileges revoked: public.{t}")
+    await engine.dispose()
+    print(f"Done. RLS enabled on {len(tables)} tables.")
+
+
+if __name__ == "__main__":
+    asyncio.run(enable_rls())

@@ -58,8 +58,10 @@ async def create_tables():
         raise SystemExit("DATABASE_URL not set. Configure the Supabase Transaction Pooler URI first.")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    await engine.dispose()
-    print("Tables created (bootstrap). For production, prefer Alembic migrations.")
+    # Enable RLS on all tables so PostgREST (anon key) cannot access data.
+    from enable_rls import enable_rls
+    await enable_rls()  # disposes the engine when done
+    print("Tables created (bootstrap) + RLS enabled. For production, prefer Alembic migrations.")
 
 
 async def migrate():
