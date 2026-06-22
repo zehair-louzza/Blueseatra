@@ -7,9 +7,10 @@ import { Card } from '@/components/ui/card';
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { BookOpen, Plus, Download, Eye, CheckCircle2, Info } from 'lucide-react';
+import { BookOpen, Plus, Download, Eye, CheckCircle2, Info, PowerOff, Trash2 } from 'lucide-react';
 
 const verBadge = {
   active: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
@@ -29,6 +30,14 @@ export default function Catalogs() {
   useEffect(() => { load(); }, []);
 
   const activate = async (catId, verId) => { await api.post(`/catalogs/${catId}/activate/${verId}`); toast.success(t('cat.active')); load(); };
+  const deactivate = async (catId) => {
+    try { await api.post(`/catalogs/${catId}/deactivate`); toast.success(t('cat.deactivated')); load(); }
+    catch { toast.error(t('common.loading')); }
+  };
+  const remove = async (catId) => {
+    try { await api.delete(`/catalogs/${catId}`); toast.success(t('cat.deleted')); load(); }
+    catch (e) { toast.error(e?.response?.data?.detail || 'Error'); }
+  };
   const viewItems = async (cat) => {
     const { data } = await api.get(`/catalogs/${cat.id}/items`);
     setItems(data.items);
@@ -66,7 +75,27 @@ export default function Catalogs() {
                     <h2 className="font-display text-base font-semibold">{c.name}</h2>
                     <p className="text-xs text-muted-foreground">client_code: <span className="font-mono">{c.client_code}</span></p>
                   </div>
-                  <Button variant="secondary" size="sm" className="gap-1" onClick={() => viewItems(c)} data-testid="view-items-button"><Eye className="h-4 w-4" />{t('cat.view_items')}</Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button variant="secondary" size="sm" className="gap-1" onClick={() => viewItems(c)} data-testid="view-items-button"><Eye className="h-4 w-4" />{t('cat.view_items')}</Button>
+                    {c.active_version_id && (
+                      <Button variant="outline" size="sm" className="gap-1" onClick={() => deactivate(c.id)} data-testid="deactivate-catalog-button"><PowerOff className="h-4 w-4" />{t('cat.deactivate')}</Button>
+                    )}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="sm" className="gap-1 text-destructive hover:text-destructive" data-testid="delete-catalog-button"><Trash2 className="h-4 w-4" />{t('cat.delete')}</Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>{t('cat.delete_title')}</AlertDialogTitle>
+                          <AlertDialogDescription>{c.name} — {t('cat.delete_desc')}</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel data-testid="delete-cancel-button">{t('common.cancel')}</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => remove(c.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" data-testid="delete-confirm-button">{t('cat.delete')}</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
                 <div className="mt-3 overflow-x-auto">
                   <Table>

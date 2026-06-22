@@ -789,6 +789,37 @@ async def activate_version(catalog_id: str, version_id: str,
     return {"ok": True}
 
 
+@api.post("/catalogs/{catalog_id}/deactivate")
+async def deactivate_catalog(catalog_id: str,
+                             cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    cat = await db.catalogs.find_one({"id": catalog_id, "tenant_id": cu.tenant_id})
+    if not cat:
+        raise HTTPException(404, "Catalog not found")
+    await db.catalog_versions.update_many(
+        {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}, {"$set": {"status": "archived"}})
+    await db.catalogs.update_one({"id": catalog_id}, {"$set": {"active_version_id": None}})
+    await audit(cu.tenant_id, cu.email, "catalog.deactivate", catalog_id, {})
+    return {"ok": True}
+
+
+@api.delete("/catalogs/{catalog_id}")
+async def delete_catalog(catalog_id: str,
+                         cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    cat = await db.catalogs.find_one({"id": catalog_id, "tenant_id": cu.tenant_id})
+    if not cat:
+        raise HTTPException(404, "Catalog not found")
+    flt = {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}
+    jobs = await db.import_jobs.find(flt, {"id": 1}).to_list(1000)
+    if jobs:
+        await db.import_errors.delete_many({"tenant_id": cu.tenant_id, "job_id": {"$in": [j["id"] for j in jobs]}})
+    await db.pricing_items.delete_many(flt)
+    await db.catalog_versions.delete_many(flt)
+    await db.import_jobs.delete_many(flt)
+    await db.catalogs.delete_one({"id": catalog_id, "tenant_id": cu.tenant_id})
+    await audit(cu.tenant_id, cu.email, "catalog.delete", catalog_id, {"name": cat.get("name")})
+    return {"ok": True}
+
+
 async def get_active_catalog(tenant_id):
     cat = await db.catalogs.find_one(
         {"tenant_id": tenant_id, "active_version_id": {"$ne": None}}, {"_id": 0}, sort=[("created_at", -1)])
