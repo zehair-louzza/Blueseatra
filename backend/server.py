@@ -19,19 +19,18 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 
 import ai_service
 import matching as match_engine
 import pdf_service
+from pg_adapter import PGDatabase
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# Database: Supabase PostgreSQL via a motor-compatible adapter (SQLAlchemy/asyncpg).
+db = PGDatabase()
 
 JWT_SECRET = os.environ.get('JWT_SECRET')
 _WEAK_SECRETS = {'', 'blueseatra-dev-secret', 'blueseatra-dev-secret-change-in-prod',
@@ -1140,4 +1139,4 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    client.close()
+    await db.dispose()

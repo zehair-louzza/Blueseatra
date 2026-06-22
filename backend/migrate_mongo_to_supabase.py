@@ -50,12 +50,6 @@ def _row_for_model(model, doc: dict) -> dict:
     except company_profiles which keeps the remainder inside a JSONB `data` blob."""
     doc = {k: v for k, v in doc.items() if k != "_id"}
     cols = {c.key for c in sa_inspect(model).columns}
-
-    if model is M.CompanyProfile:
-        tenant_id = doc.pop("tenant_id", None)
-        updated_at = doc.pop("updated_at", None)
-        return {"tenant_id": tenant_id, "data": doc, "updated_at": updated_at}
-
     return {k: v for k, v in doc.items() if k in cols}
 
 
@@ -64,6 +58,7 @@ async def create_tables():
         raise SystemExit("DATABASE_URL not set. Configure the Supabase Transaction Pooler URI first.")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await engine.dispose()
     print("Tables created (bootstrap). For production, prefer Alembic migrations.")
 
 
@@ -93,6 +88,7 @@ async def migrate():
             await session.commit()
             totals[coll] = n
             print(f"  {coll:24s} -> {n} rows")
+    await engine.dispose()
     print("Migration complete:", totals)
 
 

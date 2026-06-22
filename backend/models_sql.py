@@ -196,8 +196,23 @@ class SettingsIntegration(Base):
 class CompanyProfile(Base):
     __tablename__ = "company_profiles"
     tenant_id = Column(String(36), primary_key=True)
-    data = Column(JSONB)  # full profile blob (company_name, siret, iban, ...)
-    updated_at = Column(String(40))
+    company_name = Column(Text, nullable=True)
+    subtitle = Column(Text, nullable=True)
+    address_line1 = Column(Text, nullable=True)
+    address_line2 = Column(Text, nullable=True)
+    country = Column(String(120), nullable=True)
+    phone = Column(String(120), nullable=True)
+    email = Column(String(255), nullable=True)
+    siret = Column(String(120), nullable=True)
+    tva_intra = Column(String(120), nullable=True)
+    capital = Column(String(120), nullable=True)
+    ape = Column(String(120), nullable=True)
+    assurance = Column(Text, nullable=True)
+    iban = Column(String(120), nullable=True)
+    validity = Column(String(120), nullable=True)
+    payment_terms = Column(Text, nullable=True)
+    acceptance_text = Column(Text, nullable=True)
+    updated_at = Column(String(40), nullable=True)
 
 
 # Used by the migration script and Alembic autogenerate.

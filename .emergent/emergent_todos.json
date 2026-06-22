@@ -1,26 +1,18 @@
 [
   {
-    "content": "CRITIQUE: JWT_SECRET faible/par défaut → secret fort + refus du secret par défaut au démarrage",
+    "content": "Connexion Supabase + schéma + migration des données MongoDB",
     "status": "completed"
   },
   {
-    "content": "ÉLEVÉ: CORS allow_credentials=True avec origine wildcard → corriger la combinaison",
+    "content": "Adaptateur pg_adapter (API motor-compatible → SQLAlchemy) + branchement server.py",
     "status": "completed"
   },
   {
-    "content": "MOYEN: Aucune limite de taille d'upload (DoS mémoire) → imposer une taille max",
+    "content": "Tests manuels CRUD (auth, catalogues, import, settings, delete)",
     "status": "completed"
   },
   {
-    "content": "MOYEN: Chiffrer la clé IA tenant stockée en clair (Fernet at-rest)",
-    "status": "completed"
-  },
-  {
-    "content": "Tester régression après corrections (auth, login, upload, CORS, settings)",
-    "status": "completed"
-  },
-  {
-    "content": "Rédiger le rapport de sécurité priorisé",
-    "status": "completed"
+    "content": "Test agent complet backend + frontend (anti-régression migration Supabase)",
+    "status": "in_progress"
   }
 ]
