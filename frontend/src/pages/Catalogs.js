@@ -167,7 +167,7 @@ export default function Catalogs() {
               </TableRow></TableHeader>
               <TableBody>
                 {items.map((it) => (
-                  <TableRow key={it.id}>
+                  <TableRow key={it.id} data-testid="catalog-item-row">
                     <TableCell className="font-mono text-xs">{it.item_code}</TableCell>
                     <TableCell>{it.item_label}</TableCell>
                     <TableCell>{it.category}</TableCell>

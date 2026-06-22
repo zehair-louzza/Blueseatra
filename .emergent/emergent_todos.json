@@ -13,6 +13,10 @@
   },
   {
     "content": "Test agent complet backend + frontend (anti-régression migration Supabase)",
-    "status": "in_progress"
+    "status": "completed"
+  },
+  {
+    "content": "Correctif update_one (UpdateResult) + data-testid branche legacy + vérif visuelle dialog 224 items",
+    "status": "completed"
   }
 ]
