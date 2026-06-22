@@ -33,8 +33,39 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'blueseatra-dev-secret')
+JWT_SECRET = os.environ.get('JWT_SECRET')
+_WEAK_SECRETS = {'', 'blueseatra-dev-secret', 'blueseatra-dev-secret-change-in-prod',
+                 'change-me', 'secret', 'changeme'}
+if not JWT_SECRET or JWT_SECRET in _WEAK_SECRETS or len(JWT_SECRET) < 32:
+    raise RuntimeError(
+        "JWT_SECRET is missing, weak or default. Set a strong random value "
+        "(e.g. `python -c \"import secrets;print(secrets.token_urlsafe(48))\"`) in backend/.env."
+    )
 JWT_ALGO = 'HS256'
+
+# Encryption-at-rest for sensitive secrets (e.g. tenant-provided AI provider keys).
+from cryptography.fernet import Fernet, InvalidToken  # noqa: E402
+
+_enc_key = os.environ.get('APP_ENCRYPTION_KEY')
+_fernet = Fernet(_enc_key.encode()) if _enc_key else None
+_ENC_PREFIX = "enc::"
+
+
+def encrypt_secret(value: str) -> str:
+    if not value or not _fernet:
+        return value or ""
+    return _ENC_PREFIX + _fernet.encrypt(value.encode()).decode()
+
+
+def decrypt_secret(value: str) -> str:
+    if not value or not isinstance(value, str) or not value.startswith(_ENC_PREFIX):
+        return value or ""
+    if not _fernet:
+        return ""
+    try:
+        return _fernet.decrypt(value[len(_ENC_PREFIX):].encode()).decode()
+    except (InvalidToken, ValueError):
+        return ""
 
 app = FastAPI(title="Blueseatra API")
 api = APIRouter(prefix="/api")
@@ -44,6 +75,14 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("blueseatra")
 
 ROLES = ["owner", "admin", "operator", "viewer", "billing_admin"]
+
+# Max upload size (bytes) for request documents and CSV catalog imports.
+MAX_UPLOAD_SIZE = int(os.environ.get('MAX_UPLOAD_SIZE', str(15 * 1024 * 1024)))  # 15 MB
+
+
+def _check_size(content: bytes):
+    if content and len(content) > MAX_UPLOAD_SIZE:
+        raise HTTPException(413, f"Fichier trop volumineux (max {MAX_UPLOAD_SIZE // (1024 * 1024)} Mo).")
 
 
 def now_iso():
@@ -329,7 +368,7 @@ async def update_settings(body: IntegrationSettings,
     doc = {"tenant_id": cu.tenant_id, "ai_provider": body.ai_provider,
            "ai_model": body.ai_model, "n8n_webhook_url": body.n8n_webhook_url, "updated_at": now_iso()}
     if body.ai_key:
-        doc["ai_key"] = body.ai_key
+        doc["ai_key"] = encrypt_secret(body.ai_key)
     await db.settings_integrations.update_one({"tenant_id": cu.tenant_id}, {"$set": doc}, upsert=True)
     await audit(cu.tenant_id, cu.email, "settings.update", None,
                 {"ai_provider": body.ai_provider, "ai_model": body.ai_model})
@@ -338,7 +377,11 @@ async def update_settings(body: IntegrationSettings,
 
 async def get_tenant_ai_settings(tenant_id):
     s = await db.settings_integrations.find_one({"tenant_id": tenant_id}, {"_id": 0})
-    return s or {}
+    if not s:
+        return {}
+    if s.get("ai_key"):
+        s["ai_key"] = decrypt_secret(s["ai_key"])
+    return s
 
 
 # ===========================================================================
@@ -435,6 +478,7 @@ async def create_request(
     if file is not None:
         filename = file.filename
         content = await file.read()
+        _check_size(content)
         lower = (filename or "").lower()
         if lower.endswith(".pdf"):
             source_type = "pdf"
@@ -645,6 +689,7 @@ async def catalog_template():
 async def import_preview(cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
                          file: UploadFile = File(...)):
     content = await file.read()
+    _check_size(content)
     df = _read_csv_robust(content)
     columns = list(df.columns)
     mapping = suggest_mapping(columns)
@@ -665,6 +710,7 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
                          mapping: str = Form(None),
                          activate: str = Form("true")):
     content = await file.read()
+    _check_size(content)
     df = _read_csv_robust(content)
     columns = list(df.columns)
 
@@ -1066,10 +1112,15 @@ async def root():
 
 
 app.include_router(api)
+# Auth uses Bearer tokens (Authorization header), not cookies. The combination
+# allow_credentials=True + wildcard origin is invalid/insecure, so credentials are
+# only enabled when explicit origins are configured via CORS_ORIGINS.
+_cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', '*').split(',') if o.strip()]
+_allow_credentials = _cors_origins != ['*'] and '*' not in _cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=_allow_credentials,
+    allow_origins=_cors_origins or ['*'],
     allow_methods=["*"],
     allow_headers=["*"],
 )

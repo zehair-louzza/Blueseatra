@@ -1,34 +1,26 @@
 [
   {
-    "content": "Backend: add STANDARD_FIELDS + auto-detect mapping helper",
+    "content": "CRITIQUE: JWT_SECRET faible/par défaut → secret fort + refus du secret par défaut au démarrage",
     "status": "completed"
   },
   {
-    "content": "Backend: update /catalogs/import/preview to return suggested_mapping + standard_fields",
+    "content": "ÉLEVÉ: CORS allow_credentials=True avec origine wildcard → corriger la combinaison",
     "status": "completed"
   },
   {
-    "content": "Backend: rewrite /catalogs/import for dynamic mapping + attributes + store columns",
+    "content": "MOYEN: Aucune limite de taille d'upload (DoS mémoire) → imposer une taille max",
     "status": "completed"
   },
   {
-    "content": "Frontend: CatalogImport.js mapping UI + send mapping",
+    "content": "MOYEN: Chiffrer la clé IA tenant stockée en clair (Fernet at-rest)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Catalogs.js dynamic columns view dialog",
+    "content": "Tester régression après corrections (auth, login, upload, CORS, settings)",
     "status": "completed"
   },
   {
-    "content": "Frontend: QuoteEditor.js robust dynamic picker",
-    "status": "completed"
-  },
-  {
-    "content": "Test backend dynamic import with new + arbitrary CSV",
-    "status": "completed"
-  },
-  {
-    "content": "Test frontend import wizard + catalog display",
+    "content": "Rédiger le rapport de sécurité priorisé",
     "status": "completed"
   }
 ]
