@@ -789,6 +789,23 @@ async def activate_version(catalog_id: str, version_id: str,
     return {"ok": True}
 
 
+@api.patch("/catalogs/{catalog_id}")
+async def update_catalog(catalog_id: str, body: dict,
+                         cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    cat = await db.catalogs.find_one({"id": catalog_id, "tenant_id": cu.tenant_id})
+    if not cat:
+        raise HTTPException(404, "Catalog not found")
+    updates = {}
+    if "client_code" in body:
+        updates["client_code"] = (str(body.get("client_code") or "").strip() or "N/A")
+    if "name" in body and str(body.get("name") or "").strip():
+        updates["name"] = str(body["name"]).strip()
+    if updates:
+        await db.catalogs.update_one({"id": catalog_id, "tenant_id": cu.tenant_id}, {"$set": updates})
+        await audit(cu.tenant_id, cu.email, "catalog.update", catalog_id, updates)
+    return {"ok": True, **updates}
+
+
 @api.post("/catalogs/{catalog_id}/deactivate")
 async def deactivate_catalog(catalog_id: str,
                              cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):

@@ -4,13 +4,14 @@ import { useTranslation } from 'react-i18next';
 import { api, API } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { BookOpen, Plus, Download, Eye, CheckCircle2, Info, PowerOff, Trash2 } from 'lucide-react';
+import { BookOpen, Plus, Download, Eye, CheckCircle2, Info, PowerOff, Trash2, Pencil, Check, X } from 'lucide-react';
 
 const verBadge = {
   active: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
@@ -25,9 +26,21 @@ export default function Catalogs() {
   const [viewing, setViewing] = useState(null);
   const [items, setItems] = useState([]);
   const [columns, setColumns] = useState([]);
+  const [editingCode, setEditingCode] = useState(null);
+  const [codeDraft, setCodeDraft] = useState('');
 
   const load = () => api.get('/catalogs').then((r) => setCats(r.data));
   useEffect(() => { load(); }, []);
+
+  const startEditCode = (c) => { setEditingCode(c.id); setCodeDraft(c.client_code === 'N/A' ? '' : (c.client_code || '')); };
+  const saveCode = async (catId) => {
+    try {
+      await api.patch(`/catalogs/${catId}`, { client_code: codeDraft });
+      toast.success(t('cat.code_updated'));
+      setEditingCode(null);
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || 'Error'); }
+  };
 
   const activate = async (catId, verId) => { await api.post(`/catalogs/${catId}/activate/${verId}`); toast.success(t('cat.active')); load(); };
   const deactivate = async (catId) => {
@@ -70,10 +83,30 @@ export default function Catalogs() {
           <div className="space-y-4">
             {cats.map((c) => (
               <Card key={c.id} className="card-shadow border-0 p-5" data-testid="catalog-card">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="space-y-3">
                   <div>
                     <h2 className="font-display text-base font-semibold">{c.name}</h2>
-                    <p className="text-xs text-muted-foreground">client_code: <span className="font-mono">{c.client_code}</span></p>
+                    {editingCode === c.id ? (
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">client_code:</span>
+                        <Input
+                          value={codeDraft}
+                          onChange={(e) => setCodeDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveCode(c.id); if (e.key === 'Escape') setEditingCode(null); }}
+                          className="h-7 w-40 font-mono text-xs"
+                          placeholder="N/A"
+                          autoFocus
+                          data-testid="client-code-input"
+                        />
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600 hover:text-emerald-700" onClick={() => saveCode(c.id)} data-testid="client-code-save"><Check className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingCode(null)} data-testid="client-code-cancel"><X className="h-4 w-4" /></Button>
+                      </div>
+                    ) : (
+                      <button type="button" className="group mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => startEditCode(c)} data-testid="client-code-edit">
+                        client_code: <span className="font-mono">{c.client_code}</span>
+                        <Pencil className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                      </button>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button variant="secondary" size="sm" className="gap-1" onClick={() => viewItems(c)} data-testid="view-items-button"><Eye className="h-4 w-4" />{t('cat.view_items')}</Button>
