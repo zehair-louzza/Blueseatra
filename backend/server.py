@@ -207,11 +207,11 @@ async def login(body: LoginIn):
 @api.get("/auth/me")
 async def me(cu: CurrentUser = Depends(get_current)):
     memberships = await db.tenant_users.find({"user_id": cu.user_id}, {"_id": 0}).to_list(100)
-    tenants = []
-    for m in memberships:
-        t = await db.tenants.find_one({"id": m["tenant_id"]}, {"_id": 0})
-        if t:
-            tenants.append({"id": t["id"], "name": t["name"], "role": m["role"]})
+    tenant_ids = [m["tenant_id"] for m in memberships]
+    tdocs = await db.tenants.find({"id": {"$in": tenant_ids}}, {"_id": 0}).to_list(100) if tenant_ids else []
+    tmap = {t["id"]: t for t in tdocs}
+    tenants = [{"id": t["id"], "name": t["name"], "role": m["role"]}
+               for m in memberships if (t := tmap.get(m["tenant_id"]))]
     active = await db.tenants.find_one({"id": cu.tenant_id}, {"_id": 0})
     return {
         "user": {"id": cu.user_id, "email": cu.email, "name": cu.name},
@@ -243,11 +243,11 @@ class InviteIn(BaseModel):
 @api.get("/members")
 async def list_members(cu: CurrentUser = Depends(get_current)):
     members = await db.tenant_users.find({"tenant_id": cu.tenant_id}, {"_id": 0}).to_list(500)
-    out = []
-    for m in members:
-        u = await db.users.find_one({"id": m["user_id"]}, {"_id": 0})
-        if u:
-            out.append({"user_id": u["id"], "email": u["email"], "name": u.get("name", ""), "role": m["role"]})
+    user_ids = [m["user_id"] for m in members]
+    udocs = await db.users.find({"id": {"$in": user_ids}}, {"_id": 0}).to_list(500) if user_ids else []
+    umap = {u["id"]: u for u in udocs}
+    out = [{"user_id": u["id"], "email": u["email"], "name": u.get("name", ""), "role": m["role"]}
+           for m in members if (u := umap.get(m["user_id"]))]
     return out
 
 
@@ -589,9 +589,15 @@ def _num(v, default=0.0):
 @api.get("/catalogs")
 async def list_catalogs(cu: CurrentUser = Depends(get_current)):
     cats = await db.catalogs.find({"tenant_id": cu.tenant_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    cat_ids = [c["id"] for c in cats]
+    versions = await db.catalog_versions.find(
+        {"tenant_id": cu.tenant_id, "catalog_id": {"$in": cat_ids}}, {"_id": 0}
+    ).sort("version_number", -1).to_list(10000) if cat_ids else []
+    vmap = {}
+    for v in versions:
+        vmap.setdefault(v["catalog_id"], []).append(v)
     for c in cats:
-        c["versions"] = await db.catalog_versions.find(
-            {"tenant_id": cu.tenant_id, "catalog_id": c["id"]}, {"_id": 0}).sort("version_number", -1).to_list(100)
+        c["versions"] = vmap.get(c["id"], [])
     return cats
 
 
