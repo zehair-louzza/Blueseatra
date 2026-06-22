@@ -549,7 +549,9 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
     cat_id = new_id()
     ver_id = new_id()
     job_id = new_id()
-    client_code = (df["client_code"].iloc[0] if "client_code" in df.columns and len(df) else "") or "N/A"
+    cols = set(df.columns)
+    rich = "Famille" in cols and "Article" in cols
+    client_code = (df["client_code"].iloc[0] if "client_code" in df.columns and len(df) else "") or ("BTP" if rich else "N/A")
 
     existing_cat = await db.catalogs.find_one({"tenant_id": cu.tenant_id, "name": catalog_name})
     if existing_cat:
@@ -564,27 +566,64 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
             "client_code": client_code, "created_at": now_iso(), "active_version_id": None,
         })
 
+    def _f(v, default=0.0):
+        try:
+            return float(str(v).replace(",", ".")) if str(v).strip() not in ("", "nan") else default
+        except (TypeError, ValueError):
+            return default
+
     items, errors = [], []
     for idx, row in df.iterrows():
         rownum = int(idx) + 2
         try:
-            code = (row.get("item_code") or "").strip()
-            label = (row.get("item_label") or "").strip()
-            if not code or not label:
-                raise ValueError("item_code and item_label are required")
-            price = float(str(row.get("unit_price_ht")).replace(",", "."))
-            vat = float(str(row.get("vat_rate") or 0).replace(",", ".") or 0)
-            minq = float(str(row.get("min_qty") or 0).replace(",", ".") or 0)
-            is_active = str(row.get("is_active") or "true").strip().lower() in ("true", "1", "yes", "oui")
-            items.append({
-                "id": new_id(), "tenant_id": cu.tenant_id, "catalog_id": cat_id, "version_id": ver_id,
-                "item_code": code, "item_label": label, "label_norm": match_engine.normalize(label),
-                "category": (row.get("category") or "").strip().lower(),
-                "unit": (row.get("unit") or "u").strip().lower(),
-                "unit_price_ht": price, "currency": (row.get("currency") or "EUR").strip(),
-                "vat_rate": vat, "min_qty": minq, "is_active": is_active,
-                "notes": (row.get("notes") or "").strip(),
-            })
+            if rich:
+                label = (row.get("Article") or "").strip()
+                family = (row.get("Famille") or "").strip()
+                if not label:
+                    raise ValueError("Article is required")
+                ref = (row.get("R\u00e9f\u00e9rence") or row.get("Reference") or "").strip()
+                code = ref or f"ART-{rownum}"
+                suppliers = [s for s in [
+                    (row.get("Fournisseur_principal") or "").strip(),
+                    (row.get("Fournisseur_alternatif_1") or "").strip(),
+                    (row.get("Fournisseur_alternatif_2") or "").strip(),
+                ] if s]
+                items.append({
+                    "id": new_id(), "tenant_id": cu.tenant_id, "catalog_id": cat_id, "version_id": ver_id,
+                    "item_code": code, "item_label": label, "label_norm": match_engine.normalize(label),
+                    "category": match_engine.normalize(family), "family": family,
+                    "unit": (row.get("Unit\u00e9") or row.get("Unite") or "u").strip().lower(),
+                    "brand": (row.get("Marque") or "").strip(),
+                    "reference": ref,
+                    "supplier_main": suppliers[0] if suppliers else "",
+                    "suppliers": suppliers,
+                    "vat_rate": _f(row.get("TVA_%"), 20), "margin": _f(row.get("Marge_%"), 0),
+                    "purchase_price_ht": _f(row.get("Prix_achat_HT")),
+                    "unit_price_ht": _f(row.get("Prix_vente_HT")),
+                    "currency": "EUR", "min_qty": 1.0, "is_active": True,
+                    "delay": (row.get("D\u00e9lai") or row.get("Delai") or "").strip(),
+                    "notes": "",
+                })
+            else:
+                code = (row.get("item_code") or "").strip()
+                label = (row.get("item_label") or "").strip()
+                if not code or not label:
+                    raise ValueError("item_code and item_label are required")
+                price = float(str(row.get("unit_price_ht")).replace(",", "."))
+                vat = _f(row.get("vat_rate"), 0)
+                minq = _f(row.get("min_qty"), 0)
+                is_active = str(row.get("is_active") or "true").strip().lower() in ("true", "1", "yes", "oui")
+                items.append({
+                    "id": new_id(), "tenant_id": cu.tenant_id, "catalog_id": cat_id, "version_id": ver_id,
+                    "item_code": code, "item_label": label, "label_norm": match_engine.normalize(label),
+                    "category": (row.get("category") or "").strip().lower(),
+                    "family": (row.get("category") or "").strip(),
+                    "unit": (row.get("unit") or "u").strip().lower(),
+                    "unit_price_ht": price, "currency": (row.get("currency") or "EUR").strip(),
+                    "vat_rate": vat, "min_qty": minq, "is_active": is_active,
+                    "margin": 0, "purchase_price_ht": None, "supplier_main": "", "suppliers": [], "brand": "",
+                    "notes": (row.get("notes") or "").strip(),
+                })
         except Exception as e:
             errors.append({"id": new_id(), "tenant_id": cu.tenant_id, "job_id": job_id,
                            "row_number": rownum, "message": str(e),
@@ -744,30 +783,36 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
     raw_lines = body.get("lines", q.get("lines", []))
     lines = []
     for l in raw_lines:
-        qty = _num(l.get("qty"))
-        price = _num(l.get("unit_price_ht"))
-        vat = _num(l.get("vat_rate"))
-        line = {
-            "request_label": l.get("request_label") or l.get("description"),
-            "description": (l.get("description") or "").strip() or "\u2014",
+        ltype = l.get("line_type") or "generic"
+        base = {
+            "line_type": ltype,
+            "description": (l.get("description") or "").strip(),
             "category": l.get("category"),
             "matched_item_code": l.get("matched_item_code"),
             "matched_label": l.get("matched_label"),
-            "qty": qty,
-            "unit": (l.get("unit") or None),
-            "unit_price_ht": price,
-            "vat_rate": vat,
+            "brand": l.get("brand"),
+            "supplier": l.get("supplier"),
+            "margin": _num(l.get("margin")),
             "score": l.get("score", 0),
             "reasons": l.get("reasons") or [],
         }
+        if ltype in ("note", "page_break"):
+            base.update({"qty": None, "unit": None, "unit_price_ht": None, "vat_rate": None,
+                         "line_ht": None, "status": ltype})
+            lines.append(base)
+            continue
+        qty = _num(l.get("qty"))
+        price = _num(l.get("unit_price_ht"))
+        vat = _num(l.get("vat_rate"))
+        base.update({"qty": qty, "unit": (l.get("unit") or None), "unit_price_ht": price, "vat_rate": vat})
         if qty is not None and price is not None:
-            line["line_ht"] = round(qty * price, 2)
+            base["line_ht"] = round(qty * price, 2)
             prev = l.get("status")
-            line["status"] = prev if prev in ("matched", "proposed", "confirmed") else "confirmed"
+            base["status"] = prev if prev in ("matched", "proposed", "confirmed") else "confirmed"
         else:
-            line["line_ht"] = None
-            line["status"] = "to_confirm"
-        lines.append(line)
+            base["line_ht"] = None
+            base["status"] = "to_confirm"
+        lines.append(base)
 
     total_ht, total_vat, total_ttc = match_engine.recompute_totals(lines)
     update = {"lines": lines, "total_ht": total_ht, "total_vat": total_vat, "total_ttc": total_ttc}

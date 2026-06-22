@@ -18,7 +18,7 @@ from reportlab.lib import colors
 from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Table, TableStyle, Paragraph, Spacer,
-    KeepTogether,
+    KeepTogether, PageBreak,
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
@@ -230,45 +230,77 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         e.append(meta_tbl)
     e.append(Spacer(1, 6))
 
-    # ---- Line items table grouped by category --------------------------------
+    # ---- Line items table: line types, sections, notes, page breaks ----------
     col_w = [22, doc.width - 22 - 40 - 64 - 38 - 72, 40, 64, 38, 72]
-    header_row = [Paragraph("N\u00b0", S["th"]), Paragraph("D\u00e9signation", S["th"]),
-                  Paragraph("Qt\u00e9", S["th_r"]), Paragraph("PU HT", S["th_r"]),
-                  Paragraph("TVA", S["th_r"]), Paragraph("Total HT", S["th_r"])]
-    data = [header_row]
-    style_cmds = [
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TOPPADDING", (0, 0), (-1, 0), 6), ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.4, BORDER),
-        ("TOPPADDING", (0, 1), (-1, -1), 5), ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-    ]
 
-    # group lines preserving order of first appearance
-    groups = OrderedDict()
-    for l in quote.get("lines", []):
-        cat = (l.get("category") or l.get("matched_label") and "" or "") or l.get("category") or "prestations"
-        cat = (l.get("category") or "prestations")
-        groups.setdefault(cat, []).append(l)
+    def _header():
+        return [Paragraph("N\u00b0", S["th"]), Paragraph("D\u00e9signation", S["th"]),
+                Paragraph("Qt\u00e9", S["th_r"]), Paragraph("PU HT", S["th_r"]),
+                Paragraph("TVA", S["th_r"]), Paragraph("Total HT", S["th_r"])]
 
-    row_idx = 1
-    n = 1
-    for cat, lines in groups.items():
-        label = str(cat).replace("_", " ").upper() if cat else "PRESTATIONS"
-        data.append([Paragraph(label, S["section"]), "", "", "", "", ""])
-        style_cmds += [
-            ("BACKGROUND", (0, row_idx), (-1, row_idx), GREEN),
-            ("SPAN", (0, row_idx), (-1, row_idx)),
-            ("TOPPADDING", (0, row_idx), (-1, row_idx), 5),
-            ("BOTTOMPADDING", (0, row_idx), (-1, row_idx), 5),
+    def _base_style():
+        return [
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("TOPPADDING", (0, 0), (-1, 0), 6), ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.4, BORDER),
+            ("TOPPADDING", (0, 1), (-1, -1), 5), ("BOTTOMPADDING", (0, 1), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ]
-        row_idx += 1
-        for l in lines:
+
+    def _section_label(l):
+        lt = l.get("line_type")
+        if lt == "labor":
+            return "MAIN-D'\u0152UVRE"
+        if lt == "material":
+            return "MAT\u00c9RIAUX & FOURNITURES"
+        cat = l.get("category")
+        return str(cat).replace("_", " ").upper() if cat else "PRESTATIONS"
+
+    # split into page chunks on page_break lines
+    chunks = [[]]
+    for l in quote.get("lines", []):
+        if l.get("line_type") == "page_break":
+            chunks.append([])
+        else:
+            chunks[-1].append(l)
+    chunks = [c for c in chunks if c]
+
+    n = 1
+    for ci, chunk in enumerate(chunks):
+        data = [_header()]
+        style_cmds = _base_style()
+        row_idx = 1
+        last_section = None
+        for l in chunk:
+            if l.get("line_type") == "note":
+                data.append([Paragraph("<i>" + (l.get("description") or "") + "</i>", S["cell"]), "", "", "", "", ""])
+                style_cmds += [
+                    ("SPAN", (0, row_idx), (-1, row_idx)),
+                    ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#F7FAF9")),
+                ]
+                row_idx += 1
+                continue
+            sec = _section_label(l)
+            if sec != last_section:
+                data.append([Paragraph(sec, S["section"]), "", "", "", "", ""])
+                style_cmds += [
+                    ("BACKGROUND", (0, row_idx), (-1, row_idx), GREEN),
+                    ("SPAN", (0, row_idx), (-1, row_idx)),
+                ]
+                row_idx += 1
+                last_section = sec
             desig = [Paragraph(str(l.get("description") or l.get("request_label") or "\u2014"), S["cell"])]
+            sub = []
             if l.get("matched_item_code"):
-                desig.append(Paragraph(f"R\u00e9f. {l['matched_item_code']}", S["code"]))
+                sub.append(f"R\u00e9f. {l['matched_item_code']}")
+            if l.get("brand"):
+                sub.append(str(l["brand"]))
+            if l.get("supplier"):
+                sub.append(f"Fourn. {l['supplier']}")
+            if sub:
+                desig.append(Paragraph(" \u00b7 ".join(sub), S["code"]))
             data.append([
                 Paragraph(str(n), S["cell"]), desig,
                 Paragraph(_fmt(l.get("qty")) + (f" {l.get('unit')}" if l.get("unit") else ""), S["cell"]),
@@ -278,10 +310,11 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
             ])
             row_idx += 1
             n += 1
-
-    items = Table(data, colWidths=col_w, repeatRows=1)
-    items.setStyle(TableStyle(style_cmds))
-    e.append(items)
+        items = Table(data, colWidths=col_w, repeatRows=1)
+        items.setStyle(TableStyle(style_cmds))
+        e.append(items)
+        if ci < len(chunks) - 1:
+            e.append(PageBreak())
     e.append(Spacer(1, 12))
 
     # ---- TVA breakdown + totals (right aligned) ------------------------------
