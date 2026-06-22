@@ -28,9 +28,14 @@ async def enable_rls():
             await conn.execute(text(f'ALTER TABLE public."{t}" ENABLE ROW LEVEL SECURITY;'))
             # Belt-and-suspenders: explicitly remove PostgREST role privileges.
             await conn.execute(text(f'REVOKE ALL ON public."{t}" FROM anon, authenticated;'))
-            print(f"  RLS enabled + privileges revoked: public.{t}")
+            # Explicit deny-all policy: satisfies the linter ("RLS enabled, no policy")
+            # while denying every non-owner role. The app's owner role bypasses RLS.
+            await conn.execute(text(f'DROP POLICY IF EXISTS "deny_all" ON public."{t}";'))
+            await conn.execute(text(
+                f'CREATE POLICY "deny_all" ON public."{t}" FOR ALL USING (false) WITH CHECK (false);'))
+            print(f"  RLS + deny-all policy + revoked privileges: public.{t}")
     await engine.dispose()
-    print(f"Done. RLS enabled on {len(tables)} tables.")
+    print(f"Done. RLS hardened on {len(tables)} tables.")
 
 
 if __name__ == "__main__":
