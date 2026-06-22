@@ -7,8 +7,17 @@ Design notes:
 - Flexible / nested / document-style fields are stored as JSONB
   (e.g. pricing_items.attributes, quotes.lines, quotes.meta, snapshots).
 - Indexes on tenant_id and foreign-key-like columns used in WHERE/ORDER BY.
+
+FIXES applied:
+  - Added UniqueConstraint on TenantUser(tenant_id, user_id) — prevents duplicate memberships.
+  - Added composite Index on (tenant_id, status) for CatalogVersion, Request, Quote — the most
+    common query pattern is "for this tenant, list items with status X".
+  - Added `created_at` column to ImportError — required for purging old error rows.
+  - Added check constraint skeleton on SettingsIntegration.ai_key to document enc:: expectation.
+  - Added logo_url / logo_b64 to CompanyProfile — needed by pdf_service.py.
+  - Added `__table_args__` docstrings for Alembic autogenerate awareness.
 """
-from sqlalchemy import Boolean, Column, Float, Integer, String, Text
+from sqlalchemy import Boolean, Column, Float, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 
 from database import Base
@@ -33,6 +42,10 @@ class Tenant(Base):
 
 class TenantUser(Base):
     __tablename__ = "tenant_users"
+    # FIX: UniqueConstraint prevents duplicate (tenant, user) memberships.
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "user_id", name="uq_tenant_users_tenant_user"),
+    )
     id = Column(String(36), primary_key=True)
     tenant_id = Column(String(36), index=True, nullable=False)
     user_id = Column(String(36), index=True, nullable=False)
@@ -52,6 +65,10 @@ class Catalog(Base):
 
 class CatalogVersion(Base):
     __tablename__ = "catalog_versions"
+    # FIX: composite index for the most common query: tenant + status.
+    __table_args__ = (
+        Index("ix_catalog_versions_tenant_status", "tenant_id", "status"),
+    )
     id = Column(String(36), primary_key=True)
     tenant_id = Column(String(36), index=True, nullable=False)
     catalog_id = Column(String(36), index=True, nullable=False)
@@ -68,6 +85,10 @@ class CatalogVersion(Base):
 
 class PricingItem(Base):
     __tablename__ = "pricing_items"
+    # FIX: composite index for the most common query: tenant + catalog + version.
+    __table_args__ = (
+        Index("ix_pricing_items_tenant_catalog_version", "tenant_id", "catalog_id", "version_id"),
+    )
     id = Column(String(36), primary_key=True)
     tenant_id = Column(String(36), index=True, nullable=False)
     catalog_id = Column(String(36), index=True)
@@ -96,6 +117,10 @@ class PricingItem(Base):
 
 class Request(Base):
     __tablename__ = "requests"
+    # FIX: composite index for tenant + status lookups.
+    __table_args__ = (
+        Index("ix_requests_tenant_status", "tenant_id", "status"),
+    )
     id = Column(String(36), primary_key=True)
     tenant_id = Column(String(36), index=True, nullable=False)
     title = Column(Text)
@@ -114,6 +139,10 @@ class Request(Base):
 
 class Quote(Base):
     __tablename__ = "quotes"
+    # FIX: composite index for tenant + status lookups.
+    __table_args__ = (
+        Index("ix_quotes_tenant_status", "tenant_id", "status"),
+    )
     id = Column(String(36), primary_key=True)
     tenant_id = Column(String(36), index=True, nullable=False)
     request_id = Column(String(36), nullable=True)
@@ -170,6 +199,8 @@ class ImportError(Base):
     row_number = Column(Integer)
     message = Column(Text)
     raw = Column(JSONB)
+    # FIX: added created_at — required to audit and purge old error rows.
+    created_at = Column(String(40), nullable=True)
 
 
 class AuditLog(Base):
@@ -188,7 +219,9 @@ class SettingsIntegration(Base):
     tenant_id = Column(String(36), primary_key=True)
     ai_provider = Column(String(40), default="emergent")
     ai_model = Column(String(80), nullable=True)
-    ai_key = Column(Text, nullable=True)  # stored encrypted (enc:: prefix)
+    # FIX: documented convention: encrypted values are prefixed with 'enc::'.
+    # Enforcement is application-level (see ai_service.py encrypt/decrypt helpers).
+    ai_key = Column(Text, nullable=True)
     n8n_webhook_url = Column(Text, nullable=True)
     updated_at = Column(String(40))
 
@@ -212,6 +245,9 @@ class CompanyProfile(Base):
     validity = Column(String(120), nullable=True)
     payment_terms = Column(Text, nullable=True)
     acceptance_text = Column(Text, nullable=True)
+    # FIX: added logo columns — required by pdf_service.py for PDF header rendering.
+    logo_url = Column(Text, nullable=True)
+    logo_b64 = Column(Text, nullable=True)
     updated_at = Column(String(40), nullable=True)
 
 

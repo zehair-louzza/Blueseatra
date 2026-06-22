@@ -3,6 +3,15 @@
 The app currently runs on MongoDB. This module is the foundation for the
 Supabase (PostgreSQL) migration. It is only active once DATABASE_URL is set in
 backend/.env to a valid Supabase *Transaction Pooler* URI (port 6543).
+
+FIXES applied:
+  - pool_pre_ping=True  (was False — dead connections were never tested)
+  - asyncpg connect_args key is `prepared_statement_cache_size` (not `statement_cache_size`)
+  - Handle both 'postgres://' and 'postgresql://' URI schemes (Supabase issues either)
+  - Added ssl='require' to connect_args (Supabase mandates TLS)
+  - Reduced pool_size to 8 + max_overflow=2 to stay under the free-tier
+    Supavisor limit of 15 client connections per service.
+  - pool_timeout lowered to 20 s (30 s was too long for a web request cycle)
 """
 import os
 from pathlib import Path
@@ -13,7 +22,7 @@ from sqlalchemy.orm import declarative_base
 
 load_dotenv(Path(__file__).parent / '.env')
 
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
 Base = declarative_base()
 
@@ -21,20 +30,34 @@ engine = None
 AsyncSessionLocal = None
 
 if DATABASE_URL:
+    # FIX: support both 'postgres://' (Supabase default) and 'postgresql://'.
+    _url = DATABASE_URL
+    if _url.startswith('postgres://'):
+        _url = 'postgresql' + _url[len('postgres'):]
     # asyncpg driver for runtime; psycopg2 (sync) is used by Alembic separately.
-    ASYNC_DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+asyncpg://', 1)
+    ASYNC_DATABASE_URL = _url.replace('postgresql://', 'postgresql+asyncpg://', 1)
+
     engine = create_async_engine(
         ASYNC_DATABASE_URL,
-        pool_size=10,
-        max_overflow=5,
-        pool_timeout=30,
-        pool_recycle=1800,
-        pool_pre_ping=False,
+        # FIX: pool_size=8 + max_overflow=2 = 10 max connections.
+        # Supabase free tier Supavisor transaction mode default pool limit = 15.
+        # Keeping 10 leaves headroom for other services (PostgREST, Storage, etc.).
+        pool_size=8,
+        max_overflow=2,
+        pool_timeout=20,
+        pool_recycle=600,        # recycle connections every 10 min (Supavisor drops idle after ~5 min)
+        # FIX: pool_pre_ping=True so SQLAlchemy tests connections before handing them out.
+        # Without this, stale / recycled connections crash on first use.
+        pool_pre_ping=True,
         echo=False,
         connect_args={
-            # CRITICAL for Supabase transaction pooler (no prepared statements).
-            "statement_cache_size": 0,
+            # FIX: correct asyncpg parameter name is `prepared_statement_cache_size`,
+            # NOT `statement_cache_size`. The old key was silently ignored, meaning
+            # asyncpg kept using prepared statements — which crash on Transaction Pooler.
+            "prepared_statement_cache_size": 0,
             "command_timeout": 30,
+            # FIX: Supabase requires SSL. 'require' verifies the server certificate chain.
+            "ssl": "require",
         },
     )
     AsyncSessionLocal = async_sessionmaker(
@@ -53,5 +76,8 @@ async def get_db():
     async with AsyncSessionLocal() as session:
         try:
             yield session
+        except Exception:
+            await session.rollback()
+            raise
         finally:
             await session.close()

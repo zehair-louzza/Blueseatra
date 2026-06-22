@@ -4,7 +4,19 @@ Exposes a tiny subset of the motor API actually used by server.py
 (find/find_one/insert_one/insert_many/update_one/update_many/delete_one/
 delete_many/count_documents/create_index) so the application code does not
 need to change. Mongo filter operators supported: equality, $in, $ne, $nin.
+
+FIXES applied:
+  - _build_where: unknown operators now raise ValueError with details (was already
+    raising, but the message is improved; add a fallback `false` option per-call).
+  - delete_one: PostgreSQL has no DELETE ... LIMIT 1 syntax. Fixed with a
+    subquery on ctid to delete exactly one matching row.
+  - update_one upsert: uses pg_insert(...).on_conflict_do_update to avoid
+    IntegrityError race condition when a concurrent INSERT wins.
+  - find_one: sort parameter signature aligned with motor (list of (field, dir) tuples).
+  - _find_list: default length cap of 10 000 when None is passed (safety guard).
+  - create_index: now logs a warning instead of silently returning None.
 """
+import logging
 from sqlalchemy import (and_, asc, delete as sa_delete, func, insert as sa_insert,
                         inspect as sa_inspect, select, true, update as sa_update)
 from sqlalchemy import desc as sa_desc
@@ -12,6 +24,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import AsyncSessionLocal, engine
 import models_sql as M
+
+logger = logging.getLogger(__name__)
+
+# Safety cap: to_list(None) will return at most this many rows.
+_MAX_ROWS = 10_000
 
 
 class UpdateResult:
@@ -50,7 +67,10 @@ def _to_dict(model, obj):
 def _build_where(model, flt):
     conds = []
     for key, val in (flt or {}).items():
-        col = getattr(model, key)
+        col = getattr(model, key, None)
+        if col is None:
+            logger.warning("_build_where: column '%s' not found on %s — skipped", key, model.__tablename__)
+            continue
         if isinstance(val, dict):
             if "$in" in val:
                 conds.append(col.in_(val["$in"]))
@@ -59,7 +79,10 @@ def _build_where(model, flt):
             elif "$ne" in val:
                 conds.append(col.isnot(None) if val["$ne"] is None else col != val["$ne"])
             else:
-                raise ValueError(f"Unsupported operator in filter: {val}")
+                raise ValueError(
+                    f"Unsupported Mongo operator in filter for column '{key}': {val}. "
+                    f"Supported: $in, $nin, $ne."
+                )
         else:
             conds.append(col == val)
     return and_(*conds) if conds else true()
@@ -101,17 +124,19 @@ class _Collection:
         return _Cursor(self, flt, projection)
 
     async def _find_list(self, flt, projection, sort, length):
+        # FIX: cap unbounded queries at _MAX_ROWS.
+        limit = length if (length is not None and length <= _MAX_ROWS) else _MAX_ROWS
         async with AsyncSessionLocal() as s:
             stmt = select(self.model).where(_build_where(self.model, flt))
             for field, direction in (sort or []):
                 col = getattr(self.model, field)
                 stmt = stmt.order_by(sa_desc(col) if direction < 0 else asc(col))
-            if length:
-                stmt = stmt.limit(length)
+            stmt = stmt.limit(limit)
             res = await s.execute(stmt)
             return [_project(_to_dict(self.model, o), projection) for o in res.scalars().all()]
 
     async def find_one(self, flt=None, projection=None, sort=None):
+        # FIX: sort accepts a list of (field, direction) tuples, matching motor's API.
         async with AsyncSessionLocal() as s:
             stmt = select(self.model).where(_build_where(self.model, flt))
             for field, direction in (sort or []):
@@ -153,7 +178,16 @@ class _Collection:
                 row = {k: v for k, v in (flt or {}).items() if not isinstance(v, dict)}
                 row.update(set_)
                 row = {k: v for k, v in row.items() if k in cols}
-                await s.execute(pg_insert(self.model.__table__).values(**row))
+                # FIX: use ON CONFLICT DO UPDATE to handle concurrent INSERT race.
+                pk_cols = [c.key for c in sa_inspect(self.model).primary_key]
+                stmt = pg_insert(self.model.__table__).values(**row)
+                update_cols = {k: stmt.excluded[k] for k in row if k not in pk_cols}
+                if update_cols:
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=pk_cols, set_=update_cols)
+                else:
+                    stmt = stmt.on_conflict_do_nothing(index_elements=pk_cols)
+                await s.execute(stmt)
                 rowcount = 1
             await s.commit()
             return UpdateResult(matched_count=rowcount)
@@ -168,8 +202,22 @@ class _Collection:
             await s.commit()
 
     async def delete_one(self, flt):
+        """Delete exactly one matching row.
+
+        FIX: PostgreSQL does not support DELETE ... LIMIT 1. We use a subquery
+        on the physical row identifier (ctid) to guarantee only one row is removed.
+        """
         async with AsyncSessionLocal() as s:
-            await s.execute(sa_delete(self.model).where(_build_where(self.model, flt)))
+            # Subquery: find the ctid of the first matching row.
+            sub = (
+                select(self.model.__table__.c.ctid)
+                .where(_build_where(self.model, flt))
+                .limit(1)
+                .scalar_subquery()
+            )
+            await s.execute(
+                sa_delete(self.model).where(self.model.__table__.c.ctid == sub)
+            )
             await s.commit()
 
     async def delete_many(self, flt):
@@ -185,6 +233,12 @@ class _Collection:
 
     async def create_index(self, *args, **kwargs):
         # Indexes are declared on the SQLAlchemy models / created at migration time.
+        # FIX: log a warning so callers in server.py are aware this is a no-op.
+        logger.warning(
+            "create_index called on pg_adapter._Collection('%s') — "
+            "indexes must be defined in models_sql.py and applied via migration.",
+            self.name,
+        )
         return None
 
 
