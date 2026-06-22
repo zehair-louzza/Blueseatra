@@ -139,7 +139,7 @@ export default function CatalogImport() {
 
         {step === 2 && (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">{t('wiz.catalog_name')}: <b>{catalogName}</b> \u00b7 {preview?.total_rows} {t('cat.items')}</p>
+            <p className="text-sm text-muted-foreground">{t('wiz.catalog_name')}: <b>{catalogName}</b> · {preview?.total_rows} {t('cat.items')}</p>
             <div className="flex gap-2">
               <Button variant="secondary" onClick={() => setStep(1)} className="gap-1"><ArrowLeft className="h-4 w-4" />{t('wiz.back')}</Button>
               <Button onClick={doImport} disabled={busy} className="gap-2" data-testid="import-confirm-button">

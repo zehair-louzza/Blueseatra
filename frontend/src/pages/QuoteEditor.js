@@ -197,9 +197,9 @@ export default function QuoteEditor() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="min-w-[180px]">{t('quote.desc')}</TableHead>
-                    <TableHead className="w-16">{t('quote.qty')}</TableHead>
+                    <TableHead className="w-20">{t('quote.qty')}</TableHead>
                     <TableHead className="w-24">{t('quote.unit')}</TableHead>
-                    <TableHead className="w-24">{t('quote.unit_price')}</TableHead>
+                    <TableHead className="w-28">{t('quote.unit_price')}</TableHead>
                     <TableHead className="w-20">
                       <span className="inline-flex items-center gap-1">{t('quote.margin')}
                         <TooltipProvider><Tooltip><TooltipTrigger asChild><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger><TooltipContent><p className="max-w-[180px] text-xs">{t('quote.margin_hint')}</p></TooltipContent></Tooltip></TooltipProvider>
@@ -255,7 +255,7 @@ export default function QuoteEditor() {
                           {isDraft ? <Input value={l.description || ''} onChange={(e) => updateLine(i, 'description', e.target.value)} className="h-8" data-testid="line-description-input" /> : (l.description || l.request_label)}
                           {(l.matched_item_code || l.supplier) && <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{l.matched_item_code}{l.supplier ? ` \u00b7 ${l.supplier}` : ''}</div>}
                         </TableCell>
-                        <TableCell>{isDraft ? <Input type="number" step="any" value={l.qty ?? ''} onChange={(e) => updateLine(i, 'qty', e.target.value)} className={`h-8 ${NOSPIN}`} data-testid="line-qty-input" /> : (l.qty ?? '\u2014')}</TableCell>
+                        <TableCell>{isDraft ? <Input type="number" step="any" value={l.qty ?? ''} onChange={(e) => updateLine(i, 'qty', e.target.value)} className={`h-8 w-full min-w-0 px-2 ${NOSPIN}`} data-testid="line-qty-input" /> : (l.qty ?? '\u2014')}</TableCell>
                         <TableCell>
                           {isDraft ? (
                             <Select value={l.unit || ''} onValueChange={(v) => updateLine(i, 'unit', v)}>
@@ -264,8 +264,8 @@ export default function QuoteEditor() {
                             </Select>
                           ) : (l.unit || '\u2014')}
                         </TableCell>
-                        <TableCell>{isDraft ? <Input type="number" step="any" value={l.unit_price_ht ?? ''} onChange={(e) => updateLine(i, 'unit_price_ht', e.target.value)} className={`h-8 ${NOSPIN}`} data-testid="line-price-input" placeholder="0.00" /> : money(l.unit_price_ht, cur)}</TableCell>
-                        <TableCell>{isDraft ? <Input type="number" step="any" value={l.margin ?? ''} onChange={(e) => updateLine(i, 'margin', e.target.value)} className={`h-8 ${NOSPIN}`} data-testid="line-margin-input" placeholder="%" /> : (l.margin != null ? `${l.margin} %` : '\u2014')}</TableCell>
+                        <TableCell>{isDraft ? <Input type="number" step="any" value={l.unit_price_ht ?? ''} onChange={(e) => updateLine(i, 'unit_price_ht', e.target.value)} className={`h-8 w-full min-w-0 px-2 ${NOSPIN}`} data-testid="line-price-input" placeholder="0.00" /> : money(l.unit_price_ht, cur)}</TableCell>
+                        <TableCell>{isDraft ? <Input type="number" step="any" value={l.margin ?? ''} onChange={(e) => updateLine(i, 'margin', e.target.value)} className={`h-8 w-full min-w-0 px-2 ${NOSPIN}`} data-testid="line-margin-input" placeholder="%" /> : (l.margin != null ? `${l.margin} %` : '\u2014')}</TableCell>
                         <TableCell>
                           {isDraft ? (
                             <Select value={l.vat_rate != null && l.vat_rate !== '' ? String(l.vat_rate) : ''} onValueChange={(v) => updateLine(i, 'vat_rate', v)}>
@@ -325,7 +325,7 @@ export default function QuoteEditor() {
             </div>
             <div className="mt-4 rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
               <div className="font-medium text-foreground">{t('quote.source')}</div>
-              {q.pricing_snapshot?.catalog_name} \u00b7 v{q.pricing_snapshot?.version_number}
+              {q.pricing_snapshot?.catalog_name} · v{q.pricing_snapshot?.version_number}
               <p className="mt-1">{t('quote.pricing_note')}</p>
             </div>
           </Card>
