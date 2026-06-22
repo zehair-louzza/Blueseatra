@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { BookOpen, Plus, Download, Eye, CheckCircle2 } from 'lucide-react';
+import { BookOpen, Plus, Download, Eye, CheckCircle2, Info } from 'lucide-react';
 
 const verBadge = {
   active: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
@@ -22,12 +23,25 @@ export default function Catalogs() {
   const [cats, setCats] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [items, setItems] = useState([]);
+  const [columns, setColumns] = useState([]);
 
   const load = () => api.get('/catalogs').then((r) => setCats(r.data));
   useEffect(() => { load(); }, []);
 
   const activate = async (catId, verId) => { await api.post(`/catalogs/${catId}/activate/${verId}`); toast.success(t('cat.active')); load(); };
-  const viewItems = async (cat) => { const { data } = await api.get(`/catalogs/${cat.id}/items`); setItems(data.items); setViewing(cat); };
+  const viewItems = async (cat) => {
+    const { data } = await api.get(`/catalogs/${cat.id}/items`);
+    setItems(data.items);
+    // Prefer the original CSV columns; fall back to union of attribute keys.
+    let cols = data.columns || [];
+    if (!cols.length) {
+      const set = new Set();
+      (data.items || []).forEach((it) => Object.keys(it.attributes || {}).forEach((k) => set.add(k)));
+      cols = Array.from(set);
+    }
+    setColumns(cols);
+    setViewing(cat);
+  };
   const downloadTpl = () => { window.open(`${API}/catalog-template.csv`, '_blank'); };
 
   return (
@@ -81,26 +95,64 @@ export default function Catalogs() {
       </div>
 
       <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
-        <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-3xl">
+        <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-5xl">
           <DialogHeader><DialogTitle>{viewing?.name}</DialogTitle></DialogHeader>
-          <Table>
-            <TableHeader><TableRow>
-              <TableHead>Code</TableHead><TableHead>Label</TableHead><TableHead>Cat.</TableHead>
-              <TableHead>Unit</TableHead><TableHead className="text-right">PU HT</TableHead><TableHead className="text-right">TVA</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>
-              {items.map((it) => (
-                <TableRow key={it.id}>
-                  <TableCell className="font-mono text-xs">{it.item_code}</TableCell>
-                  <TableCell>{it.item_label}</TableCell>
-                  <TableCell>{it.category}</TableCell>
-                  <TableCell>{it.unit}</TableCell>
-                  <TableCell className="text-right">{it.unit_price_ht} {it.currency}</TableCell>
-                  <TableCell className="text-right">{it.vat_rate}%</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {columns.length === 0 ? (
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead>Code</TableHead><TableHead>Libellé</TableHead><TableHead>Cat.</TableHead>
+                <TableHead>Unité</TableHead><TableHead className="text-right">PU HT</TableHead><TableHead className="text-right">TVA</TableHead>
+              </TableRow></TableHeader>
+              <TableBody>
+                {items.map((it) => (
+                  <TableRow key={it.id}>
+                    <TableCell className="font-mono text-xs">{it.item_code}</TableCell>
+                    <TableCell>{it.item_label}</TableCell>
+                    <TableCell>{it.category}</TableCell>
+                    <TableCell>{it.unit}</TableCell>
+                    <TableCell className="text-right">{it.unit_price_ht} {it.currency}</TableCell>
+                    <TableCell className="text-right">{it.vat_rate}%</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader><TableRow>
+                  {columns.map((c) => <TableHead key={c} className="whitespace-nowrap text-xs">{c}</TableHead>)}
+                  <TableHead className="text-right text-xs">{t('wiz.details')}</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {items.map((it) => (
+                    <TableRow key={it.id} data-testid="catalog-item-row">
+                      {columns.map((c) => (
+                        <TableCell key={c} className="whitespace-nowrap text-xs">{String((it.attributes || {})[c] ?? '')}</TableCell>
+                      ))}
+                      <TableCell className="text-right">
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 gap-1 px-2" data-testid="item-details-button"><Info className="h-3.5 w-3.5" /></Button>
+                          </PopoverTrigger>
+                          <PopoverContent align="end" className="max-h-72 w-80 overflow-auto">
+                            <p className="mb-2 text-sm font-medium">{it.item_label}</p>
+                            <dl className="space-y-1 text-xs">
+                              {Object.entries(it.attributes || {}).map(([k, v]) => (
+                                <div key={k} className="flex justify-between gap-3">
+                                  <dt className="text-muted-foreground">{k}</dt>
+                                  <dd className="text-right font-medium">{String(v || '—')}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </PopoverContent>
+                        </Popover>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

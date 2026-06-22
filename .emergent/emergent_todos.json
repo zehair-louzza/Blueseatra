@@ -1,30 +1,34 @@
 [
   {
-    "content": "Phase 1 POC: Build and run poc_core.py",
+    "content": "Backend: add STANDARD_FIELDS + auto-detect mapping helper",
     "status": "completed"
   },
   {
-    "content": "Phase 1 POC: Fix until working",
+    "content": "Backend: update /catalogs/import/preview to return suggested_mapping + standard_fields",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Get design guidelines from design_agent",
+    "content": "Backend: rewrite /catalogs/import for dynamic mapping + attributes + store columns",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Backend - auth + multi-tenancy + extraction + CSV import/versioning + matching + quote engine + PDF + audit + integrations settings",
+    "content": "Frontend: CatalogImport.js mapping UI + send mapping",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Frontend - public portal, auth, dashboard, requests, catalog import wizard, quote editor, admin, audit, settings, i18n FR/EN",
+    "content": "Frontend: Catalogs.js dynamic columns view dialog",
     "status": "completed"
   },
   {
-    "content": "Phase 2: All user stories covered in development",
+    "content": "Frontend: QuoteEditor.js robust dynamic picker",
     "status": "completed"
   },
   {
-    "content": "Phase 2: End-to-End testing using testing agent + fix all issues",
+    "content": "Test backend dynamic import with new + arbitrary CSV",
+    "status": "completed"
+  },
+  {
+    "content": "Test frontend import wizard + catalog display",
     "status": "completed"
   }
 ]

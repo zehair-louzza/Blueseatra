@@ -64,12 +64,15 @@ export default function QuoteEditor() {
   const addPageBreak = () => append({ line_type: 'page_break', status: 'page_break' });
   const addFromCatalog = (item, supplier) => {
     append({
-      line_type: 'material', description: item.item_label, category: item.category, matched_item_code: item.item_code,
-      matched_label: item.item_label, brand: item.brand, supplier: supplier || item.supplier_main,
-      qty: item.min_qty || 1, unit: item.unit, unit_price_ht: item.unit_price_ht, vat_rate: item.vat_rate,
-      margin: item.margin, status: 'confirmed', score: 100, reasons: ['from_catalog'],
+      line_type: 'material', description: item.item_label || item.item_code || 'Article',
+      category: item.category || '', matched_item_code: item.item_code || '',
+      matched_label: item.item_label || '', brand: item.brand || '',
+      supplier: supplier || item.supplier_main || (item.suppliers || [])[0] || '',
+      qty: item.min_qty || 1, unit: item.unit || 'u',
+      unit_price_ht: item.unit_price_ht || 0, vat_rate: item.vat_rate ?? 20,
+      margin: item.margin || 0, status: 'confirmed', score: 100, reasons: ['from_catalog'],
     });
-    toast.success(item.item_label);
+    toast.success(item.item_label || item.item_code || 'Article');
   };
 
   const totals = useMemo(() => {
@@ -100,7 +103,7 @@ export default function QuoteEditor() {
   const families = useMemo(() => Array.from(new Set(catalog.map((i) => i.family).filter(Boolean))).sort(), [catalog]);
   const filtered = catalog.filter((it) =>
     (family === '__all__' || it.family === family) &&
-    (!search || `${it.item_code} ${it.item_label} ${it.brand} ${it.family}`.toLowerCase().includes(search.toLowerCase())));
+    (!search || `${it.item_code} ${it.item_label} ${it.brand} ${it.family} ${Object.values(it.attributes || {}).join(' ')}`.toLowerCase().includes(search.toLowerCase())));
 
   if (!q) return <Spinner />;
   const vatOptions = Array.from(new Set([...VAT_RATES, ...(q.lines || []).map((l) => num(l.vat_rate)).filter((v) => v !== null)])).sort((a, b) => b - a);
@@ -157,7 +160,7 @@ export default function QuoteEditor() {
                                 <div className="min-w-[180px] flex-1">
                                   <div className="font-medium">{it.item_label}</div>
                                   <div className="text-xs text-muted-foreground">
-                                    <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">{it.family}</span>
+                                    {it.family && <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">{it.family}</span>}
                                     {it.brand && <span className="ml-1.5">{it.brand}</span>}
                                     {it.item_code && <span className="ml-1.5 font-mono">{it.item_code}</span>}
                                   </div>

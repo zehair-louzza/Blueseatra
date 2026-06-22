@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { Upload, ArrowLeft, ArrowRight, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ export default function CatalogImport() {
   const [file, setFile] = useState(null);
   const [catalogName, setCatalogName] = useState('');
   const [preview, setPreview] = useState(null);
+  const [mapping, setMapping] = useState({});
   const [result, setResult] = useState(null);
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -31,6 +33,7 @@ export default function CatalogImport() {
       const fd = new FormData(); fd.append('file', file);
       const { data } = await api.post('/catalogs/import/preview', fd);
       setPreview(data);
+      setMapping(data.suggested_mapping || {});
       if (!catalogName) setCatalogName(file.name.replace(/\.csv$/i, ''));
       setStep(1);
     } catch (err) { toast.error(apiError(err, 'Preview failed')); }
@@ -42,6 +45,7 @@ export default function CatalogImport() {
     setBusy(true);
     try {
       const fd = new FormData(); fd.append('file', file); fd.append('catalog_name', catalogName); fd.append('activate', 'true');
+      fd.append('mapping', JSON.stringify(mapping));
       const { data } = await api.post('/catalogs/import', fd);
       setResult(data);
       if (data.error_rows > 0) { const e = await api.get(`/import-jobs/${data.job_id}/errors`); setErrors(e.data); }
@@ -85,9 +89,7 @@ export default function CatalogImport() {
           <div className="space-y-4">
             <div className="flex flex-wrap gap-4 text-sm">
               <span>{t('wiz.total_rows')}: <b>{preview.total_rows}</b></span>
-              {preview.missing_required.length > 0 && (
-                <span className="flex items-center gap-1 text-rose-600"><AlertTriangle className="h-4 w-4" />{t('wiz.missing')}: {preview.missing_required.join(', ')}</span>
-              )}
+              <span className="text-muted-foreground">{preview.columns.length} colonnes</span>
             </div>
             <div className="overflow-x-auto rounded-lg border">
               <Table>
@@ -97,13 +99,40 @@ export default function CatalogImport() {
                 ))}</TableBody>
               </Table>
             </div>
+
+            <div className="space-y-2 rounded-lg border bg-muted/30 p-4" data-testid="column-mapping">
+              <div>
+                <p className="text-sm font-medium">{t('wiz.mapping_title')}</p>
+                <p className="text-xs text-muted-foreground">{t('wiz.mapping_hint')}</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(preview.standard_fields || []).map((f) => (
+                  <div key={f.key} className="space-y-1">
+                    <Label className="text-xs">
+                      {f.label}{f.required && <span className="ml-1 text-rose-600">*</span>}
+                    </Label>
+                    <Select
+                      value={mapping[f.key] || '__none__'}
+                      onValueChange={(v) => setMapping((m) => ({ ...m, [f.key]: v === '__none__' ? null : v }))}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`map-${f.key}`}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">{t('wiz.field_none')}</SelectItem>
+                        {preview.columns.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="cname">{t('wiz.catalog_name')}</Label>
               <Input id="cname" value={catalogName} onChange={(e) => setCatalogName(e.target.value)} data-testid="catalog-name-input" />
             </div>
             <div className="flex gap-2">
               <Button variant="secondary" onClick={() => setStep(0)} className="gap-1"><ArrowLeft className="h-4 w-4" />{t('wiz.back')}</Button>
-              <Button onClick={() => setStep(2)} disabled={preview.missing_required.length > 0} className="gap-1" data-testid="validate-next-button">{t('wiz.next')}<ArrowRight className="h-4 w-4" /></Button>
+              <Button onClick={() => { if (!mapping.item_label) { toast.error(t('wiz.map_required_error')); return; } setStep(2); }} className="gap-1" data-testid="validate-next-button">{t('wiz.next')}<ArrowRight className="h-4 w-4" /></Button>
             </div>
           </div>
         )}

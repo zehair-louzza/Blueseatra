@@ -2,8 +2,11 @@
 import os
 import io
 import csv
+import json
 import uuid
 import logging
+import re
+import unicodedata
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
@@ -489,6 +492,99 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
 CSV_COLUMNS = ["client_code", "item_code", "item_label", "category", "unit",
                "unit_price_ht", "currency", "vat_rate", "min_qty", "is_active", "notes"]
 
+# --- Open / dynamic CSV import -------------------------------------------------
+# Canonical fields the app understands, each with a French label, whether it is
+# required, a numeric flag and the list of header synonyms used for auto-detection.
+STANDARD_FIELDS = [
+    {"key": "item_label", "label": "Libellé / Désignation", "required": True, "numeric": False,
+     "syn": ["article", "designation", "libelle", "label", "item_label", "nom", "produit",
+             "description", "intitule", "prestation", "designation_article"]},
+    {"key": "item_code", "label": "Code / Référence", "required": False, "numeric": False,
+     "syn": ["reference", "ref", "code", "item_code", "sku", "code_article", "ref_article",
+             "reference_article", "code_produit"]},
+    {"key": "family", "label": "Famille / Catégorie", "required": False, "numeric": False,
+     "syn": ["famille", "categorie", "category", "groupe", "group", "rubrique", "type",
+             "famille_article", "lot"]},
+    {"key": "unit", "label": "Unité", "required": False, "numeric": False,
+     "syn": ["unite", "unit", "u", "unite_de_vente", "uv", "conditionnement"]},
+    {"key": "unit_price_ht", "label": "Prix de vente HT", "required": False, "numeric": True,
+     "syn": ["prix_vente_ht", "prix_vente", "prix_ht", "pu_ht", "pu", "prix", "unit_price_ht",
+             "unit_price", "tarif", "tarif_ht", "pv_ht", "pvht", "prix_unitaire", "prix_unitaire_ht"]},
+    {"key": "purchase_price_ht", "label": "Prix d'achat HT", "required": False, "numeric": True,
+     "syn": ["prix_achat_ht", "prix_achat", "pa_ht", "pa", "cout", "cost", "purchase_price",
+             "prix_revient", "paht"]},
+    {"key": "vat_rate", "label": "TVA (%)", "required": False, "numeric": True,
+     "syn": ["tva", "tva_%", "tva_pct", "vat", "vat_rate", "taux_tva", "tva_taux"]},
+    {"key": "margin", "label": "Marge (%)", "required": False, "numeric": True,
+     "syn": ["marge", "marge_%", "marge_pct", "margin", "taux_marge", "marge_taux"]},
+    {"key": "brand", "label": "Marque", "required": False, "numeric": False,
+     "syn": ["marque", "brand", "fabricant", "manufacturer"]},
+    {"key": "supplier_main", "label": "Fournisseur principal", "required": False, "numeric": False,
+     "syn": ["fournisseur_principal", "fournisseur", "supplier", "fournisseur_1", "vendor"]},
+    {"key": "supplier_alt_1", "label": "Fournisseur alternatif 1", "required": False, "numeric": False,
+     "syn": ["fournisseur_alternatif_1", "fournisseur_alt_1", "fournisseur_2", "supplier_alt_1",
+             "fournisseur_secondaire"]},
+    {"key": "supplier_alt_2", "label": "Fournisseur alternatif 2", "required": False, "numeric": False,
+     "syn": ["fournisseur_alternatif_2", "fournisseur_alt_2", "fournisseur_3", "supplier_alt_2"]},
+    {"key": "delay", "label": "Délai", "required": False, "numeric": False,
+     "syn": ["delai", "delay", "lead_time", "delai_livraison", "disponibilite"]},
+    {"key": "min_qty", "label": "Quantité min.", "required": False, "numeric": True,
+     "syn": ["min_qty", "qte_min", "quantite_min", "qty_min", "minimum"]},
+    {"key": "currency", "label": "Devise", "required": False, "numeric": False,
+     "syn": ["currency", "devise", "monnaie"]},
+    {"key": "notes", "label": "Notes", "required": False, "numeric": False,
+     "syn": ["notes", "note", "commentaire", "comment", "remarque", "observations"]},
+]
+
+
+def normalize_header(h: str) -> str:
+    """Lowercase, strip accents and collapse non-alphanumerics to single underscores."""
+    s = unicodedata.normalize("NFKD", str(h or "")).encode("ascii", "ignore").decode("ascii")
+    s = s.strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    return s
+
+
+def suggest_mapping(columns):
+    """Auto-detect a {standard_field: csv_column or None} mapping from header synonyms."""
+    norm = {col: normalize_header(col) for col in columns}
+    used = set()
+    mapping = {}
+    # Pass 1: exact synonym match. Pass 2: partial (contains) match.
+    for field in STANDARD_FIELDS:
+        chosen = None
+        for col in columns:
+            if col in used:
+                continue
+            if norm[col] in field["syn"]:
+                chosen = col
+                break
+        if not chosen:
+            for col in columns:
+                if col in used:
+                    continue
+                ncol = norm[col]
+                if any(ncol == s or ncol.startswith(s + "_") or s in ncol.split("_") for s in field["syn"]):
+                    chosen = col
+                    break
+        if chosen:
+            mapping[field["key"]] = chosen
+            used.add(chosen)
+        else:
+            mapping[field["key"]] = None
+    return mapping
+
+
+def _num(v, default=0.0):
+    """Robust numeric parse: handles commas, %, spaces, empty -> default."""
+    try:
+        s = str(v).strip().replace("%", "").replace(" ", "").replace(",", ".")
+        if s in ("", "nan", "none"):
+            return default
+        return float(s)
+    except (TypeError, ValueError):
+        return default
+
 
 @api.get("/catalogs")
 async def list_catalogs(cu: CurrentUser = Depends(get_current)):
@@ -506,16 +602,34 @@ async def catalog_items(catalog_id: str, cu: CurrentUser = Depends(get_current))
         raise HTTPException(404, "Catalog not found")
     items = await db.pricing_items.find(
         {"tenant_id": cu.tenant_id, "version_id": cat.get("active_version_id")}, {"_id": 0}).to_list(2000)
-    return {"catalog": cat, "items": items}
+    ver = await db.catalog_versions.find_one(
+        {"id": cat.get("active_version_id"), "tenant_id": cu.tenant_id}, {"_id": 0}) or {}
+    return {"catalog": cat, "items": items, "columns": ver.get("columns", []), "mapping": ver.get("mapping", {})}
+
+
+def _read_csv_robust(content: bytes) -> pd.DataFrame:
+    """Parse a CSV with any delimiter/encoding. Returns all columns as strings."""
+    for kwargs in ({"sep": None, "engine": "python"}, {"sep": ";"}, {"sep": ","}, {"sep": "\t"}):
+        for enc in ("utf-8-sig", "latin-1"):
+            try:
+                df = pd.read_csv(io.BytesIO(content), dtype=str, keep_default_na=False,
+                                 encoding=enc, **kwargs)
+                if len(df.columns) >= 1 and not (len(df.columns) == 1 and (";" in df.columns[0] or "\t" in df.columns[0])):
+                    df.columns = [str(c).strip() for c in df.columns]
+                    return df
+            except Exception:
+                continue
+    raise HTTPException(400, "Impossible de lire le fichier CSV (format ou encodage non reconnu).")
 
 
 @api.get("/catalog-template.csv")
 async def catalog_template():
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(CSV_COLUMNS)
-    w.writerow(["ACME", "PEINT-001", "Peinture murale deux couches", "peinture", "m2",
-                "12.50", "EUR", "10", "5", "true", "Inclut sous-couche"])
+    w.writerow(["Famille", "Article", "Unité", "Marque", "Référence", "Fournisseur_principal",
+                "Fournisseur_alternatif_1", "TVA_%", "Marge_%", "Prix_achat_HT", "Prix_vente_HT", "Délai"])
+    w.writerow(["Gros œuvre", "Ciment CPJ 25 kg", "sac", "Knauf", "RF400000",
+                "La Plateforme du Bâtiment", "Point.P", "20", "18.7", "8.66", "10.1", "2-5 j"])
     buf.seek(0)
     return StreamingResponse(io.BytesIO(buf.getvalue().encode()), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=blueseatra_catalog_template.csv"})
@@ -525,33 +639,52 @@ async def catalog_template():
 async def import_preview(cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
                          file: UploadFile = File(...)):
     content = await file.read()
-    try:
-        df = pd.read_csv(io.BytesIO(content), dtype=str, keep_default_na=False)
-    except Exception as e:
-        raise HTTPException(400, f"Cannot parse CSV: {e}")
+    df = _read_csv_robust(content)
     columns = list(df.columns)
-    missing = [c for c in ["item_code", "item_label", "unit_price_ht"] if c not in columns]
-    return {"columns": columns, "preview": df.head(5).to_dict(orient="records"),
-            "total_rows": len(df), "missing_required": missing, "expected_columns": CSV_COLUMNS}
+    mapping = suggest_mapping(columns)
+    return {
+        "columns": columns,
+        "preview": df.head(5).fillna("").astype(str).to_dict(orient="records"),
+        "total_rows": len(df),
+        "suggested_mapping": mapping,
+        "standard_fields": [{"key": f["key"], "label": f["label"], "required": f["required"]}
+                            for f in STANDARD_FIELDS],
+    }
 
 
 @api.post("/catalogs/import")
 async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
                          file: UploadFile = File(...),
                          catalog_name: str = Form(...),
+                         mapping: str = Form(None),
                          activate: str = Form("true")):
     content = await file.read()
-    try:
-        df = pd.read_csv(io.BytesIO(content), dtype=str, keep_default_na=False)
-    except Exception as e:
-        raise HTTPException(400, f"Cannot parse CSV: {e}")
+    df = _read_csv_robust(content)
+    columns = list(df.columns)
+
+    # Effective mapping: start from auto-detection, override with user-provided mapping.
+    eff = suggest_mapping(columns)
+    if mapping:
+        try:
+            user_map = json.loads(mapping)
+            for k, v in (user_map or {}).items():
+                eff[k] = (v or None) if (v in columns or v in (None, "")) else eff.get(k)
+        except (ValueError, TypeError):
+            pass
+
+    if not eff.get("item_label"):
+        raise HTTPException(400, "Aucune colonne 'Libellé / Désignation' détectée. "
+                                 "Veuillez associer une colonne au champ libellé.")
+
+    numeric_keys = {f["key"] for f in STANDARD_FIELDS if f["numeric"]}
+
+    def mget(row, key):
+        col = eff.get(key)
+        return (str(row.get(col)).strip() if col and row.get(col) is not None else "")
 
     cat_id = new_id()
     ver_id = new_id()
     job_id = new_id()
-    cols = set(df.columns)
-    rich = "Famille" in cols and "Article" in cols
-    client_code = (df["client_code"].iloc[0] if "client_code" in df.columns and len(df) else "") or ("BTP" if rich else "N/A")
 
     existing_cat = await db.catalogs.find_one({"tenant_id": cu.tenant_id, "name": catalog_name})
     if existing_cat:
@@ -563,67 +696,44 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
         version_number = 1
         await db.catalogs.insert_one({
             "id": cat_id, "tenant_id": cu.tenant_id, "name": catalog_name,
-            "client_code": client_code, "created_at": now_iso(), "active_version_id": None,
+            "client_code": "N/A", "created_at": now_iso(), "active_version_id": None,
         })
-
-    def _f(v, default=0.0):
-        try:
-            return float(str(v).replace(",", ".")) if str(v).strip() not in ("", "nan") else default
-        except (TypeError, ValueError):
-            return default
 
     items, errors = [], []
     for idx, row in df.iterrows():
         rownum = int(idx) + 2
         try:
-            if rich:
-                label = (row.get("Article") or "").strip()
-                family = (row.get("Famille") or "").strip()
-                if not label:
-                    raise ValueError("Article is required")
-                ref = (row.get("R\u00e9f\u00e9rence") or row.get("Reference") or "").strip()
-                code = ref or f"ART-{rownum}"
-                suppliers = [s for s in [
-                    (row.get("Fournisseur_principal") or "").strip(),
-                    (row.get("Fournisseur_alternatif_1") or "").strip(),
-                    (row.get("Fournisseur_alternatif_2") or "").strip(),
-                ] if s]
-                items.append({
-                    "id": new_id(), "tenant_id": cu.tenant_id, "catalog_id": cat_id, "version_id": ver_id,
-                    "item_code": code, "item_label": label, "label_norm": match_engine.normalize(label),
-                    "category": match_engine.normalize(family), "family": family,
-                    "unit": (row.get("Unit\u00e9") or row.get("Unite") or "u").strip().lower(),
-                    "brand": (row.get("Marque") or "").strip(),
-                    "reference": ref,
-                    "supplier_main": suppliers[0] if suppliers else "",
-                    "suppliers": suppliers,
-                    "vat_rate": _f(row.get("TVA_%"), 20), "margin": _f(row.get("Marge_%"), 0),
-                    "purchase_price_ht": _f(row.get("Prix_achat_HT")),
-                    "unit_price_ht": _f(row.get("Prix_vente_HT")),
-                    "currency": "EUR", "min_qty": 1.0, "is_active": True,
-                    "delay": (row.get("D\u00e9lai") or row.get("Delai") or "").strip(),
-                    "notes": "",
-                })
-            else:
-                code = (row.get("item_code") or "").strip()
-                label = (row.get("item_label") or "").strip()
-                if not code or not label:
-                    raise ValueError("item_code and item_label are required")
-                price = float(str(row.get("unit_price_ht")).replace(",", "."))
-                vat = _f(row.get("vat_rate"), 0)
-                minq = _f(row.get("min_qty"), 0)
-                is_active = str(row.get("is_active") or "true").strip().lower() in ("true", "1", "yes", "oui")
-                items.append({
-                    "id": new_id(), "tenant_id": cu.tenant_id, "catalog_id": cat_id, "version_id": ver_id,
-                    "item_code": code, "item_label": label, "label_norm": match_engine.normalize(label),
-                    "category": (row.get("category") or "").strip().lower(),
-                    "family": (row.get("category") or "").strip(),
-                    "unit": (row.get("unit") or "u").strip().lower(),
-                    "unit_price_ht": price, "currency": (row.get("currency") or "EUR").strip(),
-                    "vat_rate": vat, "min_qty": minq, "is_active": is_active,
-                    "margin": 0, "purchase_price_ht": None, "supplier_main": "", "suppliers": [], "brand": "",
-                    "notes": (row.get("notes") or "").strip(),
-                })
+            label = mget(row, "item_label")
+            if not label:
+                raise ValueError("Le libellé / la désignation est obligatoire")
+            family = mget(row, "family")
+            code = mget(row, "item_code") or f"ART-{rownum}"
+            suppliers = [s for s in [mget(row, "supplier_main"),
+                                     mget(row, "supplier_alt_1"),
+                                     mget(row, "supplier_alt_2")] if s]
+            # Preserve EVERY original CSV column verbatim.
+            attributes = {col: (str(row.get(col)).strip() if row.get(col) is not None else "")
+                          for col in columns}
+            items.append({
+                "id": new_id(), "tenant_id": cu.tenant_id, "catalog_id": cat_id, "version_id": ver_id,
+                "item_code": code, "item_label": label, "label_norm": match_engine.normalize(label),
+                "category": match_engine.normalize(family), "family": family,
+                "unit": (mget(row, "unit") or "u").lower(),
+                "brand": mget(row, "brand"),
+                "reference": mget(row, "item_code"),
+                "supplier_main": suppliers[0] if suppliers else "",
+                "suppliers": suppliers,
+                "vat_rate": _num(mget(row, "vat_rate"), 20),
+                "margin": _num(mget(row, "margin"), 0),
+                "purchase_price_ht": _num(mget(row, "purchase_price_ht")),
+                "unit_price_ht": _num(mget(row, "unit_price_ht")),
+                "currency": mget(row, "currency") or "EUR",
+                "min_qty": _num(mget(row, "min_qty"), 1) or 1.0,
+                "is_active": True,
+                "delay": mget(row, "delay"),
+                "notes": mget(row, "notes"),
+                "attributes": attributes,
+            })
         except Exception as e:
             errors.append({"id": new_id(), "tenant_id": cu.tenant_id, "job_id": job_id,
                            "row_number": rownum, "message": str(e),
@@ -632,6 +742,7 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
     await db.catalog_versions.insert_one({
         "id": ver_id, "tenant_id": cu.tenant_id, "catalog_id": cat_id, "version_number": version_number,
         "status": "draft", "item_count": len(items), "error_count": len(errors),
+        "columns": columns, "mapping": eff, "source_filename": file.filename,
         "created_at": now_iso(), "activated_at": None,
     })
     if items:
