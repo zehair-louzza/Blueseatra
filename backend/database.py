@@ -24,6 +24,12 @@ load_dotenv(Path(__file__).parent / '.env')
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '').strip()
 
+# Schema that holds the Blueseatra tables. Tables were created in a dedicated
+# 'blueseatra' schema (not 'public'). asyncpg is told to use it via search_path
+# so the existing SQLAlchemy models (which reference unqualified table names)
+# resolve correctly. Override with DB_SCHEMA if you ever move the tables.
+DB_SCHEMA = os.environ.get('DB_SCHEMA', 'blueseatra').strip() or 'blueseatra'
+
 Base = declarative_base()
 
 engine = None
@@ -58,6 +64,9 @@ if DATABASE_URL:
             "command_timeout": 30,
             # FIX: Supabase requires SSL. 'require' verifies the server certificate chain.
             "ssl": "require",
+            # Point every connection at the Blueseatra schema. Keeping 'public'
+            # in the path lets shared extensions/types still resolve.
+            "server_settings": {"search_path": f"{DB_SCHEMA},public"},
         },
     )
     AsyncSessionLocal = async_sessionmaker(
