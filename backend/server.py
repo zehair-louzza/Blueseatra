@@ -1110,6 +1110,12 @@ async def root():
     return {"service": "Blueseatra API", "status": "ok"}
 
 
+@api.get("/health")
+async def health():
+    """Lightweight liveness probe (used by Render health checks)."""
+    return {"status": "healthy"}
+
+
 app.include_router(api)
 # Auth uses Bearer tokens (Authorization header), not cookies. The combination
 # allow_credentials=True + wildcard origin is invalid/insecure, so credentials are
