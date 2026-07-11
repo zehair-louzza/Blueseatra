@@ -72,3 +72,13 @@ code { font-family: var(--font-mono); }
     background: linear-gradient(135deg, rgba(26,43,69,0.10) 0%, rgba(63,143,138,0.12) 55%, rgba(251,247,241,0.0) 100%);
 }
 .card-shadow { box-shadow: 0 1px 0 rgba(16,24,40,0.04), 0 8px 24px rgba(16,24,40,0.06); }
+
+/* Hide Emergent platform branding */
+#emergent-badge,
+a[href*="emergent.sh"],
+[id*="emergent"],
+[class*="emergent-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
