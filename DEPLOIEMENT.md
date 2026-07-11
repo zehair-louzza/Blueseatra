@@ -72,3 +72,38 @@ maison (pas Supabase Auth), donc l'accès **direct navigateur → Supabase** ne
 fonctionnera que si vous émettez des JWT signés avec la clé Supabase incluant
 ce claim. En l'état, c'est le **backend** (service_role, qui bypass le RLS) qui
 accède aux données — l'app fonctionne immédiatement.
+
+
+---
+
+## Changelog — Mise a jour du 2026-07-11
+
+### 1. Suppression du branding Emergent
+
+- **`frontend/public/index.html`** : suppression des scripts de tracking et du titre Emergent
+- **`frontend/src/App.js`** : ajout d'un `useEffect` avec `MutationObserver` qui :
+  - Force `document.title = 'Blueseatra'`
+  - Supprime l'element `#emergent-badge` injecte par la plateforme Hostinger
+- **`frontend/src/index.css`** : ajout de regles CSS `display: none !important` sur `#emergent-badge` et tout lien `emergent.sh` (double protection CSS + JS)
+
+### 2. Fix critique : REACT_APP_BACKEND_URL manquante en production
+
+- **`frontend/src/lib/api.js`** : ajout d'un fallback hardcode :
+  ```js
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://blueseatra-api.onrender.com';
+  ```
+- **Hostinger > Environment variables** : ajout de `REACT_APP_BACKEND_URL=https://blueseatra-api.onrender.com`
+- **Rebuild automatique Hostinger** : le site a ete reconstruit avec la variable correcte (deploy `019f519c`, 2026-07-11 16:39, 2m31s)
+- **Impact** : le bouton Connexion envoyait toutes les requetes vers `undefined/api/...` -> echec silencieux. Desormais correctement route vers `https://blueseatra-api.onrender.com/api/...`
+
+### 3. Securite Supabase : politiques RLS sur blueseatra.users
+
+- **Probleme** : `blueseatra.users` avait RLS active mais aucune politique -> bloquait toutes les operations par defaut
+- **Solution** : creation de 4 politiques `service_role only` :
+  - `users_select_service_only` — SELECT
+  - `users_insert_service_only` — INSERT
+  - `users_update_service_only` — UPDATE
+  - `users_delete_service_only` — DELETE
+- **Migration SQL** : `supabase/migrations/20260711000000_rls_blueseatra_users.sql`
+- **Resultat** : Security Advisor Supabase passe a 0 erreurs, 0 warnings, 0 suggestions
+- **Logique** : le backend FastAPI utilise `service_role` (bypass RLS natif) -> acces complet. `anon`/`authenticated` -> bloques sur toute la table (protection du `password_hash` et `email`)
