@@ -28,6 +28,27 @@ const Shell = ({ children }) => (
 function App() {
   const { i18n } = useTranslation();
   useEffect(() => { document.documentElement.lang = i18n.language; }, [i18n.language]);
+
+  // Remove Emergent badge and fix page title
+  useEffect(() => {
+    // Fix title
+    document.title = 'Blueseatra';
+
+    // Remove Emergent badge element
+    const removeBadge = () => {
+      const badge = document.getElementById('emergent-badge');
+      if (badge) badge.remove();
+      // Also remove any element containing 'Made with Emergent'
+      document.querySelectorAll('a[href*="emergent"], a[href*="emergent.sh"]').forEach(el => el.remove());
+    };
+
+    removeBadge();
+    // Observe DOM for late injection
+    const observer = new MutationObserver(removeBadge);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div className="App">
       <AuthProvider>
