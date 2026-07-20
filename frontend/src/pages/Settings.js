@@ -24,7 +24,7 @@ function AiSettings({ canManage }) {
     api.get('/settings/integrations').then((r) => {
       const s = r.data.settings;
       setProviderModels(r.data.provider_models);
-      setForm({ ai_provider: s.ai_provider || 'emergent', ai_model: s.ai_model || '', ai_key: '', n8n_webhook_url: s.n8n_webhook_url || '' });
+      setForm({ ai_provider: s.ai_provider || 'hermes', ai_model: s.ai_model || '', ai_key: '', n8n_webhook_url: s.n8n_webhook_url || '' });
       setKeySet(!!s.ai_key_set);
     });
   }, []);
@@ -45,7 +45,7 @@ function AiSettings({ canManage }) {
           <Label>{t('settings.ai_provider')}</Label>
           <Select value={form.ai_provider} onValueChange={(v) => setForm({ ...form, ai_provider: v, ai_model: (providerModels[v] || [])[0] || '' })} disabled={!canManage}>
             <SelectTrigger data-testid="ai-provider-select"><SelectValue /></SelectTrigger>
-            <SelectContent>{Object.keys(providerModels).map((p) => <SelectItem key={p} value={p}>{p === 'emergent' ? 'Built-in (Emergent)' : p}</SelectItem>)}</SelectContent>
+            <SelectContent>{Object.keys(providerModels).map((p) => <SelectItem key={p} value={p}>{p === 'hermes' ? 'Built-in (hermes)' : p}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
