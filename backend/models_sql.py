@@ -217,7 +217,7 @@ class AuditLog(Base):
 class SettingsIntegration(Base):
     __tablename__ = "settings_integrations"
     tenant_id = Column(String(36), primary_key=True)
-    ai_provider = Column(String(40), default="emergent")
+    ai_provider = Column(String(40), default="hermes")
     ai_model = Column(String(80), nullable=True)
     # FIX: documented convention: encrypted values are prefixed with 'enc::'.
     # Enforcement is application-level (see ai_service.py encrypt/decrypt helpers).
