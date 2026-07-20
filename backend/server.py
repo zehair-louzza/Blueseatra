@@ -334,18 +334,18 @@ async def update_member(user_id: str, body: RoleUpdate,
 # SETTINGS / INTEGRATIONS
 # ===========================================================================
 class IntegrationSettings(BaseModel):
-    ai_provider: str = "emergent"
+    ai_provider: str = "hermes"
     ai_model: Optional[str] = None
     ai_key: Optional[str] = None
     n8n_webhook_url: Optional[str] = None
 
 
 PROVIDER_MODELS = {
-    "emergent": ["gpt-5.4", "gemini-3-flash-preview", "claude-sonnet-4-6"],
+    
     "openai": ["gpt-5.4", "gpt-5.4-mini", "gpt-4o", "gpt-4.1"],
     "gemini": ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
-    "oracle": ["oci-vision"],
+    "hermes": ["hermes-3", "llama-3.3-70b", "qwen2.5-72b", "deepseek-r1-70b"],
 }
 
 
@@ -353,7 +353,7 @@ PROVIDER_MODELS = {
 async def get_settings(cu: CurrentUser = Depends(get_current)):
     s = await db.settings_integrations.find_one({"tenant_id": cu.tenant_id}, {"_id": 0})
     if not s:
-        s = {"tenant_id": cu.tenant_id, "ai_provider": "emergent", "ai_model": "gpt-5.4",
+        s = {"tenant_id": cu.tenant_id, "ai_provider": "hermes", "ai_model": "gpt-5.4",
              "n8n_webhook_url": None}
     s = dict(s)
     s["ai_key_set"] = bool(s.get("ai_key"))
