@@ -1,8 +1,8 @@
 # Blueseatra — AI-Assisted B2B Quoting SaaS Platform
 
 > Multi-tenant application (FastAPI + React + **Supabase/PostgreSQL**) that turns client
-> requests ("work orders", "quote requests" as PDF/image/text) into **professional Pro Forma
-> quotes**, using AI extraction, a flexible price catalog and an advanced quote editor with
+> requests ("work orders", "quote requests" as PDF / image / text) into **professional Pro Forma
+> quotes**, using AI extraction, a flexible price catalog, and an advanced quote editor with
 > PDF generation matching a precise business template.
 
 ---
@@ -37,8 +37,8 @@ requests and quotes.
 Main business flow:
 
 ```
-Client request (PDF/Image/Text)
-        |  (AI extraction)
+Client request (PDF / Image / Text)
+        |  (AI extraction — Hermes AI / Ollama)
         v
 Structured data (client, site, object, lines...)
         |  (catalog matching)
@@ -46,45 +46,50 @@ Structured data (client, site, object, lines...)
 Draft quote  -->  Quote editor  -->  Validated quote  -->  Pro Forma PDF
 ```
 
+> **Default AI engine since July 2026:** [Hermes-3](https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B)
+> via **Ollama** deployed on an **OVH VPS** (self-hosted, no third-party cloud dependency).
+> Each tenant can override with OpenAI, Gemini or Anthropic via the Integrations settings.
+
 ---
 
 ## 2. Features
 
 - **JWT authentication** + multi-tenant (roles: `owner`, `admin`, `operator`, `viewer`, `billing_admin`).
-- **AI extraction** of documents (PDF / image / text) into structured data (via Emergent LLM).
-- **"Open" catalog**: CSV import of **any column format** (auto-detection + adjustable manual
-  mapping), with every column preserved as dynamic attributes.
+- **AI document extraction** (PDF / image / text) into structured data — **Hermes AI (Ollama/OVH VPS)** by default, with per-tenant configurable fallback (OpenAI, Gemini, Anthropic) via **litellm**.
+- **"Open" catalog**: CSV import of **any column format** (auto-detection + adjustable manual mapping), with every column preserved as dynamic attributes.
 - **Catalog management**: versions, activate/deactivate, delete, editable client code.
-- **Professional quote editor**: typed lines (Labor, Material, Note, Page break), per-line VAT,
-  margin hidden on the PDF, numeric quantities, catalog item picker.
+- **Professional quote editor**: typed lines (Labor, Material, Note, Page break), per-line VAT, margin hidden on the PDF, numeric quantities, catalog item picker.
 - **Pro Forma PDF generation** matching a precise business template (ReportLab).
-- **Company profile** (legal name, registration number, IBAN, mentions...) injected into the PDF.
+- **Company profile** (legal name, registration number, IBAN, legal mentions, terms...) injected into the PDF.
 - **Audit log** of all sensitive actions.
 - **Internationalization** FR / EN (react-i18next).
+- **n8n webhook** configurable per tenant to automate post-quote workflows.
 
 ---
 
 ## 3. Architecture & tech stack
 
-| Layer         | Technology |
-|---------------|------------|
-| Frontend      | React 18, React Router, Tailwind CSS, Shadcn/UI (Radix), lucide-react, Sonner, axios, react-i18next |
-| Backend       | FastAPI (Python 3.11), Uvicorn, Pydantic v2 |
-| Database      | **Supabase PostgreSQL 17** (via SQLAlchemy 2 async + asyncpg) |
-| AI / LLM      | `emergentintegrations` (Emergent universal key: OpenAI / Anthropic / Google) |
-| PDF           | ReportLab |
-| Auth          | JWT (python-jose) + bcrypt hashing (passlib) |
-| Encryption    | `cryptography` (Fernet) for secrets at rest |
-| Process mgr   | supervisor (backend + frontend) |
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 18, React Router, Tailwind CSS, Shadcn/UI (Radix), lucide-react, Sonner, axios, react-i18next |
+| Backend | FastAPI (Python 3.11), Uvicorn, Pydantic v2 |
+| Database | **Supabase PostgreSQL 17** (via SQLAlchemy 2 async + asyncpg) |
+| AI / LLM — default | **Hermes-3 (Ollama)** on OVH VPS (`HERMES_BASE_URL`, `HERMES_DEFAULT_MODEL`) |
+| AI / LLM — fallback | **litellm 1.80.0** (OpenAI / Anthropic / Gemini — configured per tenant) |
+| PDF | ReportLab |
+| Auth | JWT (python-jose) + bcrypt hashing (passlib) |
+| Encryption | `cryptography` (Fernet) for secrets at rest |
+| Process mgr | supervisor (backend + frontend) |
 
 ### Runtime layout
 
-- **Frontend (port 3000)** -> calls the backend via `REACT_APP_BACKEND_URL` with the `/api` prefix.
+- **Frontend (port 3000)** → calls the backend via `REACT_APP_BACKEND_URL` with the `/api` prefix.
 - **Backend (port 8001)** bound to `0.0.0.0:8001`. All routes are prefixed with `/api`.
-- **Kubernetes ingress**: routes `/api/*` -> backend (8001), everything else -> frontend (3000).
-- **Backend -> PostgreSQL**: direct connection (asyncpg) via `DATABASE_URL` (Supabase Transaction Pooler).
+- **Kubernetes ingress**: routes `/api/*` → backend (8001), everything else → frontend (3000).
+- **Backend → PostgreSQL**: direct connection (asyncpg) via `DATABASE_URL` (Supabase Transaction Pooler).
+- **Backend → Hermes AI**: HTTP requests to `HERMES_BASE_URL/api/chat` (Ollama REST API).
 
-> Important note: the app does **NOT** use Supabase's PostgREST REST API. It connects directly to
+> ⚠️ **Important note**: the app does **NOT** use Supabase's PostgREST REST API. It connects directly to
 > PostgreSQL with the owner role. An **adapter** (`pg_adapter.py`) exposes a "motor/MongoDB"-compatible
 > API on top of SQLAlchemy, which made it possible to migrate the database **without rewriting**
 > the business logic in `server.py`.
@@ -95,43 +100,46 @@ Draft quote  -->  Quote editor  -->  Validated quote  -->  Pro Forma PDF
 
 ```
 /app
-|-- backend/
-|   |-- server.py                     # FastAPI app: routes, auth, business logic
-|   |-- ai_service.py                 # AI extraction (Emergent LLM)
-|   |-- matching.py                   # Line <-> catalog matching + totals computation
-|   |-- pdf_service.py                # Pro Forma PDF generation (ReportLab)
-|   |-- database.py                   # Async SQLAlchemy engine (reads DATABASE_URL)
-|   |-- models_sql.py                 # 14 ORM models (JSONB for dynamic data)
-|   |-- pg_adapter.py                 # motor-compatible adapter => SQLAlchemy/PostgreSQL
-|   |-- migrate_mongo_to_supabase.py  # MongoDB => Supabase migration (one-shot, idempotent)
-|   |-- enable_rls.py                 # Enables RLS + deny-all policy on all tables
-|   |-- requirements.txt              # Python dependencies (managed via pip freeze)
-|   |-- SUPABASE_MIGRATION.md         # Dedicated migration guide
-|   `-- .env                          # Secrets & config (NOT versioned)
-|-- frontend/
-|   |-- src/
-|   |   |-- App.js                    # Route definitions
-|   |   |-- i18n.js                   # FR / EN translations
-|   |   |-- lib/api.js                # axios client (base = REACT_APP_BACKEND_URL + /api)
-|   |   |-- pages/                    # Landing, Auth, Dashboard, Requests, Catalogs, QuoteEditor...
-|   |   `-- components/ui/            # Shadcn/UI components
-|   |-- package.json                  # JS dependencies (managed via yarn)
-|   `-- .env                          # REACT_APP_BACKEND_URL (DO NOT modify)
-|-- design_guidelines.md
-`-- README.md
+├── backend/
+│   ├── server.py                      # FastAPI app: routes, auth, business logic
+│   ├── ai_service.py                  # AI extraction — Hermes/Ollama by default, litellm fallback
+│   ├── matching.py                    # Line <-> catalog matching + totals computation
+│   ├── pdf_service.py                 # Pro Forma PDF generation (ReportLab)
+│   ├── database.py                    # Async SQLAlchemy engine (reads DATABASE_URL)
+│   ├── models_sql.py                  # 14 ORM models (JSONB for dynamic data)
+│   ├── pg_adapter.py                  # motor-compatible adapter => SQLAlchemy/PostgreSQL
+│   ├── migrate_mongo_to_supabase.py   # MongoDB => Supabase migration (one-shot, idempotent)
+│   ├── enable_rls.py                  # Enables RLS + deny-all policy on all tables
+│   ├── requirements.txt               # Python dependencies (pip freeze)
+│   ├── SUPABASE_MIGRATION.md          # Dedicated migration guide
+│   └── .env                           # Secrets & config (NOT versioned)
+├── frontend/
+│   ├── src/
+│   │   ├── App.js                     # Route definitions
+│   │   ├── i18n.js                    # FR / EN translations
+│   │   ├── lib/api.js                 # axios client (base = REACT_APP_BACKEND_URL + /api)
+│   │   ├── pages/                     # Landing, Auth, Dashboard, Requests, Catalogs, QuoteEditor...
+│   │   └── components/ui/             # Shadcn/UI components
+│   ├── package.json                   # JS dependencies (yarn)
+│   └── .env                           # REACT_APP_BACKEND_URL
+├── supabase/
+│   └── migrations/                    # Versioned SQL migrations (RLS, blueseatra schema)
+├── DEPLOIEMENT.md                     # Deployment guide: Hostinger + Render + Supabase
+├── design_guidelines.md
+└── README.en.md                       # ← this document
 ```
 
 ---
 
 ## 5. Data model
 
-14 PostgreSQL tables (primary keys as **UUID** strings). Dynamic/nested fields are stored as **JSONB**.
+14 PostgreSQL tables in the **`blueseatra`** schema (primary keys as **UUID** strings). Dynamic/nested fields are stored as **JSONB**.
 
 | Table | Purpose | JSONB fields |
 |-------|---------|--------------|
 | `users` | User accounts (unique email, bcrypt `password_hash`) | — |
 | `tenants` | Companies / workspaces | — |
-| `tenant_users` | User <-> tenant membership + role | — |
+| `tenant_users` | User ↔ tenant membership + role | — |
 | `catalogs` | Catalogs (name, `client_code`, `active_version_id`) | — |
 | `catalog_versions` | Catalog versions (status, mapping...) | `columns`, `mapping` |
 | `pricing_items` | Catalog items (label, price, VAT, margin...) | `suppliers`, `attributes` |
@@ -141,11 +149,11 @@ Draft quote  -->  Quote editor  -->  Validated quote  -->  Pro Forma PDF
 | `import_jobs` | CSV import logs | — |
 | `import_errors` | Per-row import errors | `raw` |
 | `audit_logs` | Audit log | `meta` |
-| `settings_integrations` | Per-tenant AI/n8n settings (AI key **encrypted**) | — |
+| `settings_integrations` | Per-tenant AI/n8n settings (AI key **encrypted** Fernet) | — |
 | `company_profiles` | Company profile for the PDF | — |
 
-> Multi-tenant isolation: every query filters by `tenant_id`, and every mutation is preceded by an
-> ownership check (an id from another tenant returns 404).
+> **Multi-tenant isolation**: every query filters by `tenant_id`, and every mutation is preceded by an
+> ownership check (an ID from another tenant returns 404).
 
 ---
 
@@ -159,26 +167,30 @@ Draft quote  -->  Quote editor  -->  Validated quote  -->  Pro Forma PDF
 | `SUPABASE_URL` | Supabase project URL (`https://<ref>.supabase.co`) |
 | `SUPABASE_ANON_KEY` | Public `anon` key (reserved for future Auth/Storage use) |
 | `SUPABASE_SERVICE_ROLE_KEY` | `service_role` key (**highly sensitive**, server only) |
-| `JWT_SECRET` | JWT signing secret — **must be strong** (>= 32 chars, non-default) |
-| `APP_ENCRYPTION_KEY` | Fernet key (base64) to encrypt secrets at rest |
-| `EMERGENT_LLM_KEY` | Emergent universal key (OpenAI/Anthropic/Google) |
+| `JWT_SECRET` | JWT signing secret — **must be strong** (≥ 32 chars, non-default) |
+| `APP_ENCRYPTION_KEY` | Fernet key (base64) to encrypt tenant AI secrets at rest |
+| `HERMES_BASE_URL` | Ollama instance URL (default: `http://localhost:11434`) |
+| `HERMES_DEFAULT_MODEL` | Ollama model to use (default: `hermes-3`) |
 | `MAX_UPLOAD_SIZE` | (optional) Max upload size in bytes (default 15 MB) |
-| `CORS_ORIGINS` | (optional) Allowed origins, comma-separated (e.g. `https://blueseatra.com`) |
+| `CORS_ORIGINS` | (optional) Allowed origins, comma-separated |
 | `MONGO_URL`, `DB_NAME` | Kept for the migration script (MongoDB source) |
 
-> Never commit `.env`. The backend **refuses to start** if `JWT_SECRET` is weak/default.
+> 🔐 **Never commit `.env`**. The backend **refuses to start** if `JWT_SECRET` is weak/default.
+>
+> ⚠️ `EMERGENT_LLM_KEY` **is no longer used** since July 2026 — the Emergent provider has been removed. Delete this variable from all your environments.
 
 ### `frontend/.env`
 
 | Variable | Description |
 |----------|-------------|
-| `REACT_APP_BACKEND_URL` | Public backend URL. **DO NOT modify** (platform-managed). |
+| `REACT_APP_BACKEND_URL` | Public backend URL (e.g. `https://blueseatra-api.onrender.com`). Hard-coded fallback if absent. |
 
 #### Generate strong secrets
 
 ```bash
 # JWT_SECRET
 python -c "import secrets; print(secrets.token_urlsafe(48))"
+
 # APP_ENCRYPTION_KEY (Fernet)
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
@@ -188,310 +200,360 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 ## 7. Local installation (step by step)
 
 ### Prerequisites
+
 - Python **3.11**
 - Node.js **20** + **Yarn** (do not use `npm`)
 - A **Supabase** project (free) OR an accessible PostgreSQL
+- **Ollama** installed locally with the `hermes-3` model (`ollama pull hermes-3`) — **or** an OpenAI/Anthropic/Gemini key to configure per tenant in the settings
 
 ### 1) Get the code
+
 ```bash
-git clone <your-repo> blueseatra && cd blueseatra
+git clone <repo-url> blueseatra && cd blueseatra
 ```
 
 ### 2) Backend
+
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pip install emergentintegrations --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
-```
-Create `backend/.env` (see [section 6](#6-environment-variables)) with at least
-`DATABASE_URL`, `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `EMERGENT_LLM_KEY`.
-
-### 3) Initialize the database
-```bash
-# Create schema + enable RLS
-python migrate_mongo_to_supabase.py --create-tables
-# (Optional) migrate existing data from MongoDB
-python migrate_mongo_to_supabase.py
 ```
 
-### 4) Run the backend
+Create `backend/.env` (see [section 6](#6-environment-variables)) with at minimum
+`DATABASE_URL`, `JWT_SECRET`, `APP_ENCRYPTION_KEY`, `HERMES_BASE_URL`.
+
 ```bash
 uvicorn server:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-### 5) Frontend
+### 3) Frontend
+
 ```bash
 cd ../frontend
 yarn install
-# frontend/.env :  REACT_APP_BACKEND_URL=http://localhost:8001
-yarn start
+# Create frontend/.env with: REACT_APP_BACKEND_URL=http://localhost:8001
+yarn start   # starts on port 3000
 ```
-App available at `http://localhost:3000`.
 
-> On this platform, **supervisor** manages both services:
-> `sudo supervisorctl restart backend frontend`. Hot-reload is on (no restart needed for simple
-> code changes, only for `.env`/dependencies).
+### 4) Ollama (local AI engine)
+
+```bash
+# Install Ollama: https://ollama.com/download
+ollama pull hermes-3
+ollama serve   # listens on http://localhost:11434
+```
+
+> For production, point `HERMES_BASE_URL` to your OVH VPS public URL.
 
 ---
 
 ## 8. Supabase database / migration
 
-### Connection (critical)
-You MUST use the **Transaction Pooler** URI (port **6543**), found in
-Supabase -> **Connect** -> *Transaction Pooler* tab:
-```
-postgresql://postgres.<ref>:<PASSWORD>@aws-0-<region>.pooler.supabase.com:6543/postgres
-```
-> The "Direct Connection" URI (`db.<ref>.supabase.co:5432`) does **not** work in this environment
-> (IPv4 resolution unavailable). The asyncpg engine is configured with `statement_cache_size=0`
-> (required with the pooler in *transaction* mode).
+### Schema initialization
 
-### MongoDB -> Supabase migration steps
 ```bash
 cd backend
-python migrate_mongo_to_supabase.py --create-tables   # 1) schema + RLS
-python migrate_mongo_to_supabase.py                    # 2) copy data (idempotent)
+python migrate_mongo_to_supabase.py   # one-shot, idempotent
+python enable_rls.py                   # enable RLS + deny-all policy
 ```
-The script:
-- deletes **nothing** in MongoDB (safety);
-- is **idempotent** (upsert by primary key — safe to re-run);
-- automatically projects each Mongo document onto the model columns.
 
-More details in **`backend/SUPABASE_MIGRATION.md`**.
+The `blueseatra` schema and all 14 tables are created automatically by SQLAlchemy on first start (`create_all`). Incremental migrations are versioned in `supabase/migrations/`.
+
+### Recommended connection
+
+Use the **Transaction Pooler** (port **6543**) for the async backend (asyncpg). Do not use port 5432 directly in production.
+
+```
+postgresql+asyncpg://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+```
+
+See `backend/SUPABASE_MIGRATION.md` for the full MongoDB migration guide.
 
 ---
 
 ## 9. Security
 
-Measures in place (audited):
+| Layer | Mechanism |
+|-------|-----------|
+| Authentication | JWT signed (`python-jose`), configurable expiration |
+| Passwords | bcrypt hashing via `passlib` |
+| Tenant AI secrets | Fernet encryption (`cryptography`) at rest in `settings_integrations` |
+| Data isolation | `tenant_id` filter on all queries + ownership check |
+| Database | PostgreSQL RLS enabled + deny-all policy (access only via the service role from backend) |
+| Transport | HTTPS mandatory in production (Render / Hostinger) |
+| Audit | `audit_logs` table for all sensitive actions |
 
-| Area | Measure |
-|------|---------|
-| **JWT** | Strong random secret; **refuses to start** if secret is weak/default/<32 chars. |
-| **Passwords** | **bcrypt** hashing (passlib); never stored in clear. |
-| **Roles** | Role is **re-checked in DB** (`tenant_users`), never read from the token. |
-| **Multi-tenant isolation** | Systematic `tenant_id` filtering + ownership check (404 otherwise). |
-| **Secrets at rest** | Tenant AI key **encrypted (Fernet)**, `enc::` prefix; never returned to client. |
-| **CORS** | `allow_credentials` enabled **only** with explicit origins (never with wildcard). |
-| **Upload** | **15 MB** limit (HTTP 413) on documents and CSV. |
-| **PostgreSQL / Supabase** | **RLS enabled** + **deny_all policy** + `anon`/`authenticated` privileges **revoked** on all 14 tables. The public REST API can read/write nothing. |
-
-> The app uses a **direct PostgreSQL connection** (owner role that **bypasses** RLS), so RLS has no
-> impact on functionality while it closes the door to the public API.
-
-### Remaining recommendations (non-blocking)
-- Rate-limiting on `/api/auth/login` (anti brute-force).
-- Short single-use PDF token (download currently uses `?token=`).
-- Stronger password policy (8+ chars, complexity).
-- In prod: set `CORS_ORIGINS=https://blueseatra.com`.
+**Pre-deployment checklist:**
+- [ ] `JWT_SECRET`: at least 32 random characters, never the default value
+- [ ] `APP_ENCRYPTION_KEY`: Fernet key generated via the command above
+- [ ] `SUPABASE_SERVICE_ROLE_KEY`: **never exposed client-side**
+- [ ] `.env` absent from the Git repo (`.gitignore` up to date)
+- [ ] `EMERGENT_LLM_KEY` removed from all environments
+- [ ] CORS restricted to production domains (`CORS_ORIGINS`)
 
 ---
 
 ## 10. User guide
 
-1. **Create an account** (`/signup`) -> a company workspace (tenant) is created automatically,
-   with a demo catalog.
-2. **Import your catalog** (Catalogs -> *Import CSV*):
-   - Step 1: drop the CSV file (any column format, `,` or `;` separator).
-   - Step 2: check the **preview** and the **auto-detected mapping** (adjustable). Only the
-     *Label/Designation* field is required.
-   - Step 3: confirm -> the catalog becomes active. All original columns are preserved.
-3. **Create a request** (Requests): upload a "work order" PDF/image or paste text -> the AI
-   extracts structured data.
-4. **Generate a quote**: from a request, create a **draft**; lines are pre-matched with the catalog.
-5. **Edit the quote** (Editor): add/remove lines (Labor, Material, Note, Page break), set
-   quantities/VAT/margin, pick catalog items.
-6. **Fill the company profile** (Settings): legal name, registration number, IBAN, mentions...
-7. **Validate** the quote, then **download the Pro Forma PDF**.
-8. **Manage the team** (Members): invite users, set roles.
-9. **Track activity** (Audit log).
+### Standard flow
+
+1. **Log in** → select tenant (company workspace)
+2. **New request** → upload a PDF / image / text
+3. The AI (Hermes-3) automatically extracts: client, site, object, work lines
+4. **Review / correct** the extracted data
+5. **Create the quote** → the quote editor opens with pre-filled lines
+6. **Adjust** lines (quantities, prices, VAT, margin), add catalog items
+7. **Generate the Pro Forma PDF** → immediate download
+8. *(Optional)* Trigger the n8n webhook to automate the next steps (email, CRM...)
+
+### Catalog management
+
+- **CSV import**: any column format → auto-detection → manual mapping if needed
+- **Versions**: each import creates a new version; activation is manual
+- **Client code**: editable per version, used as reference in quotes
 
 ---
 
 ## 11. API reference
 
-All routes are prefixed with **`/api`** and (except signup/login) protected by
-**`Authorization: Bearer <token>`**.
+All routes are prefixed with `/api`. The backend exposes interactive documentation at:
+- **Swagger UI**: `http://localhost:8001/api/docs`
+- **ReDoc**: `http://localhost:8001/api/redoc`
 
-### Auth & members
+### Authentication
+
 | Method | Route | Description |
 |--------|-------|-------------|
-| POST | `/api/auth/signup` | Create account + tenant |
-| POST | `/api/auth/login` | Log in (returns a token) |
-| GET | `/api/auth/me` | Profile + accessible tenants |
-| POST | `/api/auth/switch-tenant/{tenant_id}` | Switch active tenant |
-| GET / POST | `/api/members` | List / invite members |
-| PATCH | `/api/members/{user_id}` | Update a role |
+| `POST` | `/api/auth/register` | Create account |
+| `POST` | `/api/auth/login` | Login — returns a JWT |
+| `GET` | `/api/auth/me` | Authenticated user profile |
 
-### Settings & profile
+### Tenants & users
+
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET / PUT | `/api/settings/integrations` | AI/n8n settings (AI key encrypted, never returned) |
-| GET / PUT | `/api/company-profile` | Company profile (PDF) |
+| `GET` | `/api/tenants` | List user's tenants |
+| `POST` | `/api/tenants` | Create a tenant |
+| `GET` | `/api/tenants/{id}/users` | Tenant members |
+| `POST` | `/api/tenants/{id}/invite` | Invite a user |
 
 ### Requests
-| Method | Route | Description |
-|--------|-------|-------------|
-| POST | `/api/requests` | Create a request (file/text) |
-| GET | `/api/requests` | List |
-| GET | `/api/requests/{id}` | Detail |
-| POST | `/api/requests/{id}/process` | (Re)run AI extraction |
 
-### Catalogs
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET | `/api/catalogs` | List (with versions) |
-| GET | `/api/catalogs/{id}/items` | Items + dynamic columns + mapping |
-| GET | `/api/catalog-template.csv` | Downloadable CSV template |
-| POST | `/api/catalogs/import/preview` | Preview + auto-detected mapping |
-| POST | `/api/catalogs/import` | Import (adjustable mapping) |
-| GET | `/api/import-jobs/{job_id}/errors` | Errors of an import |
-| POST | `/api/catalogs/{id}/activate/{version_id}` | Activate a version |
-| PATCH | `/api/catalogs/{id}` | Update (e.g. `client_code`) |
-| POST | `/api/catalogs/{id}/deactivate` | Deactivate |
-| DELETE | `/api/catalogs/{id}` | Delete (cascade) |
-| GET | `/api/catalog/active` | Active catalog (for the quote picker) |
+| `GET` | `/api/requests` | List tenant requests |
+| `POST` | `/api/requests` | Create a request (file upload) |
+| `GET` | `/api/requests/{id}` | Request detail |
+| `POST` | `/api/requests/{id}/extract` | Trigger AI extraction |
+| `DELETE` | `/api/requests/{id}` | Delete a request |
 
 ### Quotes
+
 | Method | Route | Description |
 |--------|-------|-------------|
-| POST | `/api/quotes/draft` | Create a draft from a request |
-| GET | `/api/quotes` | List |
-| GET | `/api/quotes/{id}` | Detail |
-| PATCH | `/api/quotes/{id}` | Edit (lines, VAT, margin...) |
-| POST | `/api/quotes/{id}/validate` | Validate (freezes a version) |
-| POST | `/api/quotes/{id}/send` | Mark as sent |
-| GET | `/api/quotes/{id}/pdf` | Download the Pro Forma PDF |
+| `GET` | `/api/quotes` | List tenant quotes |
+| `POST` | `/api/quotes` | Create a quote |
+| `GET` | `/api/quotes/{id}` | Quote detail |
+| `PUT` | `/api/quotes/{id}` | Update a quote |
+| `POST` | `/api/quotes/{id}/pdf` | Generate Pro Forma PDF |
+| `DELETE` | `/api/quotes/{id}` | Delete a quote |
 
-### Misc
+### Catalogs
+
 | Method | Route | Description |
 |--------|-------|-------------|
-| GET | `/api/dashboard` | Metrics |
-| GET | `/api/audit` | Audit log |
-| GET | `/api/` | Healthcheck |
+| `GET` | `/api/catalogs` | List catalogs |
+| `POST` | `/api/catalogs` | Create a catalog |
+| `POST` | `/api/catalogs/{id}/import` | Import a CSV |
+| `GET` | `/api/catalogs/{id}/items` | Active catalog items |
+| `PUT` | `/api/catalogs/{id}/versions/{vid}/activate` | Activate a version |
 
-#### cURL example
-```bash
-# Login
-curl -X POST "$BACKEND/api/auth/login" -H "Content-Type: application/json" \
-  -d '{"email":"demo@blueseatra.com","password":"secret123"}'
-# List catalogs
-curl "$BACKEND/api/catalogs" -H "Authorization: Bearer <TOKEN>"
-```
+### Settings & integrations
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` | `/api/settings/integrations` | Tenant AI/n8n settings |
+| `PUT` | `/api/settings/integrations` | Update settings |
+| `GET` | `/api/settings/company` | Company profile |
+| `PUT` | `/api/settings/company` | Update company profile |
 
 ---
 
 ## 12. Frontend (routes & pages)
 
-| Route | Page | Access |
-|-------|------|--------|
-| `/` | Landing | Public |
-| `/login`, `/signup` | Authentication | Public |
-| `/app` | Dashboard | Protected |
-| `/app/requests`, `/app/requests/:id` | Requests / detail | Protected |
-| `/app/catalogs`, `/app/catalogs/import` | Catalogs / import | Protected |
-| `/app/quotes`, `/app/quotes/:id` | Quotes / editor | Protected |
-| `/app/members` | Members | Protected |
-| `/app/audit` | Audit log | Protected |
-| `/app/settings` | Settings / profile | Protected |
-| `/app/billing` | Billing | Protected |
-
-- Internationalization: `frontend/src/i18n.js` (FR/EN).
-- API client: `frontend/src/lib/api.js` (base `REACT_APP_BACKEND_URL` + `/api`, token injection).
-- Build check: `npx esbuild src/ --loader:.js=jsx --bundle --outfile=/dev/null` (never `npm`).
+| Route | Page / Component | Description |
+|-------|-----------------|-------------|
+| `/` | `Landing` | Public home page |
+| `/login` | `Auth/Login` | Login |
+| `/register` | `Auth/Register` | Sign up |
+| `/dashboard` | `Dashboard` | Tenant overview |
+| `/requests` | `Requests/List` | Request list |
+| `/requests/new` | `Requests/New` | New request (upload) |
+| `/requests/:id` | `Requests/Detail` | Detail + AI extraction result |
+| `/quotes` | `Quotes/List` | Quote list |
+| `/quotes/:id` | `QuoteEditor` | Full quote editor |
+| `/catalogs` | `Catalogs/List` | Catalog management |
+| `/catalogs/:id` | `Catalogs/Detail` | Detail + CSV import |
+| `/settings` | `Settings` | Tenant settings |
+| `/settings/integrations` | `Settings/Integrations` | AI config (Hermes/OpenAI...) + n8n |
+| `/settings/company` | `Settings/Company` | Company profile (PDF) |
+| `/settings/users` | `Settings/Users` | Member management |
 
 ---
 
 ## 13. Scripts & maintenance
 
-| Script | Usage |
-|--------|-------|
-| `python migrate_mongo_to_supabase.py --create-tables` | Create schema + enable RLS |
-| `python migrate_mongo_to_supabase.py` | Migrate data MongoDB -> Supabase (idempotent) |
-| `python enable_rls.py` | (Re)apply RLS + `deny_all` policy + revoke `anon`/`authenticated` |
-| `pip freeze > requirements.txt` | Update backend dependencies (after `pip install`) |
-| `yarn add <pkg>` | Add a frontend dependency |
-| `sudo supervisorctl status / restart backend frontend` | Manage services |
-| `tail -n 100 /var/log/supervisor/backend.*.log` | Backend logs |
+```bash
+# Regenerate SQL schema (SQLAlchemy → PostgreSQL)
+cd backend && python -c "from database import engine; from models_sql import Base; import asyncio; asyncio.run(Base.metadata.create_all(engine))"
+
+# One-shot MongoDB → Supabase migration
+python migrate_mongo_to_supabase.py
+
+# Enable / verify RLS
+python enable_rls.py
+
+# Check Ollama / Hermes connectivity
+curl http://<HERMES_BASE_URL>/api/tags
+
+# Manual AI extraction test
+curl -X POST http://localhost:8001/api/requests/<id>/extract \
+     -H "Authorization: Bearer <JWT>"
+```
 
 ---
 
 ## 14. Deployment
 
-1. **Check** deployability (no hardcoded secrets, ports, CORS, build).
-2. **Deploy** via Emergent's **Deploy** button (Preview -> Deploy -> Deploy Now).
-3. **Custom domain** (`blueseatra.com`): Dashboard -> Connect -> **Entri** integration
-   (guided DNS setup).
-4. In prod: set `CORS_ORIGINS=https://blueseatra.com` and keep `JWT_SECRET` / `APP_ENCRYPTION_KEY`
-   out of the Git repository.
+See **`DEPLOIEMENT.md`** for the full guide (Hostinger + Render + Supabase + OVH VPS).
 
-> Platform constraints: backend bound to `0.0.0.0:8001`, `/api/*` routes, services via supervisor,
-> never modify `REACT_APP_BACKEND_URL` or the ingress config.
+### Quick summary
+
+| Component | Service | Notes |
+|-----------|---------|-------|
+| Backend API | **Render** (Web Service, Python) | `uvicorn server:app --host 0.0.0.0 --port $PORT` |
+| Frontend | **Hostinger** (Static / Node) | `yarn build` → `build/` folder |
+| Database | **Supabase** (PostgreSQL 17) | Transaction Pooler port 6543 |
+| AI engine | **OVH VPS** (Ollama + Hermes-3) | Port 11434, accessible from Render |
+
+### Render environment variables (backend)
+
+```
+DATABASE_URL=postgresql+asyncpg://...supabase.com:6543/postgres
+JWT_SECRET=<generated>
+APP_ENCRYPTION_KEY=<generated>
+HERMES_BASE_URL=https://<your-ovh-vps>:11434
+HERMES_DEFAULT_MODEL=hermes-3
+SUPABASE_URL=https://<ref>.supabase.co
+SUPABASE_ANON_KEY=<anon key>
+SUPABASE_SERVICE_ROLE_KEY=<service_role key>
+CORS_ORIGINS=https://<your-frontend-domain>
+```
+
+> ⚠️ Do NOT add `EMERGENT_LLM_KEY` — this variable is no longer used.
 
 ---
 
 ## 15. Changelog (steps completed)
 
-**Phase 1-2 — MVP & foundation**
-- JWT auth, multi-tenant, frontend routing, dashboard.
-- AI extraction of requests (PDF/image/text) -> structured data.
-- Pro Forma PDF generation matching the business template.
+### 🔄 July 2026 — Migration to Hermes AI / Ollama / OVH VPS
 
-**Phase 3 — Professional quote editor**
-- Typed lines (Labor, Material, Note, Page break), per-line VAT, margin hidden on PDF, numeric
-  quantities, A4 adaptation, catalog item picker.
-- Hierarchical catalog import (Family -> Item -> Supplier).
+**Major changes:**
+- ✅ **Complete removal of the Emergent provider** (`emergentintegrations` uninstalled, `EMERGENT_LLM_KEY` removed)
+- ✅ **Hermes-3 via Ollama** on OVH VPS becomes the default AI engine (`ai_service.py` rewritten)
+- ✅ **litellm updated to 1.80.0** as the abstraction layer for tenant fallbacks (OpenAI / Anthropic / Gemini)
+- ✅ `HERMES_BASE_URL` and `HERMES_DEFAULT_MODEL` environment variables added
+- ✅ `requirements.txt` updated (removed `emergentintegrations`, added `litellm==1.80.0`)
+- ✅ `.env.example` updated (removed `EMERGENT_LLM_KEY`, added Hermes vars + `APP_ENCRYPTION_KEY`)
+- ✅ README.md (FR) and README.en.md (EN) fully updated (sections 1–16)
 
-**Phase 4 — "Open" catalog (dynamic CSV)**
-- Column auto-detection (FR/EN synonyms) + adjustable mapping in the import wizard.
-- Robust parsing (`,`/`;`/tab separator, encodings, `12,50` decimals).
-- All columns preserved in `attributes` (JSONB); dynamic columns display + details.
-- **Deactivate** / **Delete** catalog buttons, **editable client code**, UI alignment.
-- Fixed display of numeric fields (Qty/Price/Margin) in the editor.
+### Previous steps
 
-**Security audit**
-- Strong JWT_SECRET + refusal of default secret; hardened CORS; 15 MB upload limit;
-  Fernet encryption of the AI key; multi-tenant isolation verified.
-
-**Migration to Supabase (PostgreSQL)**
-- Connection via Transaction Pooler (asyncpg, `statement_cache_size=0`).
-- 14 SQLAlchemy models (JSONB for dynamic data) + schema created.
-- **`pg_adapter.py` adapter** (motor-compatible) -> `server.py` almost unchanged.
-- Migration of existing data (idempotent, without deleting MongoDB).
-- Tests: backend 60/61, frontend 95%, overall 97% (1 `update_one` bug fixed).
-
-**Supabase hardening**
-- RLS enabled on all 14 tables, `deny_all` policy, `anon`/`authenticated` privileges revoked
-  -> Security Advisor "0 error / 0 warning / 0 info".
+| Step | Description |
+|------|-------------|
+| MongoDB → Supabase migration | `pg_adapter.py` + `models_sql.py` + `migrate_mongo_to_supabase.py` |
+| RLS activation | `enable_rls.py` — deny-all policy on all 14 tables |
+| Quote editor v2 | Typed lines, per-line VAT, hidden margin, catalog picker |
+| Universal CSV import | Column auto-detection + manual mapping + dynamic attributes |
+| Pro Forma PDF generation | ReportLab — full business template with company profile |
+| Multi-tenant RBAC | Roles: `owner` / `admin` / `operator` / `viewer` / `billing_admin` |
+| Internationalization | react-i18next — FR / EN |
+| n8n webhook | Configurable per tenant in integration settings |
+| Audit log | `audit_logs` table — all sensitive actions tracked |
+| Company profile PDF | SIRET, IBAN, legal mentions, terms injected into the PDF |
 
 ---
 
 ## 16. Troubleshooting / FAQ
 
-**Backend refuses to start (`JWT_SECRET ...`)**
--> Set a strong `JWT_SECRET` (>= 32 chars) in `backend/.env`.
+### Backend refuses to start
 
-**`DATABASE_URL not set` / DB connection errors**
--> Use the **Transaction Pooler** URI (port 6543) with the real **password**. The Direct
-Connection (5432) does not work here.
-
-**`prepared statement` error with the pooler**
--> Already handled (`statement_cache_size=0`). If you change the engine, keep this setting in
-*transaction* mode.
-
-**HTTP 413 on upload**
--> File > 15 MB. Adjust `MAX_UPLOAD_SIZE` if needed.
-
-**Supabase Security Advisor reports RLS issues**
--> Run `python enable_rls.py`, then "Rerun linter" in the dashboard.
-
-**Old tokens no longer work**
--> Normal after a `JWT_SECRET` rotation: log in again.
-
-**Do not use `npm`** — only **`yarn`**. Never start servers manually: use **supervisor**.
+**Symptom:** `ValueError: JWT_SECRET is too weak or is the default value`
+**Solution:** Generate a strong secret and add it to `backend/.env`:
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
 
 ---
 
-> _Blueseatra — documentation maintained in `/app/README.md` (FR) and `/app/README.en.md` (EN).
-> For database migration, see also `backend/SUPABASE_MIGRATION.md`._
+### PostgreSQL connection error
+
+**Symptom:** `asyncpg.exceptions.InvalidAuthorizationSpecificationError`
+**Solutions:**
+- Make sure `DATABASE_URL` uses port **6543** (Transaction Pooler), not 5432
+- Verify credentials in the Supabase Dashboard → Settings → Database
+- Make sure the region in the URL is correct
+
+---
+
+### AI extraction fails
+
+**Symptom:** `ConnectionRefusedError` or timeout on `/api/requests/{id}/extract`
+**Solutions:**
+1. Check that Ollama is running: `curl http://<HERMES_BASE_URL>/api/tags`
+2. Check that `hermes-3` is downloaded: `ollama list`
+3. If the OVH VPS is unreachable, configure an OpenAI fallback in the tenant's integration settings
+4. Check logs: `docker logs ollama` or `journalctl -u ollama`
+
+---
+
+### `emergentintegrations` not found
+
+**Symptom:** `ModuleNotFoundError: No module named 'emergentintegrations'`
+**Solution:** This module was **removed** in July 2026. Update your installation:
+```bash
+pip install -r requirements.txt
+```
+Make sure `emergentintegrations` is no longer in your `requirements.txt`.
+
+---
+
+### CSV import — columns not detected
+
+**Symptom:** All columns appear as "unmapped"
+**Solutions:**
+- Check the file encoding (UTF-8 or Latin-1 accepted)
+- Check the separator (`,` or `;` — auto-detected)
+- Use the manual mapping in the UI to associate your columns to standard fields
+
+---
+
+### Pro Forma PDF — missing company data
+
+**Symptom:** The PDF does not contain the registration number / IBAN / logo
+**Solution:** Fill in the company profile under **Settings → Company profile** for the relevant tenant.
+
+---
+
+### CORS error in development
+
+**Symptom:** `Access to XMLHttpRequest blocked by CORS policy`
+**Solution:** Add `http://localhost:3000` to `CORS_ORIGINS` in `backend/.env`:
+```
+CORS_ORIGINS=http://localhost:3000,https://<your-domain>
+```
+
+---
+
+*Last updated: July 20, 2026 — Migration to Hermes AI / Ollama / OVH VPS*
