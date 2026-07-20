@@ -1,38 +1,103 @@
 # ============================================================
-# Render Blueprint — Blueseatra backend (FastAPI)
-# Docs: https://render.com/docs/blueprint-spec
-# Deploy: Render Dashboard > New > Blueprint > connect this repo.
-# Secrets (DATABASE_URL, JWT_SECRET, ...) are set in the Render
-# dashboard, NOT committed here.
+# Render Blueprint — Blueseatra
+# https://render.com/docs/blueprint-spec
 # ============================================================
+# IMPORTANT : Ne jamais committer les valeurs sensibles ici.
+# Les secrets (DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET,
+# APP_ENCRYPTION_KEY) doivent être renseignés dans
+# Render Dashboard > Environment > Secret Files / Env Vars.
+# ============================================================
+
 services:
+
+  # ----------------------------------------------------------
+  # Backend FastAPI — API Blueseatra
+  # ----------------------------------------------------------
   - type: web
     name: blueseatra-api
     runtime: python
-    region: frankfurt          # closest to Supabase eu-west-1 (Ireland)
-    plan: free                 # free tier: sleeps after ~15 min idle
-    rootDir: backend           # the FastAPI app lives in /backend
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn server:app --host 0.0.0.0 --port $PORT"
+    region: frankfurt  # eu-central-1 — proche de Supabase eu-west-1 (Ireland)
+    plan: starter
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
-    autoDeploy: true           # redeploy on every push to the default branch
+
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.11.9"
-      # ---- Secrets below: set their values in the Render dashboard ----
+
+      # --- Database : Supabase Transaction Pooler (port 6543) ---
+      # Format : postgresql+asyncpg://postgres.xmsxlochasjauhnxarvc:[MOT_DE_PASSE]@aws-0-eu-west-1.pooler.supabase.com:6543/postgres
+      # → À renseigner dans Render Dashboard > Environment (Secret)
       - key: DATABASE_URL
         sync: false
-      - key: DB_SCHEMA
-        value: blueseatra
+
+      # --- Supabase API ---
       - key: SUPABASE_URL
         value: https://xmsxlochasjauhnxarvc.supabase.co
+
+      # Clé anon (publique) — sûr de committer
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhtc3hsb2NoYXNqYXVobnhhcnZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNzU5MDAsImV4cCI6MjA5NzY1MTkwMH0.RCSODn4zjqsgAxAelkSN24YWSDVUrbNaQruQ6Xa22_w
+
+      # Clé publishable moderne (recommandée pour les nouveaux modules)
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_CyUMx3b07aIaDDq99VixKw_pHp7t4WU
+
+      # Service role key — ultra-sensible, JAMAIS dans le code
+      # → À renseigner dans Render Dashboard > Environment (Secret)
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+
+      # --- App secrets ---
+      # Générer : python -c "import secrets; print(secrets.token_urlsafe(48))"
       - key: JWT_SECRET
         sync: false
+
+      # Générer : python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
       - key: APP_ENCRYPTION_KEY
         sync: false
-      # Comma-separated list of allowed frontend origins (no trailing slash).
-      # e.g. https://blueseatra.com,https://www.blueseatra.com
+
+      # --- IA : Hermes / Ollama sur VPS OVH ---
+      # Remplacer par l'IP ou le domaine public de ton VPS OVH en production
+      - key: HERMES_BASE_URL
+        value: http://localhost:11434
+
+      - key: HERMES_DEFAULT_MODEL
+        value: hermes-3
+
+      # --- CORS ---
+      # Ajouter l'URL réelle du frontend une fois déployé
       - key: CORS_ORIGINS
-        sync: false
+        value: https://blueseatra.com,https://blueseatra-frontend.onrender.com
+
+      # --- Schema PostgreSQL ---
+      - key: DB_SCHEMA
+        value: public
+
+      # --- Taille max upload (15 Mo) ---
+      - key: MAX_UPLOAD_SIZE
+        value: "15728640"
+
+      # --- Python env ---
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+  # ----------------------------------------------------------
+  # Frontend (décommenter si hébergé sur Render)
+  # Laisser commenté si le frontend est sur Vercel / Netlify
+  # ----------------------------------------------------------
+  # - type: web
+  #   name: blueseatra-frontend
+  #   runtime: static
+  #   region: frankfurt
+  #   plan: starter
+  #   rootDir: frontend
+  #   buildCommand: npm install && npm run build
+  #   staticPublishPath: ./dist
+  #   envVars:
+  #     - key: VITE_API_URL
+  #       value: https://blueseatra-api.onrender.com
+  #     - key: VITE_SUPABASE_URL
+  #       value: https://xmsxlochasjauhnxarvc.supabase.co
+  #     - key: VITE_SUPABASE_ANON_KEY
+  #       value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhtc3hsb2NoYXNqYXVobnhhcnZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNzU5MDAsImV4cCI6MjA5NzY1MTkwMH0.RCSODn4zjqsgAxAelkSN24YWSDVUrbNaQruQ6Xa22_w
