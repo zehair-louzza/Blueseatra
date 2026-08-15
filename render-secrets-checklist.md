@@ -46,13 +46,14 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ---
 
-## 5. HERMES_BASE_URL (si VPS OVH en production)
+## 5. HERMES_BASE_URL + HERMES_API_KEY (VPS OVH / ovh-ai-stack)
 
-Remplacer `http://localhost:11434` par l'URL publique de ton VPS OVH :
+Ne plus exposer `:11434`. Pointer Caddy :
 ```
-https://[IP-OU-DOMAINE-OVH]:11434
+HERMES_BASE_URL=https://ia.votredomaine.tld
+HERMES_API_KEY=<même valeur que OLLAMA_API_KEY sur le VPS>
 ```
-Vérifier que le port 11434 est ouvert sur le firewall OVH et que Ollama écoute sur `0.0.0.0`.
+Infra : dépôt privé `zehair-louzza/ovh-ai-stack`.
 
 ---
 
@@ -64,7 +65,8 @@ Vérifier que le port 11434 est ouvert sur le firewall OVH et que Ollama écoute
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard → API Settings | 🔴 Secret |
 | `JWT_SECRET` | Générer localement | 🔴 Secret |
 | `APP_ENCRYPTION_KEY` | Générer localement | 🔴 Secret |
-| `HERMES_BASE_URL` | IP/domaine VPS OVH | 🟡 Interne |
+| `HERMES_BASE_URL` | domaine Caddy OVH (HTTPS) | 🟡 Interne |
+| `HERMES_API_KEY` | `.env` ovh-ai-stack | 🔴 Secret |
 
 ---
 

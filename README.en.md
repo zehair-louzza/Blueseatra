@@ -169,8 +169,9 @@ Draft quote  -->  Quote editor  -->  Validated quote  -->  Pro Forma PDF
 | `SUPABASE_SERVICE_ROLE_KEY` | `service_role` key (**highly sensitive**, server only) |
 | `JWT_SECRET` | JWT signing secret — **must be strong** (≥ 32 chars, non-default) |
 | `APP_ENCRYPTION_KEY` | Fernet key (base64) to encrypt tenant AI secrets at rest |
-| `HERMES_BASE_URL` | Ollama instance URL (default: `http://localhost:11434`) |
-| `HERMES_DEFAULT_MODEL` | Ollama model to use (default: `hermes-3`) |
+| `HERMES_BASE_URL` | OVH Caddy URL (prod) or `http://localhost:11434` (dev) |
+| `HERMES_DEFAULT_MODEL` | Ollama model (default: `hermes-3`) |
+| `HERMES_API_KEY` | `X-Api-Key` (same as `OLLAMA_API_KEY` on the VPS) |
 | `MAX_UPLOAD_SIZE` | (optional) Max upload size in bytes (default 15 MB) |
 | `CORS_ORIGINS` | (optional) Allowed origins, comma-separated |
 | `MONGO_URL`, `DB_NAME` | Kept for the migration script (MongoDB source) |
@@ -443,8 +444,9 @@ See **`DEPLOIEMENT.md`** for the full guide (Hostinger + Render + Supabase + OVH
 DATABASE_URL=postgresql+asyncpg://...supabase.com:6543/postgres
 JWT_SECRET=<generated>
 APP_ENCRYPTION_KEY=<generated>
-HERMES_BASE_URL=https://<your-ovh-vps>:11434
+HERMES_BASE_URL=https://ia.yourdomain.tld
 HERMES_DEFAULT_MODEL=hermes-3
+HERMES_API_KEY=<ovh-ai-stack secret>
 SUPABASE_URL=https://<ref>.supabase.co
 SUPABASE_ANON_KEY=<anon key>
 SUPABASE_SERVICE_ROLE_KEY=<service_role key>

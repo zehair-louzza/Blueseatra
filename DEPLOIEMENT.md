@@ -69,8 +69,9 @@ yarn build
 | `SUPABASE_SERVICE_ROLE_KEY` | Clé service_role (ultra-sensible) | ✅ |
 | `JWT_SECRET` | Secret JWT ≥ 32 caractères | ✅ |
 | `APP_ENCRYPTION_KEY` | Clé Fernet pour chiffrer les clés IA tenant | ✅ |
-| `HERMES_BASE_URL` | URL Ollama sur VPS OVH (ex. `http://IP:11434`) | ✅ |
+| `HERMES_BASE_URL` | URL Caddy OVH (ex. `https://ia.example.com`) — jamais `:11434` | ✅ |
 | `HERMES_DEFAULT_MODEL` | Modèle Ollama (défaut : `hermes-3`) | optionnel |
+| `HERMES_API_KEY` | Même secret que `OLLAMA_API_KEY` dans `ovh-ai-stack` | ✅ prod |
 | `CORS_ORIGINS` | Origines autorisées (ex. `https://blueseatra.com`) | optionnel |
 | `MAX_UPLOAD_SIZE` | Taille max upload en octets (défaut 15 Mo) | optionnel |
 | `MONGO_URL`, `DB_NAME` | Source MongoDB (migration uniquement) | optionnel |
@@ -79,19 +80,25 @@ yarn build
 
 ---
 
-## Étape 3 — Hermes AI (Ollama sur VPS OVH)
+## Étape 3 — Hermes AI (stack Docker OVH)
 
-1. Sur votre VPS OVH, installez Ollama :
-   ```bash
-   curl -fsSL https://ollama.com/install.sh | sh
-   ollama pull hermes-3
-   ollama serve  # port 11434 par défaut
+L'infra IA n'est plus installée à la main ni exposée en `:11434`.
+Dépôt dédié (privé) : [zehair-louzza/ovh-ai-stack](https://github.com/zehair-louzza/ovh-ai-stack)
+Guide PowerShell : `docs/GUIDE-POWERSHELL.md` dans ce dépôt.
+
+1. Suivre le guide jusqu'à `docker compose up -d` + `scripts/pull-models.sh`.
+2. Renseigner côté Render / `.env` backend :
    ```
-2. Ouvrez le port 11434 dans le firewall OVH (ou utilisez un tunnel SSH/nginx reverse proxy).
-3. Renseignez `HERMES_BASE_URL=http://<IP-VPS>:11434` dans le `.env` du backend.
-4. Le backend communique via `POST ${HERMES_BASE_URL}/api/chat` (Ollama REST API).
+   HERMES_BASE_URL=https://ia.votredomaine.tld
+   HERMES_DEFAULT_MODEL=hermes-3
+   HERMES_API_KEY=<OLLAMA_API_KEY du VPS>
+   ```
+3. Le backend envoie `POST ${HERMES_BASE_URL}/api/chat` avec l'en-tête `X-Api-Key`.
+4. Ne jamais ouvrir le port 11434 sur Internet.
 
-> Les tenants peuvent surcharger le moteur IA depuis Paramètres → Intégrations (OpenAI, Anthropic, Gemini via litellm).
+> Les tenants peuvent surcharger le moteur IA depuis Paramètres → Intégrations (OpenAI, Anthropic, Gemini via litellm). Un provider cloud = transfert hors UE à documenter (RGPD).
+
+Oracle Cloud n'est plus l'hôte IA. Le produit MCP OracleMind n'est pas concerné. Voir `docs/DECOMMISSION-ORACLE.md` dans ovh-ai-stack.
 
 ---
 
