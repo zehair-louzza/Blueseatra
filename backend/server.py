@@ -410,10 +410,19 @@ class CompanyProfile(BaseModel):
 
 def _intitule_with_di(obj, di_number) -> str:
     title = (obj or "").strip()
-    di = str(di_number or "").strip()
-    if di and (not title or not title.upper().startswith(di.upper())):
-        return f"{di} {title}".strip()
-    return title
+    raw = str(di_number or "").strip()
+    if not raw:
+        return title
+    di_num = raw[2:].lstrip(" \t:-") if raw.upper().startswith("DI") else raw
+    if not di_num:
+        return title
+    prefix = f"DI {di_num}"
+    rest = title
+    for start in (prefix, di_num, raw):
+        if rest.upper().startswith(start.upper()):
+            rest = rest[len(start):].strip()
+            break
+    return f"{prefix} {rest}".strip()
 
 
 async def get_company_profile(tenant_id):

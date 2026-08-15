@@ -168,10 +168,19 @@ def _intitule(quote: dict) -> str:
     ref = (quote.get("object") or "").strip()
     if not ref:
         ref = " \u2013 ".join([b for b in [quote.get("client"), quote.get("site")] if b])
-    di = str((quote.get("meta") or {}).get("di_number") or quote.get("di_number") or "").strip()
-    if di and (not ref or not ref.upper().startswith(di.upper())):
-        return f"{di} {ref}".strip()
-    return ref
+    raw = str((quote.get("meta") or {}).get("di_number") or quote.get("di_number") or "").strip()
+    if not raw:
+        return ref
+    di_num = raw[2:].lstrip(" \t:-") if raw.upper().startswith("DI") else raw
+    if not di_num:
+        return ref
+    prefix = f"DI {di_num}"
+    rest = ref
+    for start in (prefix, di_num, raw):
+        if rest.upper().startswith(start.upper()):
+            rest = rest[len(start):].strip()
+            break
+    return f"{prefix} {rest}".strip()
 
 
 def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: dict = None) -> bytes:
