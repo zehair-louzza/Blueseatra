@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { toast } from 'sonner';
-import { Inbox, Plus, Upload, Loader2, FileText } from 'lucide-react';
+import { Inbox, Plus, Upload, Loader2, FileText, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 export default function Requests() {
   const { t } = useTranslation();
@@ -111,7 +112,29 @@ export default function Requests() {
                     <TableCell className="uppercase">{r.language || '\u2014'}</TableCell>
                     <TableCell>{r.extracted?.line_items?.length ?? '\u2014'}</TableCell>
                     <TableCell><StatusBadge status={r.status} /></TableCell>
-                    <TableCell className="text-right"><Button variant="ghost" size="sm">{t('common.open')}</Button></TableCell>
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => navigate(`/app/requests/${r.id}`)}>{t('common.open')}</Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="sm" className="gap-1 text-destructive hover:text-destructive" data-testid="request-delete-button"><Trash2 className="h-4 w-4" />{t('req.delete')}</Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{t('req.delete_title')}</AlertDialogTitle>
+                              <AlertDialogDescription>{r.title} — {t('req.delete_desc')}</AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                              <AlertDialogAction onClick={async () => {
+                                try { await api.delete(`/requests/${r.id}`); toast.success(t('req.deleted')); load(); }
+                                catch (err) { toast.error(apiError(err, 'Failed')); }
+                              }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('req.delete')}</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
