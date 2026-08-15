@@ -12,7 +12,7 @@ Dans `blueseatra-api` → Environment :
 | Key | Valeur |
 |---|---|
 | `MCP_API_KEY` | secret long (générer ci-dessous) |
-| `MCP_TENANT_ID` | UUID du tenant **ANELEC Test** |
+| `MCP_TENANT_ID` | `9171d808-f7ee-4d51-92f6-db60d93d8ecc` (**ANELEC Test**) |
 
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(32))"
