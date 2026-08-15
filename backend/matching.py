@@ -15,10 +15,32 @@ def normalize(s: str) -> str:
     return " ".join(s.lower().split())
 
 
+def _line_text(line: dict) -> str:
+    return line.get("label") or line.get("description") or line.get("request_label") or ""
+
+
+def _match_query(text: str) -> str:
+    """Drop verbs/qty so 'remplacement de 3 spots LED' matches 'Spot LED encastré'."""
+    s = normalize(text)
+    for junk in (
+        "remplacement de", "remplacement d", "fourniture et pose de",
+        "fourniture et pose", "pose de", "pose d", "fourniture de",
+    ):
+        s = s.replace(junk, " ")
+    keep = []
+    for tok in s.split():
+        if tok in {"de", "d", "un", "une", "le", "la", "les", "des"} or tok.isdigit():
+            continue
+        if tok.endswith("s") and len(tok) > 3:
+            tok = tok[:-1]
+        keep.append(tok)
+    return " ".join(keep)
+
+
 def match_line(line: dict, catalog: list) -> dict | None:
     best = None
-    label_norm = normalize(line.get("label", ""))
-    req_cat = (line.get("category") or "").lower()
+    label_norm = _match_query(_line_text(line))
+    req_cat = (line.get("category") or line.get("work_type") or "").lower()
     req_unit = (line.get("unit") or "").lower()
     for item in catalog:
         score = 0
@@ -29,10 +51,17 @@ def match_line(line: dict, catalog: list) -> dict | None:
             reasons.append("exact_label(+70)")
         else:
             fz = fuzz.token_set_ratio(label_norm, item_label_norm)
-            if fz >= 60:
-                sem = int(fz * 0.5)
+            if fz >= 50:
+                sem = int(fz * 0.6)
                 score += sem
                 reasons.append(f"label_fuzzy_{int(fz)}(+{sem})")
+            req_tokens = set(label_norm.split())
+            item_tokens = set(item_label_norm.split())
+            overlap = req_tokens & item_tokens
+            if overlap:
+                bonus = min(30, 10 * len(overlap))
+                score += bonus
+                reasons.append(f"token_overlap_{'+'.join(sorted(overlap))}(+{bonus})")
         if req_cat and req_cat == (item.get("category") or "").lower():
             score += 40
             reasons.append("same_category(+40)")

@@ -923,7 +923,8 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
         raise HTTPException(400, "No active pricing catalog. Import and activate one first.")
     ver = await db.catalog_versions.find_one({"id": cat["active_version_id"]}, {"_id": 0})
 
-    lines, total_ht, total_vat = match_engine.build_quote_lines(req["extracted"], items)
+    extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
     count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
     quote_id = new_id()
     ex = req["extracted"]
