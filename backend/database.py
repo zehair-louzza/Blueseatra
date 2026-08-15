@@ -57,10 +57,10 @@ if DATABASE_URL:
         pool_pre_ping=True,
         echo=False,
         connect_args={
-            # FIX: correct asyncpg parameter name is `prepared_statement_cache_size`,
-            # NOT `statement_cache_size`. The old key was silently ignored, meaning
-            # asyncpg kept using prepared statements — which crash on Transaction Pooler.
+            # Transaction pooler (Supavisor :6543) cannot reuse prepared statements.
+            # Set both keys: asyncpg versions differ on the parameter name.
             "prepared_statement_cache_size": 0,
+            "statement_cache_size": 0,
             "command_timeout": 30,
             # FIX: Supabase requires SSL. 'require' verifies the server certificate chain.
             "ssl": "require",
