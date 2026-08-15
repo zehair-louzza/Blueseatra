@@ -71,8 +71,9 @@ services:
       # Connecteur MCP Perplexity (https://blueseatra-api.onrender.com/mcp)
       - key: MCP_API_KEY
         sync: false
+      # Tenant ANELEC Test — pas un secret, requis pour le MCP Perplexity
       - key: MCP_TENANT_ID
-        sync: false
+        value: "9171d808-f7ee-4d51-92f6-db60d93d8ecc"
 
       # --- CORS ---
       # Ajouter l'URL réelle du frontend une fois déployé
