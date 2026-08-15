@@ -110,6 +110,15 @@ Les policies attendent un JWT contenant un claim `tenant_id`. Votre auth est mai
 
 ## Changelog
 
+### 2026-08-15 — OVH, MCP, devis
+
+Voir [CHANGELOG.md](CHANGELOG.md). Points ops :
+
+- Render : `HERMES_BASE_URL`, `HERMES_API_KEY`, `MCP_API_KEY`, `MCP_TENANT_ID`
+- Hostinger : `yarn build` puis upload `frontend/build/` (marge + picker catalogue)
+- MCP : [docs/MCP-PERPLEXITY.md](docs/MCP-PERPLEXITY.md)
+- Modèles Hermes UI : `hermes-3`, `qwen3.6:27b`, `qwen2.5:14b` uniquement
+
 ### 2026-07-20 — Migration Hermes AI / Suppression Emergent
 
 #### 1. Remplacement complet du moteur IA
@@ -124,7 +133,7 @@ Les policies attendent un JWT contenant un claim `tenant_id`. Votre auth est mai
 
 | Provider | Modèles disponibles |
 |----------|--------------------|
-| `hermes` | `hermes-3`, `llama-3.3-70b`, `qwen2.5-72b`, `deepseek-r1-70b` |
+| `hermes` | `hermes-3`, `qwen3.6:27b`, `qwen2.5:14b` (noms VPS ; anciens 70b/72b retirés le 15/08) |
 | `openai` | `gpt-5.4`, `gpt-5.4-mini`, `gpt-4o`, `gpt-4.1` |
 | `gemini` | `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-flash` |
 | `anthropic` | `claude-sonnet-4-6`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
