@@ -50,7 +50,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 Ne plus exposer `:11434`. Pointer Caddy :
 ```
-HERMES_BASE_URL=https://ia.votredomaine.tld
+HERMES_BASE_URL=https://ia.blueseatra.com
 HERMES_API_KEY=<même valeur que OLLAMA_API_KEY sur le VPS>
 ```
 Infra : dépôt privé `zehair-louzza/ovh-ai-stack`.

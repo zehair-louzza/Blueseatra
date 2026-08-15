@@ -60,7 +60,7 @@ services:
       # --- IA : Hermes / Ollama derrière Caddy (repo ovh-ai-stack) ---
       # HTTPS uniquement. Ne jamais pointer vers :11434.
       - key: HERMES_BASE_URL
-        value: https://ia.example.com
+        value: https://ia.blueseatra.com
 
       - key: HERMES_DEFAULT_MODEL
         value: hermes-3

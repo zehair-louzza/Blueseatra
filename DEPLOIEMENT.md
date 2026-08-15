@@ -69,7 +69,7 @@ yarn build
 | `SUPABASE_SERVICE_ROLE_KEY` | Clé service_role (ultra-sensible) | ✅ |
 | `JWT_SECRET` | Secret JWT ≥ 32 caractères | ✅ |
 | `APP_ENCRYPTION_KEY` | Clé Fernet pour chiffrer les clés IA tenant | ✅ |
-| `HERMES_BASE_URL` | URL Caddy OVH (ex. `https://ia.example.com`) — jamais `:11434` | ✅ |
+| `HERMES_BASE_URL` | `https://ia.blueseatra.com` — jamais `:11434` | ✅ |
 | `HERMES_DEFAULT_MODEL` | Modèle Ollama (défaut : `hermes-3`) | optionnel |
 | `HERMES_API_KEY` | Même secret que `OLLAMA_API_KEY` dans `ovh-ai-stack` | ✅ prod |
 | `CORS_ORIGINS` | Origines autorisées (ex. `https://blueseatra.com`) | optionnel |
@@ -89,7 +89,7 @@ Guide PowerShell : `docs/GUIDE-POWERSHELL.md` dans ce dépôt.
 1. Suivre le guide jusqu'à `docker compose up -d` + `scripts/pull-models.sh`.
 2. Renseigner côté Render / `.env` backend :
    ```
-   HERMES_BASE_URL=https://ia.votredomaine.tld
+   HERMES_BASE_URL=https://ia.blueseatra.com
    HERMES_DEFAULT_MODEL=hermes-3
    HERMES_API_KEY=<OLLAMA_API_KEY du VPS>
    ```

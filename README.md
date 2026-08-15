@@ -432,7 +432,7 @@ Consultez **`DEPLOIEMENT.md`** pour le guide complet (Hostinger + Render + Supab
 DATABASE_URL=postgresql+asyncpg://...supabase.com:6543/postgres
 JWT_SECRET=<généré>
 APP_ENCRYPTION_KEY=<généré>
-HERMES_BASE_URL=https://ia.votredomaine.tld
+HERMES_BASE_URL=https://ia.blueseatra.com
 HERMES_DEFAULT_MODEL=hermes-3
 HERMES_API_KEY=<secret ovh-ai-stack>
 SUPABASE_URL=https://<ref>.supabase.co
