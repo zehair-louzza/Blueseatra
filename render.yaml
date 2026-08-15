@@ -68,6 +68,12 @@ services:
       - key: HERMES_API_KEY
         sync: false
 
+      # Connecteur MCP Perplexity (https://blueseatra-api.onrender.com/mcp)
+      - key: MCP_API_KEY
+        sync: false
+      - key: MCP_TENANT_ID
+        sync: false
+
       # --- CORS ---
       # Ajouter l'URL réelle du frontend une fois déployé
       - key: CORS_ORIGINS
