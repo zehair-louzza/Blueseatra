@@ -79,7 +79,7 @@ export default function QuoteEditor() {
     matched_item_code: type === 'labor' ? 'MO-001' : type === 'travel' ? 'DEP-001' : null,
     qty: 1, unit: type === 'labor' ? 'hr' : 'u',
     unit_price_ht: type === 'labor' ? 42 : type === 'travel' ? 40 : '',
-    vat_rate: 20, margin: '', status: 'to_confirm', score: 0, reasons: [],
+    vat_rate: '', margin: '', status: 'to_confirm', score: 0, reasons: [],
   });
   const addNote = () => append({ line_type: 'note', description: '', status: 'note' });
   const addPageBreak = () => append({ line_type: 'page_break', status: 'page_break' });
@@ -114,7 +114,7 @@ export default function QuoteEditor() {
       matched_label: item.item_label || '', brand: item.brand || '',
       supplier: supplier || item.supplier_main || (item.suppliers || [])[0] || '',
       qty: item.min_qty || 1, unit: item.unit || 'u',
-      unit_price_ht: item.unit_price_ht || 0, vat_rate: item.vat_rate ?? 20,
+      unit_price_ht: item.unit_price_ht || 0, vat_rate: '',
       margin: item.margin || 0, status: 'confirmed', score: 100, reasons: ['from_catalog'],
     });
     toast.success(item.item_label || item.item_code || 'Article');
