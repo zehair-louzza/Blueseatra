@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
   ChevronUp, ChevronDown, BookOpen, Search, Wrench, Package, StickyNote, SeparatorHorizontal,
-  Copy, RotateCcw, RefreshCw, Truck,
+  Copy, RotateCcw, RefreshCw, Truck, Layers, FolderTree,
 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
@@ -83,6 +83,30 @@ export default function QuoteEditor() {
   });
   const addNote = () => append({ line_type: 'note', description: '', status: 'note' });
   const addPageBreak = () => append({ line_type: 'page_break', status: 'page_break' });
+  const addLot = () => {
+    const n = (q.lines || []).filter((l) => l.line_type === 'lot').length + 1;
+    append({ line_type: 'lot', description: 'Nouveau lot', lot_number: String(n), status: 'lot' });
+  };
+  const addSublot = () => {
+    let lot = 0; let sub = 0;
+    (q.lines || []).forEach((l) => {
+      if (l.line_type === 'lot') { lot += 1; sub = 0; }
+      if (l.line_type === 'sublot') sub += 1;
+    });
+    if (!lot) lot = 1;
+    append({ line_type: 'sublot', description: 'Nouveau sous-lot', lot_number: `${lot}.${sub + 1}`, status: 'sublot' });
+  };
+  const groupSubtotal = (idx, stops) => {
+    let ht = 0;
+    for (let j = idx + 1; j < (q.lines || []).length; j += 1) {
+      const x = q.lines[j];
+      if (stops.includes(x.line_type)) break;
+      if (['note', 'page_break', 'lot', 'sublot'].includes(x.line_type)) continue;
+      const qty = num(x.qty); const price = num(x.unit_price_ht);
+      if (qty !== null && price !== null) ht += qty * price * (1 + (num(x.margin) || 0) / 100);
+    }
+    return ht;
+  };
   const addFromCatalog = (item, supplier) => {
     append({
       line_type: 'material', description: item.item_label || item.item_code || 'Article',
@@ -99,7 +123,7 @@ export default function QuoteEditor() {
   const totals = useMemo(() => {
     let ht = 0; const byRate = {};
     (q?.lines || []).forEach((l) => {
-      if (l.line_type === 'note' || l.line_type === 'page_break') return;
+      if (['note', 'page_break', 'lot', 'sublot'].includes(l.line_type)) return;
       const qty = num(l.qty); const price = num(l.unit_price_ht); const vat = num(l.vat_rate) || 0;
       if (qty !== null && price !== null) {
         const m = num(l.margin) || 0;
@@ -248,6 +272,8 @@ export default function QuoteEditor() {
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => addPriced('labor')} data-testid="add-labor-button"><Wrench className="h-4 w-4" />{t('quote.add_labor')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => addPriced('travel')} data-testid="add-travel-button"><Truck className="h-4 w-4" />{t('quote.add_travel')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => addPriced('material')} data-testid="add-material-button"><Package className="h-4 w-4" />{t('quote.add_material')}</Button>
+                <Button variant="secondary" size="sm" className="gap-1.5" onClick={addLot} data-testid="add-lot-button"><Layers className="h-4 w-4" />{t('quote.add_lot')}</Button>
+                <Button variant="secondary" size="sm" className="gap-1.5" onClick={addSublot} data-testid="add-sublot-button"><FolderTree className="h-4 w-4" />{t('quote.add_sublot')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={addNote} data-testid="add-note-button"><StickyNote className="h-4 w-4" />{t('quote.add_note')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={addPageBreak} data-testid="add-page-break-button"><SeparatorHorizontal className="h-4 w-4" />{t('quote.add_page_break')}</Button>
               </div>
@@ -284,6 +310,30 @@ export default function QuoteEditor() {
                       </div>
                     ) : null;
 
+                    if (l.line_type === 'lot' || l.line_type === 'sublot') {
+                      const isLot = l.line_type === 'lot';
+                      const sub = groupSubtotal(i, isLot ? ['lot'] : ['lot', 'sublot']);
+                      return (
+                        <TableRow key={i} className={isLot ? 'bg-emerald-50/80' : 'bg-slate-50'} data-testid={isLot ? 'quote-line-lot-row' : 'quote-line-sublot-row'}>
+                          <TableCell colSpan={isDraft ? colSpan - 1 : colSpan}>
+                            <div className="flex items-center gap-2">
+                              {isDraft ? (
+                                <Input value={l.lot_number || ''} onChange={(e) => updateLine(i, 'lot_number', e.target.value)} className="h-8 w-16 font-mono" data-testid="lot-number-input" />
+                              ) : (
+                                <span className="font-mono text-sm font-semibold">{l.lot_number}</span>
+                              )}
+                              {isDraft ? (
+                                <Input value={l.description || ''} onChange={(e) => updateLine(i, 'description', e.target.value)} className="h-8 flex-1 font-semibold" data-testid="lot-title-input" />
+                              ) : (
+                                <span className="font-semibold">{l.description}</span>
+                              )}
+                              <span className="ml-auto text-sm font-semibold tabular-nums">{money(sub, cur)}</span>
+                            </div>
+                          </TableCell>
+                          {isDraft && <TableCell>{actions}</TableCell>}
+                        </TableRow>
+                      );
+                    }
                     if (l.line_type === 'note') {
                       return (
                         <TableRow key={i} className="bg-amber-50/40" data-testid="quote-line-note-row">
