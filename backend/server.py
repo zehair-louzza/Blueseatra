@@ -927,8 +927,8 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
     count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
     quote_id = new_id()
     ex = req["extracted"]
-    client_recipient = ex.get("donneur_d_ordre") or ex.get("client_final") or ex.get("client")
-    site_val = ex.get("intervention_address") or ex.get("intervention_site") or ex.get("site")
+    client_recipient = ex.get("donneur_d_ordre") or ex.get("client_final") or ex.get("client_name") or ex.get("client")
+    site_val = ex.get("intervention_address") or ex.get("intervention_site") or ex.get("location") or ex.get("site")
     quote = {
         "id": quote_id, "tenant_id": cu.tenant_id, "request_id": request_id,
         "number": f"BS-{datetime.now().year}-{count + 1:04d}",
