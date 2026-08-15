@@ -85,11 +85,38 @@ def match_line(line: dict, catalog: list) -> dict | None:
     return best
 
 
+def _ensure_line_items(extracted: dict) -> list:
+    items = list(extracted.get("line_items") or [])
+    if items:
+        return items
+    desc = (extracted.get("description") or extracted.get("work_type") or "").strip()
+    return [{"description": desc or "Prestation selon demande", "quantity": 1, "unit": "u"}]
+
+
+def _empty_rubric(line_type: str, description: str, qty, unit: str, reasons: list) -> dict:
+    return {
+        "line_type": line_type,
+        "request_label": description,
+        "description": description,
+        "category": "deplacement" if line_type == "travel" else ("main_oeuvre" if line_type == "labor" else None),
+        "matched_item_code": None,
+        "matched_label": None,
+        "qty": qty,
+        "unit": unit,
+        "unit_price_ht": None,
+        "vat_rate": None,
+        "line_ht": None,
+        "status": "to_confirm",
+        "score": 0,
+        "reasons": reasons,
+    }
+
+
 def build_quote_lines(extracted: dict, catalog: list):
     lines = []
     total_ht = 0.0
     total_vat = 0.0
-    for li in extracted.get("line_items", []) or []:
+    for li in _ensure_line_items(extracted):
         m = match_line(li, catalog)
         try:
             qty = float(li.get("qty") or li.get("quantity") or 1)
@@ -132,7 +159,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "line_type": "material",
                 "request_label": li.get("label"),
                 "description": desc,
-                "category": li.get("category"),
+                "category": li.get("category") or extracted.get("work_type"),
                 "matched_item_code": None,
                 "matched_label": None,
                 "qty": qty,
@@ -142,7 +169,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "line_ht": None,
                 "status": "to_confirm",
                 "score": m["score"] if m else 0,
-                "reasons": m["reasons"] if m else ["no_candidate"],
+                "reasons": (m["reasons"] if m else []) + ["hors_catalogue"],
             })
     extra, extra_ht, extra_vat = _auto_labor_and_travel(extracted, catalog, lines)
     # Ordre ANELEC / Tolteck : déplacement, main-d'œuvre, puis fournitures
@@ -211,36 +238,43 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
 
     extras_buf = []
     if "DEP-001" not in codes and "deplacement" not in texts and "d\u00e9placement" not in texts:
-        dep = _find_item(catalog, "DEP-001", "deplacement technicien", "deplacement") or {
-            "item_code": "DEP-001", "item_label": "Deplacement technicien",
-            "category": "deplacement", "unit": "u", "unit_price_ht": TRAVEL_RATE_HT, "vat_rate": 20,
-        }
-        row, ht, vat = _append_priced(
-            dep, 1.0, "travel",
-            "Deplacement en Ile-de-France — heures normales 8h-18h",
-            ["auto_travel", "tarif_40"],
-        )
-        row["unit_price_ht"] = TRAVEL_RATE_HT
-        row["vat_rate"] = None
-        row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
-        extras_buf.append((row, row["line_ht"], 0.0))
+        dep = _find_item(catalog, "DEP-001", "deplacement technicien", "deplacement")
+        if dep:
+            row, ht, vat = _append_priced(
+                dep, 1.0, "travel",
+                "Deplacement en Ile-de-France — heures normales 8h-18h",
+                ["auto_travel", "tarif_40", "catalogue"],
+            )
+            row["unit_price_ht"] = TRAVEL_RATE_HT
+            row["vat_rate"] = None
+            row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
+            extras_buf.append((row, row["line_ht"], 0.0))
+        else:
+            extras_buf.append((
+                _empty_rubric("travel", "Deplacement en Ile-de-France — heures normales 8h-18h",
+                              1.0, "u", ["auto_travel", "hors_catalogue"]),
+                0.0, 0.0,
+            ))
 
     if "MO-001" not in codes and "main d'oeuvre" not in texts and "main d oeuvre" not in texts:
-        mo = _find_item(catalog, "MO-001", "main d oeuvre", "main_oeuvre") or {
-            "item_code": "MO-001", "item_label": "Main d'oeuvre qualifiee",
-            "category": "main_oeuvre", "unit": "hr", "unit_price_ht": LABOR_RATE_HT, "vat_rate": 20,
-        }
+        mo = _find_item(catalog, "MO-001", "main d oeuvre", "main_oeuvre")
+        hours = max(1.0, round(units * 0.4 * 4) / 4)
         if mo:
-            hours = max(1.0, round(units * 0.4 * 4) / 4)  # 0.4 h / u, min 1 h, pas de 0.25
             row, ht, vat = _append_priced(
                 mo, hours, "labor",
                 "Main d'oeuvre — heures normales 7h-18h",
-                ["auto_labor", f"{units:g}_unites", "tarif_42"],
+                ["auto_labor", f"{units:g}_unites", "tarif_42", "catalogue"],
             )
             row["unit_price_ht"] = LABOR_RATE_HT
             row["vat_rate"] = None
             row["line_ht"] = line_amount_ht(hours, LABOR_RATE_HT, 0) or 0
             extras_buf.append((row, row["line_ht"], 0.0))
+        else:
+            extras_buf.append((
+                _empty_rubric("labor", "Main d'oeuvre — heures normales 7h-18h",
+                              hours, "hr", ["auto_labor", "hors_catalogue"]),
+                0.0, 0.0,
+            ))
 
     for row, ht, vat in extras_buf:
         extra.append(row)

@@ -5,6 +5,7 @@ A tenant can override provider/model/key via Settings (Integrations).
 import os
 import io
 import json
+import re
 import base64
 import httpx
 import asyncio
@@ -30,15 +31,20 @@ EXTRACTION_SYSTEM = """You are Blueseatra's document understanding engine for a 
 You receive INCOMING quote requests (\"demande de devis\"), mission orders (\"ordre de mission\"), emails or photos in ANY language.
 Your job: extract structured data and return ONLY valid JSON.
 
+You MAY use the technical web context provided (DTU, phasage, spec produit, lots TCE).
+You MUST NEVER output a price, tariff, amount, euro, HT, TTC, or market estimate.
+Prices come ONLY from the Blueseatra catalog after extraction. If an article is unknown, still list it in line_items.
+
 Extract:
 - client_name, client_email, client_phone, client_address
 - work_type (e.g. plomberie, electricite, peinture, menuiserie, climatisation)
 - description (full description of work requested)
 - location (site address if different from client)
 - urgency (urgent | normal | planifie)
-- estimated_budget (if mentioned)
+- estimated_budget (if mentioned in the source text only — copy the mention, do not invent)
 - requested_date (if mentioned)
-- line_items: list of {description, quantity, unit}
+- di_number (if mentioned)
+- line_items: list of {description, quantity, unit} — every prestation, even if unknown to the catalog
 
 Return ONLY this JSON structure with no markdown, no explanation:
 {
@@ -52,8 +58,43 @@ Return ONLY this JSON structure with no markdown, no explanation:
   \"urgency\": \"normal\",
   \"estimated_budget\": null,
   \"requested_date\": null,
+  \"di_number\": \"\",
   \"line_items\": []
 }"""
+
+_PRICE_RE = re.compile(
+    r"(?i)(\d[\d\s.,]{0,14}\s*(€|eur|euros?|\$|usd)|prix\s*[:=]\s*\d|tarif\s*[:=]\s*\d)"
+)
+
+
+async def _web_context_sans_prix(raw_text: str) -> str:
+    """Technical web context only. Any price-like token is stripped."""
+    q = " ".join((raw_text or "").split())[:160]
+    if len(q) < 12:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+            r = await client.get(
+                "https://api.duckduckgo.com/",
+                params={
+                    "q": f"{q} travaux DTU deroulement -prix -tarif",
+                    "format": "json",
+                    "no_html": 1,
+                    "skip_disambig": 1,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+        bits = []
+        if data.get("AbstractText"):
+            bits.append(data["AbstractText"])
+        for t in (data.get("RelatedTopics") or [])[:4]:
+            if isinstance(t, dict) and t.get("Text"):
+                bits.append(t["Text"])
+        text = _PRICE_RE.sub("[prix masque]", " ".join(bits))
+        return text[:1200].strip()
+    except Exception:
+        return ""
 
 
 async def resolve_ai_config(tenant_settings: dict) -> tuple[str, str, str]:
@@ -173,7 +214,13 @@ async def extract_request_data(
     if image_bytes:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
+    web_ctx = await _web_context_sans_prix(raw_text)
     user_message = f"Extract structured data from this quote request:\n\n{raw_text}"
+    if web_ctx:
+        user_message += (
+            "\n\nContexte technique internet (SANS aucun prix — ne pas en deduire un tarif):\n"
+            + web_ctx
+        )
 
     try:
         if provider == "hermes":
