@@ -108,6 +108,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             total_ht += line_ht or 0
             total_vat += line_vat
             lines.append({
+                "line_type": "material",
                 "request_label": li.get("label"),
                 "description": desc,
                 "category": item.get("category") or li.get("category"),
@@ -125,6 +126,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             })
         else:
             lines.append({
+                "line_type": "material",
                 "request_label": li.get("label"),
                 "description": desc,
                 "category": li.get("category"),
@@ -139,7 +141,95 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "score": m["score"] if m else 0,
                 "reasons": m["reasons"] if m else ["no_candidate"],
             })
+    extra, extra_ht, extra_vat = _auto_labor_and_travel(extracted, catalog, lines)
+    lines.extend(extra)
+    total_ht += extra_ht
+    total_vat += extra_vat
     return lines, round(total_ht, 2), round(total_vat, 2)
+
+
+def _find_item(catalog: list, *codes_or_needles: str):
+    needles = [normalize(c) for c in codes_or_needles if c]
+    for item in catalog:
+        code = normalize(item.get("item_code") or "")
+        label = normalize(item.get("item_label") or "")
+        cat = normalize(item.get("category") or "")
+        if code in needles or any(n and n in label for n in needles) or any(n and n == cat for n in needles):
+            if item.get("is_active") is False:
+                continue
+            return item
+    return None
+
+
+def _append_priced(item: dict, qty: float, line_type: str, description: str, reasons: list):
+    unit_price = float(item.get("unit_price_ht") or 0)
+    vat_rate = float(item.get("vat_rate") or 20)
+    margin = item.get("margin") or 0
+    line_ht = line_amount_ht(qty, unit_price, margin) or 0
+    line_vat = round(line_ht * vat_rate / 100, 2)
+    return {
+        "line_type": line_type,
+        "request_label": description,
+        "description": description,
+        "category": item.get("category"),
+        "matched_item_code": item.get("item_code"),
+        "matched_label": item.get("item_label"),
+        "qty": qty,
+        "unit": item.get("unit"),
+        "unit_price_ht": unit_price,
+        "margin": margin,
+        "vat_rate": vat_rate,
+        "line_ht": line_ht,
+        "status": "proposed",
+        "score": 80,
+        "reasons": reasons,
+    }, line_ht, line_vat
+
+
+def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
+    """Tolteck-style completeness: fourniture + main-d'oeuvre + deplacement."""
+    extra = []
+    extra_ht = 0.0
+    extra_vat = 0.0
+    codes = {(l.get("matched_item_code") or "") for l in existing}
+    texts = " ".join((l.get("description") or "") for l in existing).lower()
+
+    units = 0.0
+    for l in existing:
+        if l.get("line_type") in ("note", "page_break", "labor"):
+            continue
+        try:
+            units += float(l.get("qty") or 0)
+        except (TypeError, ValueError):
+            units += 1
+    if units <= 0:
+        units = 1.0
+
+    if "MO-001" not in codes and "main d'oeuvre" not in texts and "main d oeuvre" not in texts:
+        mo = _find_item(catalog, "MO-001", "main d oeuvre", "main_oeuvre")
+        if mo:
+            hours = max(1.0, round(units * 0.4 * 4) / 4)  # 0.4 h / u, min 1 h, pas de 0.25
+            row, ht, vat = _append_priced(
+                mo, hours, "labor",
+                f"Main-d'oeuvre — pose / remplacement ({hours:g} h)",
+                ["auto_labor", f"{units:g}_unites"],
+            )
+            extra.append(row)
+            extra_ht += ht
+            extra_vat += vat
+
+    if "DEP-001" not in codes and "deplacement" not in texts and "d\u00e9placement" not in texts:
+        dep = _find_item(catalog, "DEP-001", "deplacement technicien", "deplacement")
+        if dep:
+            row, ht, vat = _append_priced(
+                dep, 1.0, "material",
+                "Deplacement technicien (forfait intervention)",
+                ["auto_travel"],
+            )
+            extra.append(row)
+            extra_ht += ht
+            extra_vat += vat
+    return extra, extra_ht, extra_vat
 
 
 def line_amount_ht(qty, unit_price_ht, margin=None) -> float | None:
