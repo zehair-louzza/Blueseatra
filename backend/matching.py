@@ -102,9 +102,10 @@ def build_quote_lines(extracted: dict, catalog: list):
             eff_qty = max(qty, float(item.get("min_qty") or 0))
             unit_price = float(item.get("unit_price_ht") or 0)
             vat_rate = float(item.get("vat_rate") or 0)
-            line_ht = round(eff_qty * unit_price, 2)
-            line_vat = round(line_ht * vat_rate / 100, 2)
-            total_ht += line_ht
+            margin = item.get("margin") or 0
+            line_ht = line_amount_ht(eff_qty, unit_price, margin)
+            line_vat = round((line_ht or 0) * vat_rate / 100, 2)
+            total_ht += line_ht or 0
             total_vat += line_vat
             lines.append({
                 "request_label": li.get("label"),
@@ -115,6 +116,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "qty": eff_qty,
                 "unit": item.get("unit"),
                 "unit_price_ht": unit_price,
+                "margin": margin,
                 "vat_rate": vat_rate,
                 "line_ht": line_ht,
                 "status": m["status"],
@@ -138,6 +140,20 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "reasons": m["reasons"] if m else ["no_candidate"],
             })
     return lines, round(total_ht, 2), round(total_vat, 2)
+
+
+def line_amount_ht(qty, unit_price_ht, margin=None) -> float | None:
+    """HT = qté × PU × (1 + marge%). Marge interne, masquée sur le PDF."""
+    try:
+        q = float(qty)
+        p = float(unit_price_ht)
+    except (TypeError, ValueError):
+        return None
+    try:
+        m = float(margin or 0)
+    except (TypeError, ValueError):
+        m = 0.0
+    return round(q * p * (1 + m / 100.0), 2)
 
 
 def recompute_totals(lines: list):

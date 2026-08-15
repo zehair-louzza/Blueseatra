@@ -90,7 +90,12 @@ export default function QuoteEditor() {
     (q?.lines || []).forEach((l) => {
       if (l.line_type === 'note' || l.line_type === 'page_break') return;
       const qty = num(l.qty); const price = num(l.unit_price_ht); const vat = num(l.vat_rate) || 0;
-      if (qty !== null && price !== null) { const lt = qty * price; ht += lt; byRate[vat] = (byRate[vat] || 0) + lt * vat / 100; }
+      if (qty !== null && price !== null) {
+        const m = num(l.margin) || 0;
+        const lt = qty * price * (1 + m / 100);
+        ht += lt;
+        byRate[vat] = (byRate[vat] || 0) + lt * vat / 100;
+      }
     });
     const vatSum = Object.values(byRate).reduce((a, b) => a + b, 0);
     return { ht: +ht.toFixed(2), vat: +vatSum.toFixed(2), ttc: +(ht + vatSum).toFixed(2), byRate };
@@ -256,7 +261,9 @@ export default function QuoteEditor() {
                       );
                     }
 
-                    const lt = (num(l.qty) !== null && num(l.unit_price_ht) !== null) ? (num(l.qty) * num(l.unit_price_ht)) : null;
+                    const lt = (num(l.qty) !== null && num(l.unit_price_ht) !== null)
+                      ? (num(l.qty) * num(l.unit_price_ht) * (1 + (num(l.margin) || 0) / 100))
+                      : null;
                     return (
                       <TableRow key={i} data-testid="quote-line-item-row">
                         <TableCell>
