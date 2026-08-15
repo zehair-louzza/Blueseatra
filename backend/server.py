@@ -1060,9 +1060,11 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
             "score": l.get("score", 0),
             "reasons": l.get("reasons") or [],
         }
-        if ltype in ("note", "page_break"):
-            base.update({"qty": None, "unit": None, "unit_price_ht": None, "vat_rate": None,
-                         "line_ht": None, "status": ltype})
+        if ltype in ("note", "page_break", "lot", "sublot"):
+            base.update({
+                "qty": None, "unit": None, "unit_price_ht": None, "vat_rate": None,
+                "line_ht": None, "status": ltype, "lot_number": l.get("lot_number"),
+            })
             lines.append(base)
             continue
         qty = _num(l.get("qty"))

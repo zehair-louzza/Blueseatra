@@ -276,13 +276,57 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
             chunks[-1].append(l)
     chunks = [c for c in chunks if c]
 
+    def _subtotal(chunk, idx, stops):
+        total = 0.0
+        for nxt in chunk[idx + 1:]:
+            if nxt.get("line_type") in stops:
+                break
+            if nxt.get("line_ht") is not None:
+                try:
+                    total += float(nxt["line_ht"])
+                except (TypeError, ValueError):
+                    pass
+        return total
+
+    has_lots = any(l.get("line_type") in ("lot", "sublot") for l in quote.get("lines") or [])
     n = 1
     for ci, chunk in enumerate(chunks):
         data = [_header()]
         style_cmds = _base_style()
         row_idx = 1
         last_section = None
-        for l in chunk:
+        for li, l in enumerate(chunk):
+            if l.get("line_type") == "lot":
+                num = l.get("lot_number") or ""
+                title = f"{num}  {l.get('description') or 'Lot'}".strip()
+                sub = _subtotal(chunk, li, ("lot",))
+                data.append([
+                    Paragraph(title, S["section"]), "", "", "", "",
+                    Paragraph(_money(sub, cur), S["cell_b"]),
+                ])
+                style_cmds += [
+                    ("BACKGROUND", (0, row_idx), (-1, row_idx), GREEN),
+                    ("SPAN", (0, row_idx), (4, row_idx)),
+                    ("ALIGN", (5, row_idx), (5, row_idx), "RIGHT"),
+                ]
+                row_idx += 1
+                last_section = title
+                continue
+            if l.get("line_type") == "sublot":
+                num = l.get("lot_number") or ""
+                title = f"{num}  {l.get('description') or 'Sous-lot'}".strip()
+                sub = _subtotal(chunk, li, ("lot", "sublot"))
+                data.append([
+                    Paragraph(title, S["cell_b"]), "", "", "", "",
+                    Paragraph(_money(sub, cur), S["cell"]),
+                ])
+                style_cmds += [
+                    ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor("#EEF4F2")),
+                    ("SPAN", (0, row_idx), (4, row_idx)),
+                    ("ALIGN", (5, row_idx), (5, row_idx), "RIGHT"),
+                ]
+                row_idx += 1
+                continue
             if l.get("line_type") == "note":
                 data.append([Paragraph("<i>" + (l.get("description") or "") + "</i>", S["cell"]), "", "", "", "", ""])
                 style_cmds += [
@@ -291,15 +335,16 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
                 ]
                 row_idx += 1
                 continue
-            sec = _section_label(l)
-            if sec != last_section:
-                data.append([Paragraph(sec, S["section"]), "", "", "", "", ""])
-                style_cmds += [
-                    ("BACKGROUND", (0, row_idx), (-1, row_idx), GREEN),
-                    ("SPAN", (0, row_idx), (-1, row_idx)),
-                ]
-                row_idx += 1
-                last_section = sec
+            if not has_lots:
+                sec = _section_label(l)
+                if sec != last_section:
+                    data.append([Paragraph(sec, S["section"]), "", "", "", "", ""])
+                    style_cmds += [
+                        ("BACKGROUND", (0, row_idx), (-1, row_idx), GREEN),
+                        ("SPAN", (0, row_idx), (-1, row_idx)),
+                    ]
+                    row_idx += 1
+                    last_section = sec
             desig = [Paragraph(str(l.get("description") or l.get("request_label") or "\u2014"), S["cell"])]
             sub = []
             if l.get("matched_item_code"):
@@ -325,6 +370,27 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         if ci < len(chunks) - 1:
             e.append(PageBreak())
     e.append(Spacer(1, 12))
+
+    lot_rows = []
+    all_lines = quote.get("lines") or []
+    for i, l in enumerate(all_lines):
+        if l.get("line_type") != "lot":
+            continue
+        label = f"{l.get('lot_number') or ''}  {l.get('description') or 'Lot'}".strip()
+        lot_rows.append([label, _money(_subtotal(all_lines, i, ("lot",)), cur)])
+    if lot_rows:
+        e.append(Paragraph("R\u00e9capitulatif par lot", S["section"]))
+        e.append(Spacer(1, 4))
+        recap = Table([[Paragraph(a, S["cell"]), Paragraph(b, S["cell"])] for a, b in lot_rows],
+                      colWidths=[doc.width * 0.62, doc.width * 0.18])
+        recap.setStyle(TableStyle([
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, BORDER),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        recap.hAlign = "LEFT"
+        e.append(recap)
+        e.append(Spacer(1, 10))
 
     # ---- TVA breakdown + totals (right aligned) ------------------------------
     vat_by_rate = defaultdict(float)

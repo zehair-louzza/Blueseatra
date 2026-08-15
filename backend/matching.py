@@ -2,6 +2,7 @@
 Pricing ALWAYS comes from the catalog. AI never sets the price.
 """
 import unicodedata
+from collections import OrderedDict
 from rapidfuzz import fuzz
 
 UNIT_COMPAT = {
@@ -149,7 +150,7 @@ def build_quote_lines(extracted: dict, catalog: list):
     lines = extra + lines
     total_ht += extra_ht
     total_vat += extra_vat
-    return lines, round(total_ht, 2), round(total_vat, 2)
+    return wrap_in_lots(lines), round(total_ht, 2), round(total_vat, 2)
 
 
 def _find_item(catalog: list, *codes_or_needles: str):
@@ -200,7 +201,7 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
 
     units = 0.0
     for l in existing:
-        if l.get("line_type") in ("note", "page_break", "labor"):
+        if l.get("line_type") in ("note", "page_break", "labor", "travel", "lot", "sublot"):
             continue
         try:
             units += float(l.get("qty") or 0)
@@ -293,6 +294,104 @@ def line_amount_ht(qty, unit_price_ht, margin=None) -> float | None:
     except (TypeError, ValueError):
         m = 0.0
     return round(q * p * (1 + m / 100.0), 2)
+
+
+TCE_LOT_RULES = [
+    (("gros oeuvre", "maconnerie"), "Gros \u0153uvre \u2014 Ma\u00e7onnerie"),
+    (("platrerie", "cloison", "faux plafond"), "Pl\u00e2trerie \u2014 Cloisons \u2014 Faux plafonds"),
+    (("electricite", "cfo", "cfa", "eclairage", "led", "spot"), "\u00c9lectricit\u00e9 \u2014 Courants forts et faibles"),
+    (("plomberie", "sanitaire"), "Plomberie \u2014 Sanitaires"),
+    (("cvc", "chauffage", "ventilation", "clim"), "CVC \u2014 Chauffage, Ventilation, Climatisation"),
+    (("sol", "carrelage", "parquet", "revetement souple"), "Rev\u00eatements de sols"),
+    (("peinture", "enduit", "mural"), "Rev\u00eatements muraux \u2014 Peinture"),
+    (("serrurerie", "metallerie"), "Serrurerie \u2014 M\u00e9tallerie"),
+    (("maintenance",), "Maintenance multitechnique"),
+]
+
+
+def _tce_lot_name(category: str | None, description: str = "") -> str:
+    blob = normalize(f"{category or ''} {description or ''}")
+    for needles, title in TCE_LOT_RULES:
+        if any(n in blob for n in needles):
+            return title
+    return "Fournitures et pose"
+
+
+def _struct_line(line_type: str, number: str, title: str) -> dict:
+    return {
+        "line_type": line_type,
+        "description": title,
+        "lot_number": str(number),
+        "category": None,
+        "qty": None,
+        "unit": None,
+        "unit_price_ht": None,
+        "vat_rate": None,
+        "line_ht": None,
+        "status": line_type,
+        "score": 0,
+        "reasons": ["structure"],
+    }
+
+
+def wrap_in_lots(lines: list) -> list:
+    """Tolteck-style lots / sous-lots autour des lignes g\u00e9n\u00e9r\u00e9es."""
+    if any(l.get("line_type") in ("lot", "sublot") for l in lines):
+        return lines
+    travel, labor, materials = [], [], []
+    for l in lines:
+        lt = l.get("line_type")
+        if lt == "travel":
+            travel.append(l)
+        elif lt == "labor":
+            labor.append(l)
+        elif lt not in ("note", "page_break"):
+            materials.append(l)
+        else:
+            materials.append(l)
+
+    out = []
+    lot_n = 1
+    if travel or labor:
+        out.append(_struct_line("lot", lot_n, "Installation de chantier / Pr\u00e9liminaires"))
+        sub = 1
+        if travel:
+            out.append(_struct_line("sublot", f"{lot_n}.{sub}", "D\u00e9placement"))
+            out.extend(travel)
+            sub += 1
+        if labor:
+            out.append(_struct_line("sublot", f"{lot_n}.{sub}", "Main-d'\u0153uvre"))
+            out.extend(labor)
+        lot_n += 1
+
+    groups = OrderedDict()
+    leftovers = []
+    for l in materials:
+        if l.get("line_type") in ("note", "page_break"):
+            leftovers.append(l)
+            continue
+        name = _tce_lot_name(l.get("category"), l.get("description") or l.get("request_label") or "")
+        groups.setdefault(name, []).append(l)
+    for name, items in groups.items():
+        out.append(_struct_line("lot", lot_n, name))
+        out.append(_struct_line("sublot", f"{lot_n}.1", "Fournitures"))
+        out.extend(items)
+        lot_n += 1
+    out.extend(leftovers)
+    return out or lines
+
+
+def group_subtotal(lines: list, start: int, stop_types: tuple) -> float:
+    total = 0.0
+    for l in lines[start + 1:]:
+        if l.get("line_type") in stop_types:
+            break
+        if l.get("line_ht") is not None:
+            try:
+                total += float(l["line_ht"])
+            except (TypeError, ValueError):
+                pass
+    return round(total, 2)
 
 
 def recompute_totals(lines: list):
