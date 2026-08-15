@@ -239,3 +239,32 @@ async def extract_request_data(
             "line_items": [],
             "_raw_ai_response": raw_response[:1000],
         }
+
+
+async def extract_from_text(text: str, tenant_settings: dict, session_id: str | None = None) -> dict:
+    """Adapter used by server.process_request."""
+    return await extract_request_data(text or "", tenant_settings)
+
+
+async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_id: str | None = None) -> dict:
+    """Adapter used by server.process_request for photos."""
+    return await extract_request_data("", tenant_settings, image_bytes=image_bytes)
+
+
+def extract_pdf_text(content: bytes) -> str:
+    import pypdfium2 as pdfium
+    pdf = pdfium.PdfDocument(io.BytesIO(content))
+    parts = []
+    for page in pdf:
+        textpage = page.get_textpage()
+        parts.append(textpage.get_text_bounded())
+        textpage.close()
+        page.close()
+    pdf.close()
+    return "\n".join(parts).strip()
+
+
+def extract_docx_text(content: bytes) -> str:
+    from docx import Document
+    doc = Document(io.BytesIO(content))
+    return "\n".join(p.text for p in doc.paragraphs).strip()
