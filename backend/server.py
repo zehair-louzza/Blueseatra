@@ -1068,7 +1068,7 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
         vat = _num(l.get("vat_rate"))
         base.update({"qty": qty, "unit": (l.get("unit") or None), "unit_price_ht": price, "vat_rate": vat})
         if qty is not None and price is not None:
-            base["line_ht"] = round(qty * price, 2)
+            base["line_ht"] = match_engine.line_amount_ht(qty, price, base.get("margin"))
             prev = l.get("status")
             base["status"] = prev if prev in ("matched", "proposed", "confirmed") else "confirmed"
         else:
