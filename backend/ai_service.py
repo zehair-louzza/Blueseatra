@@ -17,6 +17,8 @@ load_dotenv(ROOT_DIR / ".env")
 # ── Hermes AI / Ollama (OVH VPS) ────────────────────────────────────────────
 HERMES_BASE_URL = os.environ.get("HERMES_BASE_URL", "http://localhost:11434")
 HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
+# Shared with Caddy on ovh-ai-stack (header X-Api-Key). Empty in local dev.
+HERMES_API_KEY = os.environ.get("HERMES_API_KEY", "")
 
 # ── Fallback cloud providers ─────────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -63,7 +65,7 @@ async def resolve_ai_config(tenant_settings: dict) -> tuple[str, str, str]:
     # Normalize provider name
     provider = provider.lower()
 
-    # For hermes/ollama - no API key needed (local VPS)
+    # Hermes/Ollama: tenant key unused; gateway auth is HERMES_API_KEY.
     if provider == "hermes":
         model = model or HERMES_DEFAULT_MODEL
 
@@ -99,11 +101,19 @@ async def _call_hermes_ollama(
             "num_predict": 2048,
         },
     }
+    # qwen3.6 thinks by default and wraps JSON in <think> — disable for extraction.
+    if model.startswith("qwen3"):
+        payload["think"] = False
+
+    headers = {}
+    if HERMES_API_KEY:
+        headers["X-Api-Key"] = HERMES_API_KEY
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(
-            f"{HERMES_BASE_URL}/api/chat",
+            f"{HERMES_BASE_URL.rstrip('/')}/api/chat",
             json=payload,
+            headers=headers,
         )
         response.raise_for_status()
         data = response.json()

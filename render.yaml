@@ -57,13 +57,16 @@ services:
       - key: APP_ENCRYPTION_KEY
         sync: false
 
-      # --- IA : Hermes / Ollama sur VPS OVH ---
-      # Remplacer par l'IP ou le domaine public de ton VPS OVH en production
+      # --- IA : Hermes / Ollama derrière Caddy (repo ovh-ai-stack) ---
+      # HTTPS uniquement. Ne jamais pointer vers :11434.
       - key: HERMES_BASE_URL
-        value: http://localhost:11434
+        value: https://ia.blueseatra.com
 
       - key: HERMES_DEFAULT_MODEL
         value: hermes-3
+
+      - key: HERMES_API_KEY
+        sync: false
 
       # --- CORS ---
       # Ajouter l'URL réelle du frontend une fois déployé

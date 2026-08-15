@@ -158,8 +158,9 @@ Brouillon de devis ──► Éditeur de devis ──► Devis validé ──►
 | `SUPABASE_SERVICE_ROLE_KEY` | Clé `service_role` (**ultra‑sensible**, serveur uniquement) |
 | `JWT_SECRET` | Secret de signature JWT — **doit être fort** (≥ 32 car., non par défaut) |
 | `APP_ENCRYPTION_KEY` | Clé Fernet (base64) pour chiffrer les secrets IA des tenants au repos |
-| `HERMES_BASE_URL` | URL de l'instance Ollama (défaut : `http://localhost:11434`) |
-| `HERMES_DEFAULT_MODEL` | Modèle Ollama à utiliser (défaut : `hermes-3`) |
+| `HERMES_BASE_URL` | URL Caddy OVH (prod) ou `http://localhost:11434` (dev) |
+| `HERMES_DEFAULT_MODEL` | Modèle Ollama (défaut : `hermes-3`) |
+| `HERMES_API_KEY` | Clé `X-Api-Key` (identique à `OLLAMA_API_KEY` du VPS) |
 | `MAX_UPLOAD_SIZE` | (optionnel) Taille max d'upload en octets (défaut 15 Mo) |
 | `CORS_ORIGINS` | (optionnel) Origines autorisées séparées par virgule |
 | `MONGO_URL`, `DB_NAME` | Conservés pour le script de migration (source MongoDB) |
@@ -431,8 +432,9 @@ Consultez **`DEPLOIEMENT.md`** pour le guide complet (Hostinger + Render + Supab
 DATABASE_URL=postgresql+asyncpg://...supabase.com:6543/postgres
 JWT_SECRET=<généré>
 APP_ENCRYPTION_KEY=<généré>
-HERMES_BASE_URL=https://<votre-vps-ovh>:11434
+HERMES_BASE_URL=https://ia.blueseatra.com
 HERMES_DEFAULT_MODEL=hermes-3
+HERMES_API_KEY=<secret ovh-ai-stack>
 SUPABASE_URL=https://<ref>.supabase.co
 SUPABASE_ANON_KEY=<clé anon>
 SUPABASE_SERVICE_ROLE_KEY=<clé service_role>
