@@ -8,6 +8,9 @@ UNIT_COMPAT = {
     "m2": {"m2"}, "ml": {"ml"}, "hr": {"hr"}, "u": {"u", "ens"}, "ens": {"ens", "u"},
 }
 SCORE_THRESHOLD = 45
+# Tarifs ANELEC imposés (devis type DEV-2026-0477 / 0525)
+LABOR_RATE_HT = 42.0
+TRAVEL_RATE_HT = 40.0
 
 
 def normalize(s: str) -> str:
@@ -108,6 +111,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             total_ht += line_ht or 0
             total_vat += line_vat
             lines.append({
+                "line_type": "material",
                 "request_label": li.get("label"),
                 "description": desc,
                 "category": item.get("category") or li.get("category"),
@@ -125,6 +129,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             })
         else:
             lines.append({
+                "line_type": "material",
                 "request_label": li.get("label"),
                 "description": desc,
                 "category": li.get("category"),
@@ -139,7 +144,141 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "score": m["score"] if m else 0,
                 "reasons": m["reasons"] if m else ["no_candidate"],
             })
+    extra, extra_ht, extra_vat = _auto_labor_and_travel(extracted, catalog, lines)
+    # Ordre ANELEC / Tolteck : déplacement, main-d'œuvre, puis fournitures
+    lines = extra + lines
+    total_ht += extra_ht
+    total_vat += extra_vat
     return lines, round(total_ht, 2), round(total_vat, 2)
+
+
+def _find_item(catalog: list, *codes_or_needles: str):
+    needles = [normalize(c) for c in codes_or_needles if c]
+    for item in catalog:
+        code = normalize(item.get("item_code") or "")
+        label = normalize(item.get("item_label") or "")
+        cat = normalize(item.get("category") or "")
+        if code in needles or any(n and n in label for n in needles) or any(n and n == cat for n in needles):
+            if item.get("is_active") is False:
+                continue
+            return item
+    return None
+
+
+def _append_priced(item: dict, qty: float, line_type: str, description: str, reasons: list):
+    unit_price = float(item.get("unit_price_ht") or 0)
+    vat_rate = float(item.get("vat_rate") or 20)
+    margin = item.get("margin") or 0
+    line_ht = line_amount_ht(qty, unit_price, margin) or 0
+    line_vat = round(line_ht * vat_rate / 100, 2)
+    return {
+        "line_type": line_type,
+        "request_label": description,
+        "description": description,
+        "category": item.get("category"),
+        "matched_item_code": item.get("item_code"),
+        "matched_label": item.get("item_label"),
+        "qty": qty,
+        "unit": item.get("unit"),
+        "unit_price_ht": unit_price,
+        "margin": margin,
+        "vat_rate": vat_rate,
+        "line_ht": line_ht,
+        "status": "proposed",
+        "score": 80,
+        "reasons": reasons,
+    }, line_ht, line_vat
+
+
+def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
+    """Tolteck-style completeness: fourniture + main-d'oeuvre + deplacement."""
+    extra = []
+    extra_ht = 0.0
+    extra_vat = 0.0
+    codes = {(l.get("matched_item_code") or "") for l in existing}
+    texts = " ".join((l.get("description") or "") for l in existing).lower()
+
+    units = 0.0
+    for l in existing:
+        if l.get("line_type") in ("note", "page_break", "labor"):
+            continue
+        try:
+            units += float(l.get("qty") or 0)
+        except (TypeError, ValueError):
+            units += 1
+    if units <= 0:
+        units = 1.0
+
+    extras_buf = []
+    if "DEP-001" not in codes and "deplacement" not in texts and "d\u00e9placement" not in texts:
+        dep = _find_item(catalog, "DEP-001", "deplacement technicien", "deplacement") or {
+            "item_code": "DEP-001", "item_label": "Deplacement technicien",
+            "category": "deplacement", "unit": "u", "unit_price_ht": TRAVEL_RATE_HT, "vat_rate": 20,
+        }
+        row, ht, vat = _append_priced(
+            dep, 1.0, "travel",
+            "Deplacement en Ile-de-France — heures normales 8h-18h",
+            ["auto_travel", "tarif_40"],
+        )
+        row["unit_price_ht"] = TRAVEL_RATE_HT
+        row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
+        ht = row["line_ht"]
+        vat = round(ht * float(row.get("vat_rate") or 20) / 100, 2)
+        extras_buf.append((row, ht, vat))
+
+    if "MO-001" not in codes and "main d'oeuvre" not in texts and "main d oeuvre" not in texts:
+        mo = _find_item(catalog, "MO-001", "main d oeuvre", "main_oeuvre") or {
+            "item_code": "MO-001", "item_label": "Main d'oeuvre qualifiee",
+            "category": "main_oeuvre", "unit": "hr", "unit_price_ht": LABOR_RATE_HT, "vat_rate": 20,
+        }
+        if mo:
+            hours = max(1.0, round(units * 0.4 * 4) / 4)  # 0.4 h / u, min 1 h, pas de 0.25
+            row, ht, vat = _append_priced(
+                mo, hours, "labor",
+                "Main d'oeuvre — heures normales 7h-18h",
+                ["auto_labor", f"{units:g}_unites", "tarif_42"],
+            )
+            row["unit_price_ht"] = LABOR_RATE_HT
+            row["line_ht"] = line_amount_ht(hours, LABOR_RATE_HT, 0) or 0
+            ht = row["line_ht"]
+            vat = round(ht * float(row.get("vat_rate") or 20) / 100, 2)
+            extras_buf.append((row, ht, vat))
+
+    for row, ht, vat in extras_buf:
+        extra.append(row)
+        extra_ht += ht
+        extra_vat += vat
+    return extra, extra_ht, extra_vat
+
+
+def build_works_description(extracted: dict) -> str:
+    """Bloc obligatoire 'Description / Deroulement des travaux' (modele ANELEC)."""
+    desc = (extracted.get("description") or "").strip()
+    site = (
+        extracted.get("intervention_address")
+        or extracted.get("location")
+        or extracted.get("intervention_site")
+        or ""
+    ).strip()
+    items = extracted.get("line_items") or []
+    labels = []
+    for i in items:
+        t = (i.get("label") or i.get("description") or "").strip()
+        if t and t not in labels:
+            labels.append(t)
+    core = desc or (", ".join(labels) if labels else "Travaux selon demande client")
+    if core and not core.endswith("."):
+        core += "."
+    site_bit = f" Intervention prévue à {site}." if site else ""
+    return (
+        f"{core}{site_bit}\n\n"
+        "Les travaux seront exécutés en phases successives : déplacement du technicien "
+        "en Île-de-France (heures normales 8h-18h), installation et sécurisation de la "
+        "zone d'intervention, fourniture et pose ou remplacement des articles listés, "
+        "puis nettoyage de fin de chantier.\n\n"
+        "Toute contrainte technique non visible lors du métré initial pourra faire "
+        "l'objet d'une adaptation complémentaire après accord du client."
+    )
 
 
 def line_amount_ht(qty, unit_price_ht, margin=None) -> float | None:
