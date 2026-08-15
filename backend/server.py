@@ -1111,6 +1111,110 @@ async def send_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owne
     return {"ok": True, "status": "sent"}
 
 
+@api.post("/quotes/{quote_id}/reopen")
+async def reopen_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    if q.get("status") not in ("validated", "sent"):
+        raise HTTPException(400, "Only validated or sent quotes can be reopened")
+    await db.quotes.update_one(
+        {"id": quote_id},
+        {"$set": {"status": "draft", "validated_at": None, "sent_at": None}},
+    )
+    await audit(cu.tenant_id, cu.email, "quote.reopen", quote_id)
+    q["status"] = "draft"
+    return q
+
+
+@api.post("/quotes/{quote_id}/duplicate")
+async def duplicate_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
+    clone = dict(q)
+    clone["id"] = new_id()
+    clone["number"] = f"BS-{datetime.now().year}-{count + 1:04d}"
+    clone["status"] = "draft"
+    clone["version"] = 1
+    clone["created_at"] = now_iso()
+    clone["created_by"] = cu.email
+    clone["validated_at"] = None
+    clone["sent_at"] = None
+    await db.quotes.insert_one(clone)
+    await audit(cu.tenant_id, cu.email, "quote.duplicate", clone["id"], {"from": quote_id})
+    clone.pop("_id", None)
+    return clone
+
+
+@api.post("/quotes/{quote_id}/rematch")
+async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    if q.get("status") != "draft":
+        raise HTTPException(400, "Reopen the quote before rematching")
+    req = None
+    if q.get("request_id"):
+        req = await db.requests.find_one(
+            {"id": q["request_id"], "tenant_id": cu.tenant_id}, {"_id": 0, "file_b64": 0})
+    if not req or not req.get("extracted"):
+        raise HTTPException(400, "No extracted request to rematch")
+    cat, items = await get_active_catalog(cu.tenant_id)
+    if not cat:
+        raise HTTPException(400, "No active pricing catalog")
+    extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
+    update = {
+        "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
+        "total_ttc": round(total_ht + total_vat, 2),
+    }
+    await db.quotes.update_one({"id": quote_id}, {"$set": update})
+    await audit(cu.tenant_id, cu.email, "quote.rematch", quote_id)
+    q.update(update)
+    return q
+
+
+@api.delete("/quotes/{quote_id}")
+async def delete_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    await db.quote_versions.delete_many({"tenant_id": cu.tenant_id, "quote_id": quote_id})
+    await db.quotes.delete_one({"id": quote_id, "tenant_id": cu.tenant_id})
+    await audit(cu.tenant_id, cu.email, "quote.delete", quote_id, {"number": q.get("number")})
+    return {"ok": True}
+
+
+@api.patch("/requests/{request_id}")
+async def update_request(request_id: str, body: dict, cu: CurrentUser = Depends(get_current)):
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "file_b64": 0})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    update = {}
+    if "title" in body and str(body.get("title") or "").strip():
+        update["title"] = str(body["title"]).strip()
+    if "raw_text" in body:
+        update["raw_text"] = str(body.get("raw_text") or "")
+    if not update:
+        return r
+    await db.requests.update_one({"id": request_id}, {"$set": update})
+    await audit(cu.tenant_id, cu.email, "request.edit", request_id)
+    r.update(update)
+    return r
+
+
+@api.delete("/requests/{request_id}")
+async def delete_request(request_id: str, cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    await db.requests.delete_one({"id": request_id, "tenant_id": cu.tenant_id})
+    await audit(cu.tenant_id, cu.email, "request.delete", request_id, {"title": r.get("title")})
+    return {"ok": True}
+
+
 @api.get("/quotes/{quote_id}/pdf")
 async def quote_pdf(quote_id: str, token: Optional[str] = None,
                     creds: HTTPAuthorizationCredentials = Depends(security)):

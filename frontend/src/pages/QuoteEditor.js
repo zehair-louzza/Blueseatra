@@ -15,7 +15,9 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
   ChevronUp, ChevronDown, BookOpen, Search, Wrench, Package, StickyNote, SeparatorHorizontal,
+  Copy, RotateCcw, RefreshCw,
 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 const VAT_RATES = [20, 10, 5.5, 2.1, 0];
 const UNITS = ['u', 'hr', 'm2', 'm3', 'ml', 'ens', 'sac', 'tonne', 'j', 'forfait'];
@@ -134,8 +136,38 @@ export default function QuoteEditor() {
         <div className="flex flex-wrap gap-2">
           {isDraft && <Button variant="secondary" size="sm" className="gap-1" onClick={() => persist(false)} disabled={busy} data-testid="save-quote-button">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{t('quote.save')}</Button>}
           {isDraft && <Button size="sm" className="gap-1" onClick={() => persist(true)} disabled={busy} data-testid="validate-quote-button"><CheckCircle2 className="h-4 w-4" />{t('quote.validate')}</Button>}
+          {isDraft && <Button variant="outline" size="sm" className="gap-1" disabled={busy} onClick={async () => {
+            try { const { data } = await api.post(`/quotes/${id}/rematch`); setQ(data); toast.success(t('quote.rematch')); }
+            catch (err) { toast.error(apiError(err, 'Failed')); }
+          }} data-testid="rematch-quote-button"><RefreshCw className="h-4 w-4" />{t('quote.rematch')}</Button>}
           {q.status === 'validated' && <Button size="sm" className="gap-1" onClick={send} data-testid="send-quote-button"><Send className="h-4 w-4" />{t('quote.send')}</Button>}
+          {(q.status === 'validated' || q.status === 'sent') && <Button variant="secondary" size="sm" className="gap-1" onClick={async () => {
+            try { const { data } = await api.post(`/quotes/${id}/reopen`); setQ(data); toast.success(t('quote.reopened')); }
+            catch (err) { toast.error(apiError(err, 'Failed')); }
+          }} data-testid="reopen-quote-button"><RotateCcw className="h-4 w-4" />{t('quote.reopen')}</Button>}
+          <Button variant="outline" size="sm" className="gap-1" onClick={async () => {
+            try { const { data } = await api.post(`/quotes/${id}/duplicate`); toast.success(t('quote.duplicated')); navigate(`/app/quotes/${data.id}`); }
+            catch (err) { toast.error(apiError(err, 'Failed')); }
+          }} data-testid="duplicate-quote-button"><Copy className="h-4 w-4" />{t('quote.duplicate')}</Button>}
           <Button variant="outline" size="sm" className="gap-1" onClick={downloadPdf} data-testid="download-pdf-button"><Download className="h-4 w-4" />{t('quote.pdf')}</Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="gap-1 text-destructive hover:text-destructive" data-testid="delete-quote-editor-button"><Trash2 className="h-4 w-4" />{t('quote.delete')}</Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('quote.delete_title')}</AlertDialogTitle>
+                <AlertDialogDescription>{q.number} — {t('quote.delete_desc')}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                <AlertDialogAction onClick={async () => {
+                  try { await api.delete(`/quotes/${id}`); toast.success(t('quote.deleted')); navigate('/app/quotes'); }
+                  catch (err) { toast.error(apiError(err, 'Failed')); }
+                }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('quote.delete')}</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
 
