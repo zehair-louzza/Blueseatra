@@ -404,6 +404,25 @@ class CompanyProfile(BaseModel):
     validity: Optional[str] = "3 mois"
     payment_terms: Optional[str] = None
     acceptance_text: Optional[str] = None
+    logo_url: Optional[str] = None
+    logo_b64: Optional[str] = None
+
+
+def _intitule_with_di(obj, di_number) -> str:
+    title = (obj or "").strip()
+    raw = str(di_number or "").strip()
+    if not raw:
+        return title
+    di_num = raw[2:].lstrip(" \t:-") if raw.upper().startswith("DI") else raw
+    if not di_num:
+        return title
+    prefix = f"DI {di_num}"
+    rest = title
+    for start in (prefix, di_num, raw):
+        if rest.upper().startswith(start.upper()):
+            rest = rest[len(start):].strip()
+            break
+    return f"{prefix} {rest}".strip()
 
 
 async def get_company_profile(tenant_id):
@@ -985,7 +1004,7 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
         "status": "draft", "version": 1,
         "client": client_recipient, "site": site_val,
         "client_final": ex.get("client_final"),
-        "object": ex.get("description"),
+        "object": _intitule_with_di(ex.get("description"), ex.get("di_number")),
         "language": req.get("language"),
         "meta": {
             "doc_type": ex.get("doc_type"),
@@ -1176,10 +1195,13 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
     meta = dict(q.get("meta") or {})
     meta["works_description"] = match_engine.build_works_description(extracted)
+    if extracted.get("di_number"):
+        meta["di_number"] = extracted.get("di_number")
     update = {
         "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
-        "total_ttc": round(total_ht + total_vat, 2),
+        "total_ttc": round(total_ht + (total_vat or 0), 2),
         "meta": meta,
+        "object": _intitule_with_di(q.get("object") or extracted.get("description"), meta.get("di_number")),
     }
     await db.quotes.update_one({"id": quote_id}, {"$set": update})
     await audit(cu.tenant_id, cu.email, "quote.rematch", quote_id)

@@ -10,6 +10,7 @@ Mirrors the customer template:
   - Legal footer with SIRET / TVA / capital / IBAN + "Page x/y" on every page
 """
 import io
+import base64
 from collections import defaultdict, OrderedDict
 
 from reportlab.lib.pagesizes import A4
@@ -18,8 +19,9 @@ from reportlab.lib import colors
 from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Table, TableStyle, Paragraph, Spacer,
-    KeepTogether, PageBreak,
+    KeepTogether, PageBreak, Image as RLImage, Flowable,
 )
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
 
@@ -117,6 +119,70 @@ def _profile(profile, tenant_name):
     return p
 
 
+class _LogoSlot(Flowable):
+    """Reserved top-left box for the company logo."""
+    def __init__(self, width=36 * mm, height=16 * mm):
+        super().__init__()
+        self.width = width
+        self.height = height
+
+    def draw(self):
+        self.canv.setStrokeColor(BORDER)
+        self.canv.setDash(1, 2)
+        self.canv.setLineWidth(0.5)
+        self.canv.rect(0, 0, self.width, self.height)
+        self.canv.setDash()
+        self.canv.setFillColor(GREY)
+        self.canv.setFont("Helvetica", 7)
+        self.canv.drawCentredString(self.width / 2, self.height / 2 - 2, "Logo")
+
+
+def _logo_flowable(p, max_w=36 * mm, max_h=16 * mm):
+    raw = (p.get("logo_b64") or p.get("logo_url") or "").strip()
+    if not raw:
+        return _LogoSlot(max_w, max_h)
+    try:
+        if raw.startswith("data:"):
+            raw = raw.split(",", 1)[1]
+            data = base64.b64decode(raw)
+            src = io.BytesIO(data)
+        elif raw.startswith("http://") or raw.startswith("https://"):
+            src = raw
+        else:
+            src = io.BytesIO(base64.b64decode(raw))
+        reader = ImageReader(src)
+        iw, ih = reader.getSize()
+        if not iw or not ih:
+            return _LogoSlot(max_w, max_h)
+        ratio = min(max_w / iw, max_h / ih)
+        if isinstance(src, io.BytesIO):
+            src.seek(0)
+        img = RLImage(src, width=iw * ratio, height=ih * ratio)
+        img.hAlign = "LEFT"
+        return img
+    except Exception:
+        return _LogoSlot(max_w, max_h)
+
+
+def _intitule(quote: dict) -> str:
+    ref = (quote.get("object") or "").strip()
+    if not ref:
+        ref = " \u2013 ".join([b for b in [quote.get("client"), quote.get("site")] if b])
+    raw = str((quote.get("meta") or {}).get("di_number") or quote.get("di_number") or "").strip()
+    if not raw:
+        return ref
+    di_num = raw[2:].lstrip(" \t:-") if raw.upper().startswith("DI") else raw
+    if not di_num:
+        return ref
+    prefix = f"DI {di_num}"
+    rest = ref
+    for start in (prefix, di_num, raw):
+        if rest.upper().startswith(start.upper()):
+            rest = rest[len(start):].strip()
+            break
+    return f"{prefix} {rest}".strip()
+
+
 def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: dict = None) -> bytes:
     p = _profile(profile, tenant_name)
     cur = quote.get("currency", "EUR")
@@ -148,8 +214,8 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
 
     e = []
 
-    # ---- Header: two columns -------------------------------------------------
-    left = [Paragraph(p.get("company_name", ""), S["company"])]
+    # ---- Header: logo top-left + company | client ---------------------------
+    left = [_logo_flowable(p), Spacer(1, 4), Paragraph(p.get("company_name", ""), S["company"])]
     if p.get("subtitle"):
         left.append(Paragraph(p["subtitle"], S["subtitle"]))
     left.append(Spacer(1, 4))
@@ -196,7 +262,7 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
     e.append(Spacer(1, 8))
 
     # ---- Reference line (centered, bold) -------------------------------------
-    ref = quote.get("object") or " \u2013 ".join([b for b in [quote.get("client"), quote.get("site")] if b])
+    ref = _intitule(quote)
     if ref:
         e.append(Table([[Paragraph(ref, S["ref"])]], colWidths=[doc.width],
                        style=TableStyle([
@@ -359,7 +425,7 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
                 Paragraph(str(n), S["cell"]), desig,
                 Paragraph(_fmt(l.get("qty")) + (f" {l.get('unit')}" if l.get("unit") else ""), S["cell"]),
                 Paragraph(_money(l.get("unit_price_ht"), cur) if l.get("unit_price_ht") is not None else "\u2014", S["cell"]),
-                Paragraph(f"{_fmt(l.get('vat_rate'))} %" if l.get("vat_rate") is not None else "\u2014", S["cell"]),
+                Paragraph("", S["cell"]),
                 Paragraph(_money(l.get("line_ht"), cur) if l.get("line_ht") is not None else "\u00e0 confirmer", S["cell"]),
             ])
             row_idx += 1
@@ -392,18 +458,8 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         e.append(recap)
         e.append(Spacer(1, 10))
 
-    # ---- TVA breakdown + totals (right aligned) ------------------------------
-    vat_by_rate = defaultdict(float)
-    for l in quote.get("lines", []):
-        if l.get("line_ht") is not None and l.get("vat_rate") is not None and l.get("status") in ("matched", "proposed", "confirmed"):
-            vat_by_rate[float(l["vat_rate"])] += round(float(l["line_ht"]) * float(l["vat_rate"]) / 100, 2)
-
+    # ---- Totals (TVA toujours vide — net = HT) ------------------------------
     trows = [["Total HT", _money(quote.get("total_ht"), cur)]]
-    for rate in sorted(vat_by_rate.keys()):
-        trows.append([f"TVA {(_fmt(rate))} %", _money(round(vat_by_rate[rate], 2), cur)])
-    if not vat_by_rate:
-        trows.append(["TVA", _money(quote.get("total_vat"), cur)])
-    trows.append(["Total TTC", _money(quote.get("total_ttc"), cur)])
 
     totals = Table([[r[0], r[1]] for r in trows], colWidths=[doc.width * 0.22, doc.width * 0.18])
     totals.setStyle(TableStyle([
@@ -413,7 +469,7 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         ("LINEBELOW", (0, -1), (-1, -1), 0.4, BORDER),
         ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
-    net = Table([[Paragraph("Net \u00e0 payer", S["net_lbl"]), Paragraph(_money(quote.get("total_ttc"), cur), S["net_val"])]],
+    net = Table([[Paragraph("Net \u00e0 payer", S["net_lbl"]), Paragraph(_money(quote.get("total_ht"), cur), S["net_val"])]],
                 colWidths=[doc.width * 0.22, doc.width * 0.18])
     net.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), GREEN),

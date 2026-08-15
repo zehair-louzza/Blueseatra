@@ -105,12 +105,11 @@ def build_quote_lines(extracted: dict, catalog: list):
             item = m["item"]
             eff_qty = max(qty, float(item.get("min_qty") or 0))
             unit_price = float(item.get("unit_price_ht") or 0)
-            vat_rate = float(item.get("vat_rate") or 0)
+            vat_rate = None  # TVA toujours vide (consigne ANELEC)
             margin = item.get("margin") or 0
             line_ht = line_amount_ht(eff_qty, unit_price, margin)
-            line_vat = round((line_ht or 0) * vat_rate / 100, 2)
+            line_vat = 0.0
             total_ht += line_ht or 0
-            total_vat += line_vat
             lines.append({
                 "line_type": "material",
                 "request_label": li.get("label"),
@@ -122,7 +121,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "unit": item.get("unit"),
                 "unit_price_ht": unit_price,
                 "margin": margin,
-                "vat_rate": vat_rate,
+                "vat_rate": None,
                 "line_ht": line_ht,
                 "status": m["status"],
                 "score": m["score"],
@@ -168,10 +167,10 @@ def _find_item(catalog: list, *codes_or_needles: str):
 
 def _append_priced(item: dict, qty: float, line_type: str, description: str, reasons: list):
     unit_price = float(item.get("unit_price_ht") or 0)
-    vat_rate = float(item.get("vat_rate") or 20)
+    vat_rate = None
     margin = item.get("margin") or 0
     line_ht = line_amount_ht(qty, unit_price, margin) or 0
-    line_vat = round(line_ht * vat_rate / 100, 2)
+    line_vat = 0.0
     return {
         "line_type": line_type,
         "request_label": description,
@@ -222,10 +221,9 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
             ["auto_travel", "tarif_40"],
         )
         row["unit_price_ht"] = TRAVEL_RATE_HT
+        row["vat_rate"] = None
         row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
-        ht = row["line_ht"]
-        vat = round(ht * float(row.get("vat_rate") or 20) / 100, 2)
-        extras_buf.append((row, ht, vat))
+        extras_buf.append((row, row["line_ht"], 0.0))
 
     if "MO-001" not in codes and "main d'oeuvre" not in texts and "main d oeuvre" not in texts:
         mo = _find_item(catalog, "MO-001", "main d oeuvre", "main_oeuvre") or {
@@ -240,10 +238,9 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
                 ["auto_labor", f"{units:g}_unites", "tarif_42"],
             )
             row["unit_price_ht"] = LABOR_RATE_HT
+            row["vat_rate"] = None
             row["line_ht"] = line_amount_ht(hours, LABOR_RATE_HT, 0) or 0
-            ht = row["line_ht"]
-            vat = round(ht * float(row.get("vat_rate") or 20) / 100, 2)
-            extras_buf.append((row, ht, vat))
+            extras_buf.append((row, row["line_ht"], 0.0))
 
     for row, ht, vat in extras_buf:
         extra.append(row)

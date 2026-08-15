@@ -97,6 +97,27 @@ function CompanyProfile({ canManage }) {
   return (
     <Card className="card-shadow border-0 p-6">
       <p className="mb-5 text-sm text-muted-foreground">{t('settings.company.intro')}</p>
+      <div className="mb-5 flex items-start gap-4">
+        <div className="flex h-20 w-36 items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted/30">
+          {(form.logo_b64 || form.logo_url) ? (
+            <img src={form.logo_b64 || form.logo_url} alt="Logo" className="max-h-20 max-w-36 object-contain" />
+          ) : (
+            <span className="text-xs text-muted-foreground">{t('settings.company.logo_slot')}</span>
+          )}
+        </div>
+        <div className="space-y-2">
+          <Label>{t('settings.company.logo')}</Label>
+          <Input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" disabled={!canManage} data-testid="company-logo-file" onChange={(e) => {
+            const f = e.target.files && e.target.files[0];
+            if (!f) return;
+            if (f.size > 800000) { toast.error(t('settings.company.logo_heavy')); return; }
+            const reader = new FileReader();
+            reader.onload = () => setForm({ ...form, logo_b64: reader.result, logo_url: '' });
+            reader.readAsDataURL(f);
+          }} />
+          <Input placeholder={t('settings.company.logo_url')} value={form.logo_url || ''} disabled={!canManage} data-testid="company-logo-url" onChange={(e) => setForm({ ...form, logo_url: e.target.value })} />
+        </div>
+      </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {FIELDS.map(([key, label]) => (
           <div key={key} className="space-y-1.5">
