@@ -24,6 +24,7 @@ from pydantic import BaseModel, EmailStr, Field
 import ai_service
 import matching as match_engine
 import pdf_service
+import mcp_bridge
 from pg_adapter import PGDatabase
 
 ROOT_DIR = Path(__file__).parent
@@ -1121,6 +1122,7 @@ async def health():
 
 
 app.include_router(api)
+app.include_router(mcp_bridge.router)
 # Auth uses Bearer tokens (Authorization header), not cookies. The combination
 # allow_credentials=True + wildcard origin is invalid/insecure, so credentials are
 # only enabled when explicit origins are configured via CORS_ORIGINS.
