@@ -223,7 +223,7 @@ async def extract_request_data(
         if cleaned.startswith("```"):
             cleaned = cleaned.split("\n", 1)[1]
             cleaned = cleaned.rsplit("```", 1)[0]
-        return json.loads(cleaned)
+        return _normalize_extracted(json.loads(cleaned))
     except json.JSONDecodeError:
         return {
             "client_name": "",
@@ -239,6 +239,32 @@ async def extract_request_data(
             "line_items": [],
             "_raw_ai_response": raw_response[:1000],
         }
+
+
+def _normalize_extracted(data: dict) -> dict:
+    """Map Hermes/Ollama keys onto the UI / devis schema."""
+    if not isinstance(data, dict):
+        return data
+    client = data.get("donneur_d_ordre") or data.get("client_final") or data.get("client_name") or data.get("client") or ""
+    site = data.get("intervention_address") or data.get("intervention_site") or data.get("location") or data.get("client_address") or ""
+    data.setdefault("donneur_d_ordre", client)
+    data.setdefault("client_final", client)
+    data.setdefault("intervention_site", site)
+    data.setdefault("intervention_address", site)
+    data.setdefault("language", data.get("language") or "fr")
+    if data.get("confidence") is None and client:
+        data["confidence"] = 0.7
+    lines = []
+    for li in data.get("line_items") or []:
+        if not isinstance(li, dict):
+            continue
+        row = dict(li)
+        row["label"] = row.get("label") or row.get("description") or ""
+        row["qty"] = row.get("qty") if row.get("qty") is not None else row.get("quantity")
+        lines.append(row)
+    if lines:
+        data["line_items"] = lines
+    return data
 
 
 async def extract_from_text(text: str, tenant_settings: dict, session_id: str | None = None) -> dict:

@@ -59,12 +59,12 @@ def build_quote_lines(extracted: dict, catalog: list):
     for li in extracted.get("line_items", []) or []:
         m = match_line(li, catalog)
         try:
-            qty = float(li.get("qty") or 1)
+            qty = float(li.get("qty") or li.get("quantity") or 1)
         except (TypeError, ValueError):
             qty = 1.0
         # rich description: label + dimensions / specs / location
         extra = [str(li.get(k)) for k in ("dimensions", "specs", "location") if li.get(k)]
-        desc = li.get("label") or ""
+        desc = li.get("label") or li.get("description") or ""
         if extra:
             sep = " \u00b7 "
             desc = desc + " (" + sep.join(extra) + ")"

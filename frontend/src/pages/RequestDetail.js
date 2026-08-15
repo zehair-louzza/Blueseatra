@@ -61,13 +61,13 @@ export default function RequestDetail() {
           {!ex ? <Spinner label={t('req.processing')} /> : (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
-                <Field label={t('req.donneur')} value={ex.donneur_d_ordre} />
-                <Field label={t('req.client_final')} value={ex.client_final} />
+                <Field label={t('req.donneur')} value={ex.donneur_d_ordre || ex.client_name} />
+                <Field label={t('req.client_final')} value={ex.client_final || ex.client_name} />
                 <Field label={t('req.request_no')} value={ex.request_number} />
                 <Field label={t('req.di')} value={ex.di_number} />
                 <Field label={t('req.deadline')} value={ex.response_deadline} />
                 <Field label={t('req.lang')} value={(ex.language || '').toUpperCase()} />
-                <Field label={t('req.site')} value={ex.intervention_site} />
+                <Field label={t('req.site')} value={ex.intervention_site || ex.location || ex.client_address} />
                 <Field label={t('req.urgency')} value={ex.urgency} />
               </div>
               {ex.intervention_address && <Field label={t('req.site')} value={ex.intervention_address} />}
@@ -86,8 +86,8 @@ export default function RequestDetail() {
                   {(ex.line_items || []).map((li, i) => (
                     <div key={i} className="px-3 py-2" data-testid="extracted-line-item">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{li.label}</span>
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{li.qty} {li.unit || ''} {li.category ? `\u00b7 ${li.category}` : ''}</span>
+                        <span className="font-medium">{li.label || li.description}</span>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{li.qty ?? li.quantity} {li.unit || ''} {li.category ? `\u00b7 ${li.category}` : ''}</span>
                       </div>
                       {(li.location || li.dimensions || li.specs) && (
                         <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
