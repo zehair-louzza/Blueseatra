@@ -13,8 +13,7 @@ from typing import List, Optional
 
 import jwt
 import bcrypt
-import pandas as pd
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Form, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
@@ -660,8 +659,9 @@ async def catalog_items(catalog_id: str, cu: CurrentUser = Depends(get_current))
     return {"catalog": cat, "items": items, "columns": ver.get("columns", []), "mapping": ver.get("mapping", {})}
 
 
-def _read_csv_robust(content: bytes) -> pd.DataFrame:
+def _read_csv_robust(content: bytes):
     """Parse a CSV with any delimiter/encoding. Returns all columns as strings."""
+    import pandas as pd
     for kwargs in ({"sep": None, "engine": "python"}, {"sep": ";"}, {"sep": ","}, {"sep": "\t"}):
         for enc in ("utf-8-sig", "latin-1"):
             try:
@@ -892,13 +892,41 @@ async def delete_catalog(catalog_id: str,
     return {"ok": True}
 
 
+_CATALOG_CACHE: dict = {}
+_CATALOG_TTL_S = 45
+_SLIM_ITEM_KEYS = (
+    "id", "item_code", "item_label", "label_norm", "category", "family",
+    "unit", "brand", "supplier_main", "suppliers", "unit_price_ht", "vat_rate",
+    "margin", "min_qty", "currency", "is_active",
+)
+
+
+def _slim_item(item: dict) -> dict:
+    return {k: item.get(k) for k in _SLIM_ITEM_KEYS}
+
+
 async def get_active_catalog(tenant_id):
+    now = datetime.now(timezone.utc).timestamp()
+    hit = _CATALOG_CACHE.get(tenant_id)
+    if hit and now - hit[0] < _CATALOG_TTL_S:
+        return hit[1], hit[2]
     cat = await db.catalogs.find_one(
         {"tenant_id": tenant_id, "active_version_id": {"$ne": None}}, {"_id": 0}, sort=[("created_at", -1)])
     if not cat:
         return None, []
-    items = await db.pricing_items.find(
+    raw = await db.pricing_items.find(
         {"tenant_id": tenant_id, "version_id": cat["active_version_id"]}, {"_id": 0}).to_list(5000)
+    seen = set()
+    items = []
+    for it in raw:
+        if it.get("is_active") is False:
+            continue
+        code = it.get("item_code") or it.get("id")
+        if code in seen:
+            continue
+        seen.add(code)
+        items.append(_slim_item(it))
+    _CATALOG_CACHE[tenant_id] = (now, cat, items)
     return cat, items
 
 
@@ -906,6 +934,25 @@ async def get_active_catalog(tenant_id):
 async def catalog_active(cu: CurrentUser = Depends(get_current)):
     cat, items = await get_active_catalog(cu.tenant_id)
     return {"catalog": cat, "items": items}
+
+
+@api.get("/catalog/search")
+async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80),
+                         cu: CurrentUser = Depends(get_current)):
+    cat, items = await get_active_catalog(cu.tenant_id)
+    if not cat:
+        return {"catalog": None, "items": []}
+    needle = (q or "").strip().lower()
+    if not needle:
+        return {"catalog": {"name": cat.get("name"), "id": cat.get("id")}, "items": items[:limit]}
+    hits = []
+    for it in items:
+        blob = " ".join(str(it.get(k) or "") for k in ("item_label", "item_code", "category", "family", "brand")).lower()
+        if needle in blob:
+            hits.append(it)
+        if len(hits) >= limit:
+            break
+    return {"catalog": {"name": cat.get("name"), "id": cat.get("id")}, "items": hits}
 
 
 # ===========================================================================

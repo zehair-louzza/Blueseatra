@@ -42,7 +42,17 @@ export default function QuoteEditor() {
 
   const load = () => api.get(`/quotes/${id}`).then((r) => setQ(r.data));
   useEffect(() => { load(); }, [id]);
-  useEffect(() => { api.get('/catalog/active').then((r) => setCatalog(r.data.items || [])).catch(() => {}); }, []);
+  const loadCatalog = (q = '') => {
+    api.get('/catalog/search', { params: { q, limit: 40 } })
+      .then((r) => { setCatalog(r.data.items || []); })
+      .catch(() => { setCatalog([]); });
+  };
+  useEffect(() => { if (pickerOpen) loadCatalog(search); }, [pickerOpen]);
+  useEffect(() => {
+    if (!pickerOpen) return undefined;
+    const t = setTimeout(() => loadCatalog(search), 200);
+    return () => clearTimeout(t);
+  }, [search, pickerOpen]);
 
   const cur = q?.currency || 'EUR';
   const isDraft = q?.status === 'draft';

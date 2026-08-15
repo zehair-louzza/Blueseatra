@@ -29,8 +29,36 @@ def _configured_key() -> str:
     return (os.environ.get("MCP_API_KEY") or "").strip()
 
 
+_TENANT_CACHE = ""
+
+
 def _tenant_id() -> str:
-    return (os.environ.get("MCP_TENANT_ID") or "").strip()
+    env = (os.environ.get("MCP_TENANT_ID") or "").strip()
+    return env or _TENANT_CACHE
+
+
+async def _ensure_tenant() -> str:
+    global _TENANT_CACHE
+    env = (os.environ.get("MCP_TENANT_ID") or "").strip()
+    if env:
+        cat = await db.catalogs.find_one(
+            {"tenant_id": env, "active_version_id": {"$ne": None}}, {"_id": 0}
+        )
+        if cat:
+            _TENANT_CACHE = env
+            return env
+    if _TENANT_CACHE:
+        return _TENANT_CACHE
+    tenants = await db.tenants.find({}, {"_id": 0}).to_list(50)
+    for t in tenants:
+        if (t.get("name") or "") == "ANELEC Test":
+            _TENANT_CACHE = t["id"]
+            return _TENANT_CACHE
+    cat = await db.catalogs.find_one({"active_version_id": {"$ne": None}}, {"_id": 0}, sort=[("created_at", -1)])
+    if cat and cat.get("tenant_id"):
+        _TENANT_CACHE = cat["tenant_id"]
+        return _TENANT_CACHE
+    return env
 
 
 def _unauthorized() -> JSONResponse:
@@ -102,7 +130,7 @@ TOOLS = [
 
 
 async def _tool_list_requests(limit: int = 15) -> Any:
-    tid = _tenant_id()
+    tid = await _ensure_tenant()
     rows = await db.requests.find({"tenant_id": tid}, {"_id": 0, "file_b64": 0, "raw_text": 0}).sort(
         "created_at", -1
     ).to_list(limit)
@@ -121,7 +149,7 @@ async def _tool_list_requests(limit: int = 15) -> Any:
 
 
 async def _tool_get_request(request_id: str) -> Any:
-    tid = _tenant_id()
+    tid = await _ensure_tenant()
     r = await db.requests.find_one({"id": request_id, "tenant_id": tid}, {"_id": 0, "file_b64": 0})
     if not r:
         return {"error": "not_found"}
@@ -129,7 +157,7 @@ async def _tool_get_request(request_id: str) -> Any:
 
 
 async def _tool_list_quotes(limit: int = 15) -> Any:
-    tid = _tenant_id()
+    tid = await _ensure_tenant()
     rows = await db.quotes.find({"tenant_id": tid}, {"_id": 0, "lines": 0, "pricing_snapshot": 0}).sort(
         "created_at", -1
     ).to_list(limit)
@@ -148,7 +176,7 @@ async def _tool_list_quotes(limit: int = 15) -> Any:
 
 
 async def _tool_search_catalog(query: str, limit: int = 15) -> Any:
-    tid = _tenant_id()
+    tid = await _ensure_tenant()
     cat = await db.catalogs.find_one(
         {"tenant_id": tid, "active_version_id": {"$ne": None}},
         {"_id": 0},
