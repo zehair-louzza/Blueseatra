@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
   ChevronUp, ChevronDown, BookOpen, Search, Wrench, Package, StickyNote, SeparatorHorizontal,
-  Copy, RotateCcw, RefreshCw,
+  Copy, RotateCcw, RefreshCw, Truck,
 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
@@ -69,8 +69,17 @@ export default function QuoteEditor() {
   };
   const append = (line) => setLines([...(q.lines || []), line]);
   const addPriced = (type) => append({
-    line_type: type, description: '', category: type === 'labor' ? 'main_oeuvre' : null, matched_item_code: null,
-    qty: 1, unit: type === 'labor' ? 'hr' : 'u', unit_price_ht: '', vat_rate: 20, margin: '', status: 'to_confirm', score: 0, reasons: [],
+    line_type: type,
+    description: type === 'labor'
+      ? "Main d'oeuvre — heures normales 7h-18h"
+      : type === 'travel'
+        ? 'Deplacement en Ile-de-France — heures normales 8h-18h'
+        : '',
+    category: type === 'labor' ? 'main_oeuvre' : type === 'travel' ? 'deplacement' : null,
+    matched_item_code: type === 'labor' ? 'MO-001' : type === 'travel' ? 'DEP-001' : null,
+    qty: 1, unit: type === 'labor' ? 'hr' : 'u',
+    unit_price_ht: type === 'labor' ? 42 : type === 'travel' ? 40 : '',
+    vat_rate: 20, margin: '', status: 'to_confirm', score: 0, reasons: [],
   });
   const addNote = () => append({ line_type: 'note', description: '', status: 'note' });
   const addPageBreak = () => append({ line_type: 'page_break', status: 'page_break' });
@@ -107,7 +116,10 @@ export default function QuoteEditor() {
     setBusy(true);
     try {
       const lines = q.lines.map((l) => ({ ...l, qty: num(l.qty), unit_price_ht: num(l.unit_price_ht), vat_rate: num(l.vat_rate), margin: num(l.margin) }));
-      const { data } = await api.patch(`/quotes/${id}`, { lines, client: q.client, site: q.site, object: q.object, client_final: q.client_final });
+      const { data } = await api.patch(`/quotes/${id}`, {
+        lines, client: q.client, site: q.site, object: q.object, client_final: q.client_final,
+        works_description: (q.meta && q.meta.works_description) || q.works_description || '',
+      });
       setQ(data);
       if (validate) { await api.post(`/quotes/${id}/validate`); toast.success(t('status.validated')); await load(); }
       else toast.success(t('quote.save'));
@@ -234,6 +246,7 @@ export default function QuoteEditor() {
                 <div className="mx-1 h-5 w-px bg-border" />
                 <Button size="sm" className="gap-1.5" onClick={() => addPriced('generic')} data-testid="add-line-button"><Plus className="h-4 w-4" />{t('quote.add_line')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => addPriced('labor')} data-testid="add-labor-button"><Wrench className="h-4 w-4" />{t('quote.add_labor')}</Button>
+                <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => addPriced('travel')} data-testid="add-travel-button"><Truck className="h-4 w-4" />{t('quote.add_travel')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={() => addPriced('material')} data-testid="add-material-button"><Package className="h-4 w-4" />{t('quote.add_material')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={addNote} data-testid="add-note-button"><StickyNote className="h-4 w-4" />{t('quote.add_note')}</Button>
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={addPageBreak} data-testid="add-page-break-button"><SeparatorHorizontal className="h-4 w-4" />{t('quote.add_page_break')}</Button>
@@ -300,6 +313,7 @@ export default function QuoteEditor() {
                       <TableRow key={i} data-testid="quote-line-item-row">
                         <TableCell>
                           {l.line_type === 'labor' && <span className="mr-1 inline-flex items-center rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">M.O.</span>}
+                          {l.line_type === 'travel' && <span className="mr-1 inline-flex items-center rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">Dép.</span>}
                           {l.line_type === 'material' && <span className="mr-1 inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Mat.</span>}
                           {isDraft ? <Input value={l.description || ''} onChange={(e) => updateLine(i, 'description', e.target.value)} className="h-8" data-testid="line-description-input" /> : (l.description || l.request_label)}
                           {(l.matched_item_code || l.supplier) && <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{l.matched_item_code}{l.supplier ? ` \u00b7 ${l.supplier}` : ''}</div>}
@@ -348,6 +362,20 @@ export default function QuoteEditor() {
               <div className="space-y-1.5">
                 <label className="text-xs uppercase text-muted-foreground">{t('quote.object')}</label>
                 {isDraft ? <Input value={q.object || ''} onChange={(e) => setQ({ ...q, object: e.target.value })} className="h-8" data-testid="quote-object-input" /> : <div className="font-medium">{q.object || '\u2014'}</div>}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs uppercase text-muted-foreground">{t('quote.works_desc')}</label>
+                {isDraft ? (
+                  <textarea
+                    value={(q.meta && q.meta.works_description) || ''}
+                    onChange={(e) => setQ({ ...q, meta: { ...(q.meta || {}), works_description: e.target.value } })}
+                    rows={6}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    data-testid="quote-works-desc"
+                  />
+                ) : (
+                  <div className="whitespace-pre-wrap text-sm">{(q.meta && q.meta.works_description) || '\u2014'}</div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs uppercase text-muted-foreground">{t('quote.client')}</label>

@@ -973,6 +973,7 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
 
     extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
     lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
+    works_description = match_engine.build_works_description(extracted)
     count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
     quote_id = new_id()
     ex = req["extracted"]
@@ -996,6 +997,7 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
             "client_final": ex.get("client_final"),
             "intervention_site": ex.get("intervention_site"),
             "required_deliverables": ex.get("required_deliverables") or [],
+            "works_description": works_description,
         },
         "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
         "total_ttc": round(total_ht + total_vat, 2),
@@ -1081,6 +1083,10 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
     for f in ("client", "site", "object", "client_final"):
         if f in body:
             update[f] = body[f]
+    if "works_description" in body:
+        meta = dict(q.get("meta") or {})
+        meta["works_description"] = body["works_description"]
+        update["meta"] = meta
     await db.quotes.update_one({"id": quote_id}, {"$set": update})
     await audit(cu.tenant_id, cu.email, "quote.edit", quote_id)
     q.update(update)
@@ -1166,9 +1172,12 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
         raise HTTPException(400, "No active pricing catalog")
     extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
     lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
+    meta = dict(q.get("meta") or {})
+    meta["works_description"] = match_engine.build_works_description(extracted)
     update = {
         "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
         "total_ttc": round(total_ht + total_vat, 2),
+        "meta": meta,
     }
     await db.quotes.update_one({"id": quote_id}, {"$set": update})
     await audit(cu.tenant_id, cu.email, "quote.rematch", quote_id)

@@ -230,6 +230,13 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         e.append(meta_tbl)
     e.append(Spacer(1, 6))
 
+    works = (quote.get("meta") or {}).get("works_description") or quote.get("works_description")
+    if works:
+        e.append(Paragraph("Description / d\u00e9roulement des travaux", S["section"]))
+        e.append(Spacer(1, 3))
+        e.append(Paragraph(str(works).replace("\n", "<br/>"), S["cell"]))
+        e.append(Spacer(1, 8))
+
     # ---- Line items table: line types, sections, notes, page breaks ----------
     col_w = [22, doc.width - 22 - 40 - 64 - 38 - 72, 40, 64, 38, 72]
 
@@ -253,6 +260,8 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         lt = l.get("line_type")
         if lt == "labor":
             return "MAIN-D'\u0152UVRE"
+        if lt == "travel":
+            return "D\u00c9PLACEMENT"
         if lt == "material":
             return "MAT\u00c9RIAUX & FOURNITURES"
         cat = l.get("category")
