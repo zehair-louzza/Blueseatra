@@ -409,7 +409,7 @@ class CompanyProfile(BaseModel):
 
 
 def _intitule_with_di(obj, di_number) -> str:
-    title = (obj or "").strip()
+    title = match_engine.short_title(obj or "", 140)
     raw = str(di_number or "").strip()
     if not raw:
         return title
@@ -1002,7 +1002,9 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
     quote_id = new_id()
     ex = req["extracted"]
     client_recipient = ex.get("donneur_d_ordre") or ex.get("client_final") or ex.get("client_name") or ex.get("client")
-    site_val = ex.get("intervention_address") or ex.get("intervention_site") or ex.get("location") or ex.get("site")
+    site_val = match_engine.clean_text(
+        ex.get("intervention_address") or ex.get("intervention_site") or ex.get("location") or ex.get("site") or ""
+    )
     quote = {
         "id": quote_id, "tenant_id": cu.tenant_id, "request_id": request_id,
         "number": f"BS-{datetime.now().year}-{count + 1:04d}",

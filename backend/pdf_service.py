@@ -24,6 +24,7 @@ from reportlab.platypus import (
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
+from matching import clean_text, short_title
 
 NAVY = colors.HexColor("#1A2B45")
 GREEN = colors.HexColor("#D8EBE3")        # light muted green section bars
@@ -63,6 +64,15 @@ def _money(v, cur="EUR"):
         return str(v)
     sym = "\u20ac" if cur in ("EUR", "\u20ac") else cur
     return f"{s} {sym}"
+
+
+def _xml(s: str) -> str:
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _para(s, style):
+    t = _xml(clean_text(s)).replace("\n", "<br/>")
+    return Paragraph(t or "\u2014", style)
 
 
 def _fmt(v):
@@ -165,9 +175,9 @@ def _logo_flowable(p, max_w=36 * mm, max_h=16 * mm):
 
 
 def _intitule(quote: dict) -> str:
-    ref = (quote.get("object") or "").strip()
+    ref = short_title(quote.get("object") or "", 140)
     if not ref:
-        ref = " \u2013 ".join([b for b in [quote.get("client"), quote.get("site")] if b])
+        ref = short_title(" \u2013 ".join([b for b in [quote.get("client"), quote.get("site")] if b]), 140)
     raw = str((quote.get("meta") or {}).get("di_number") or quote.get("di_number") or "").strip()
     if not raw:
         return ref
@@ -228,9 +238,12 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         left.append(Paragraph(p["email"], S["small"]))
 
     right = [Paragraph("DESTINATAIRE", S["label"]),
-             Paragraph(quote.get("client") or "\u2014", S["client_name"])]
-    if quote.get("site"):
-        right.append(Paragraph(quote["site"], S["small"]))
+             _para(quote.get("client") or "\u2014", S["client_name"])]
+    site_txt = clean_text(quote.get("site") or "")
+    if site_txt:
+        for ln in site_txt.split("\n")[:5]:
+            if ln.strip():
+                right.append(_para(ln, S["small"]))
 
     header = Table([[left, right]], colWidths=[doc.width * 0.58, doc.width * 0.42])
     header.setStyle(TableStyle([
@@ -264,7 +277,7 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
     # ---- Reference line (centered, bold) -------------------------------------
     ref = _intitule(quote)
     if ref:
-        e.append(Table([[Paragraph(ref, S["ref"])]], colWidths=[doc.width],
+        e.append(Table([[_para(ref, S["ref"])]], colWidths=[doc.width],
                        style=TableStyle([
                            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F4F8F7")),
                            ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
@@ -300,7 +313,7 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
     if works:
         e.append(Paragraph("Description / d\u00e9roulement des travaux", S["section"]))
         e.append(Spacer(1, 3))
-        e.append(Paragraph(str(works).replace("\n", "<br/>"), S["cell"]))
+        e.append(_para(works, S["cell"]))
         e.append(Spacer(1, 8))
 
     # ---- Line items table: line types, sections, notes, page breaks ----------
@@ -411,7 +424,10 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
                     ]
                     row_idx += 1
                     last_section = sec
-            desig = [Paragraph(str(l.get("description") or l.get("request_label") or "\u2014"), S["cell"])]
+            raw_d = l.get("description") or l.get("request_label") or "\u2014"
+            if len(clean_text(raw_d)) > 140:
+                raw_d = short_title(raw_d, 140)
+            desig = [_para(raw_d, S["cell"])]
             sub = []
             if l.get("matched_item_code"):
                 sub.append(f"R\u00e9f. {l['matched_item_code']}")
