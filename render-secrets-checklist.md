@@ -52,8 +52,12 @@ Ne plus exposer `:11434`. Pointer Caddy :
 ```
 HERMES_BASE_URL=https://ia.blueseatra.com
 HERMES_API_KEY=<même valeur que OLLAMA_API_KEY sur le VPS>
+HERMES_EXTRACT_MODEL=qwen2.5:14b
+HERMES_REASONING_MODEL=gemma4:26b
+HERMES_GATEWAY_URL=https://hermes.blueseatra.com
+HERMES_GATEWAY_KEY=<même valeur que API_SERVER_KEY sur le VPS>
 ```
-Infra : dépôt privé `zehair-louzza/ovh-ai-stack`.
+Infra : dépôt privé `zehair-louzza/ovh-ai-stack`. Extraction → Ollama (`ia.blueseatra.com`). Raisonnement → gateway Hermes.
 
 ---
 
@@ -66,7 +70,8 @@ Infra : dépôt privé `zehair-louzza/ovh-ai-stack`.
 | `JWT_SECRET` | Générer localement | 🔴 Secret |
 | `APP_ENCRYPTION_KEY` | Générer localement | 🔴 Secret |
 | `HERMES_BASE_URL` | domaine Caddy OVH (HTTPS) | 🟡 Interne |
-| `HERMES_API_KEY` | `.env` ovh-ai-stack | 🔴 Secret |
+| `HERMES_API_KEY` | `.env` ovh-ai-stack (`OLLAMA_API_KEY`) | 🔴 Secret |
+| `HERMES_GATEWAY_KEY` | `.env` ovh-ai-stack (`API_SERVER_KEY`) | 🔴 Secret |
 
 ---
 
