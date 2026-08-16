@@ -328,7 +328,7 @@ def estimate_chantier(extracted: dict, material_lines: list | None = None) -> di
         hours += 1.25  # install 0,75 + repli 0,50
         notes.append("install_repli")
 
-    hours = max(2.0, math.ceil(hours * 4) / 4)
+    hours = max(2.0, float(math.ceil(hours)))
     crew = 2 if hours >= 6 else 1
     try:
         if extracted.get("crew_size"):
