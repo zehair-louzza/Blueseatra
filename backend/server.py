@@ -991,6 +991,11 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
     ver = await db.catalog_versions.find_one({"id": cat["active_version_id"]}, {"_id": 0})
 
     extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    settings = await get_tenant_ai_settings(cu.tenant_id)
+    labels = [it.get("item_label") for it in items if it.get("item_label")]
+    extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
+    if extracted.get("_expanded"):
+        await db.requests.update_one({"id": request_id}, {"$set": {"extracted": extracted}})
     lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
     works_description = match_engine.build_works_description(extracted)
     count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
@@ -1192,6 +1197,11 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     if not cat:
         raise HTTPException(400, "No active pricing catalog")
     extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    settings = await get_tenant_ai_settings(cu.tenant_id)
+    labels = [it.get("item_label") for it in items if it.get("item_label")]
+    extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
+    if extracted.get("_expanded"):
+        await db.requests.update_one({"id": req["id"]}, {"$set": {"extracted": extracted}})
     lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
     meta = dict(q.get("meta") or {})
     meta["works_description"] = match_engine.build_works_description(extracted)

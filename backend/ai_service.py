@@ -35,6 +35,13 @@ You MAY use the technical web context provided (DTU, phasage, spec produit, lots
 You MUST NEVER output a price, tariff, amount, euro, HT, TTC, or market estimate.
 Prices come ONLY from the Blueseatra catalog after extraction. If an article is unknown, still list it in line_items.
 
+CRITICAL — materials, not a rewrite:
+- Read the request, determine the trade context, then list the CONCRETE materials and accessories needed to execute the work.
+- FORBIDDEN: a single line_item that merely copies the request title (e.g. only \"Remplacement du ballon d'eau chaude 100L\").
+- Example: replacing a 100L water heater → ballon ECS 100L, groupe de sécurité, flexibles sanitaires, vannes d'arrêt, joints, raccords.
+- Example: replacing 3 LED spots → 3 spots LED 230V + accessoires de pose si nécessaires.
+- Reason first, then output JSON only.
+
 Extract:
 - client_name, client_email, client_phone, client_address
 - work_type (e.g. plomberie, electricite, peinture, menuiserie, climatisation)
@@ -138,19 +145,18 @@ async def _call_hermes_ollama(
         "messages": messages,
         "stream": False,
         "options": {
-            "temperature": 0.1,
-            "num_predict": 2048,
+            "temperature": 0.2,
+            "num_predict": 4096,
         },
+        # Toujours activer le raisonnement des modeles (qwen3 / hermes).
+        "think": True,
     }
-    # qwen3.6 thinks by default and wraps JSON in <think> — disable for extraction.
-    if model.startswith("qwen3"):
-        payload["think"] = False
 
     headers = {}
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=180.0) as client:
         response = await client.post(
             f"{HERMES_BASE_URL.rstrip('/')}/api/chat",
             json=payload,
@@ -158,7 +164,8 @@ async def _call_hermes_ollama(
         )
         response.raise_for_status()
         data = response.json()
-        return data["message"]["content"]
+        msg = data.get("message") or {}
+        return (msg.get("content") or "")
 
 
 async def _call_openai(
@@ -265,12 +272,12 @@ async def extract_request_data(
 
     # Parse JSON response
     try:
-        # Strip markdown code blocks if present
-        cleaned = raw_response.strip()
+        cleaned = _strip_think(raw_response)
         if cleaned.startswith("```"):
             cleaned = cleaned.split("\n", 1)[1]
             cleaned = cleaned.rsplit("```", 1)[0]
-        return _normalize_extracted(json.loads(cleaned))
+        parsed = _normalize_extracted(_parse_json_object(cleaned))
+        return await expand_work_into_materials(parsed, tenant_settings)
     except json.JSONDecodeError:
         return {
             "client_name": "",
@@ -286,6 +293,74 @@ async def extract_request_data(
             "line_items": [],
             "_raw_ai_response": raw_response[:1000],
         }
+
+
+def _strip_think(text: str) -> str:
+    text = text or ""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S | re.I)
+    text = re.sub(r"<reasoning>.*?</reasoning>", "", text, flags=re.S | re.I)
+    return text.strip()
+
+
+def _parse_json_object(text: str) -> dict:
+    text = (text or "").strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        raise json.JSONDecodeError("no object", text, 0)
+    return json.loads(text[start:end + 1])
+
+
+def _is_restatement(extracted: dict) -> bool:
+    items = extracted.get("line_items") or []
+    desc = (extracted.get("description") or "").strip().lower()
+    if len(items) == 0:
+        return True
+    if len(items) > 2:
+        return False
+    lab = (items[0].get("label") or items[0].get("description") or "").strip().lower()
+    if not lab:
+        return True
+    return lab == desc or lab in desc or desc in lab
+
+
+EXPAND_SYSTEM = """Tu es métreur TCE. On te donne une demande de travaux.
+Raisonne, puis sors UNIQUEMENT un JSON :
+{"line_items":[{"description":"article concret","quantity":1,"unit":"u","category":"plomberie sanitaire"}]}
+
+Règles:
+- Décompose en fournitures / accessoires nécessaires à l'exécution.
+- INTERDIT de recopier le titre de la demande comme seule ligne.
+- Aucun prix, aucun €, aucun tarif.
+- Quantités minimales réalistes.
+- Si une liste d'articles catalogue (libellés seulement) est fournie, préfère ces libellés.
+"""
+
+
+async def expand_work_into_materials(extracted: dict, tenant_settings: dict, catalog_labels: list | None = None) -> dict:
+    """Turn a copied request title into concrete material lines. No prices."""
+    extracted = dict(extracted or {})
+    if not _is_restatement(extracted):
+        return extracted
+    desc = extracted.get("description") or ""
+    labels = [str(x).strip() for x in (catalog_labels or []) if x][:80]
+    user = f"Demande: {desc}\nType: {extracted.get('work_type') or ''}\n"
+    if labels:
+        user += "Articles catalogue (libellés seulement, SANS prix):\n- " + "\n- ".join(labels)
+    try:
+        provider, model, api_key = await resolve_ai_config(tenant_settings)
+        if provider == "openai":
+            raw = await _call_openai(api_key or OPENAI_API_KEY, model, EXPAND_SYSTEM, user)
+        else:
+            raw = await _call_hermes_ollama(model, EXPAND_SYSTEM, user)
+        data = _parse_json_object(_strip_think(raw))
+        items = data.get("line_items") or []
+        if len(items) >= 2:
+            extracted["line_items"] = items
+            extracted["_expanded"] = True
+    except Exception:
+        pass
+    return _normalize_extracted(extracted)
 
 
 def _normalize_extracted(data: dict) -> dict:
