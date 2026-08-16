@@ -1,6 +1,7 @@
 """Explainable, scored matching engine + deterministic quote calculation.
 Pricing ALWAYS comes from the catalog. AI never sets the price.
 """
+import re
 import unicodedata
 from collections import OrderedDict
 from rapidfuzz import fuzz
@@ -12,6 +13,30 @@ SCORE_THRESHOLD = 45
 # Tarifs ANELEC imposés (devis type DEV-2026-0477 / 0525)
 LABOR_RATE_HT = 42.0
 TRAVEL_RATE_HT = 40.0
+
+
+def clean_text(s: str) -> str:
+    """Turn literal \\n / \\r into real line breaks and tidy spaces."""
+    if s is None:
+        return ""
+    t = str(s).replace("\r\n", "\n").replace("\r", "\n")
+    t = t.replace("\\n", "\n").replace("\\r", "")
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()
+
+
+def short_title(s: str, limit: int = 120) -> str:
+    t = clean_text(s).split("\n")[0].strip()
+    for sep in (". ", " : ", " — ", " - "):
+        head = t.split(sep, 1)[0].strip()
+        if 24 <= len(head) < len(t):
+            t = head
+            break
+    if len(t) > limit:
+        t = t[: limit - 1].rsplit(" ", 1)[0] + "\u2026"
+    return t
 
 
 def normalize(s: str) -> str:
@@ -42,8 +67,12 @@ def _match_query(text: str) -> str:
 
 
 def match_line(line: dict, catalog: list) -> dict | None:
+    raw = clean_text(_line_text(line))
+    # Un paragraphe de demande n'est pas un article catalogue.
+    if len(raw) > 100 or raw.count("\n") >= 1 or len(raw.split()) > 18:
+        return {"item": None, "score": 0, "reasons": ["texte_trop_long"], "status": "to_confirm"}
     best = None
-    label_norm = _match_query(_line_text(line))
+    label_norm = _match_query(raw)
     req_cat = (line.get("category") or line.get("work_type") or "").lower()
     req_unit = (line.get("unit") or "").lower()
     for item in catalog:
@@ -124,7 +153,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             qty = 1.0
         # rich description: label + dimensions / specs / location
         extra = [str(li.get(k)) for k in ("dimensions", "specs", "location") if li.get(k)]
-        desc = li.get("label") or li.get("description") or ""
+        desc = clean_text(li.get("label") or li.get("description") or "")
         if extra:
             sep = " \u00b7 "
             desc = desc + " (" + sep.join(extra) + ")"
@@ -242,7 +271,7 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
         if dep:
             row, ht, vat = _append_priced(
                 dep, 1.0, "travel",
-                "Deplacement en Ile-de-France — heures normales 8h-18h",
+                "Deplacement technicien — heures normales 8h-18h",
                 ["auto_travel", "tarif_40", "catalogue"],
             )
             row["unit_price_ht"] = TRAVEL_RATE_HT
@@ -250,11 +279,14 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
             row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
             extras_buf.append((row, row["line_ht"], 0.0))
         else:
-            extras_buf.append((
-                _empty_rubric("travel", "Deplacement en Ile-de-France — heures normales 8h-18h",
-                              1.0, "u", ["auto_travel", "hors_catalogue"]),
-                0.0, 0.0,
-            ))
+            fake = {"item_code": "DEP-001", "item_label": "Deplacement technicien",
+                    "category": "deplacement", "unit": "u", "unit_price_ht": TRAVEL_RATE_HT}
+            row, _, _ = _append_priced(fake, 1.0, "travel",
+                "Deplacement technicien — heures normales 8h-18h", ["auto_travel", "tarif_40"])
+            row["unit_price_ht"] = TRAVEL_RATE_HT
+            row["vat_rate"] = None
+            row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
+            extras_buf.append((row, row["line_ht"], 0.0))
 
     if "MO-001" not in codes and "main d'oeuvre" not in texts and "main d oeuvre" not in texts:
         mo = _find_item(catalog, "MO-001", "main d oeuvre", "main_oeuvre")
@@ -270,11 +302,14 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
             row["line_ht"] = line_amount_ht(hours, LABOR_RATE_HT, 0) or 0
             extras_buf.append((row, row["line_ht"], 0.0))
         else:
-            extras_buf.append((
-                _empty_rubric("labor", "Main d'oeuvre — heures normales 7h-18h",
-                              hours, "hr", ["auto_labor", "hors_catalogue"]),
-                0.0, 0.0,
-            ))
+            fake = {"item_code": "MO-001", "item_label": "Main d'oeuvre qualifiee",
+                    "category": "main_oeuvre", "unit": "hr", "unit_price_ht": LABOR_RATE_HT}
+            row, _, _ = _append_priced(fake, hours, "labor",
+                "Main d'oeuvre — heures normales 7h-18h", ["auto_labor", "tarif_42"])
+            row["unit_price_ht"] = LABOR_RATE_HT
+            row["vat_rate"] = None
+            row["line_ht"] = line_amount_ht(hours, LABOR_RATE_HT, 0) or 0
+            extras_buf.append((row, row["line_ht"], 0.0))
 
     for row, ht, vat in extras_buf:
         extra.append(row)
@@ -285,18 +320,18 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
 
 def build_works_description(extracted: dict) -> str:
     """Bloc obligatoire 'Description / Deroulement des travaux' (modele ANELEC)."""
-    desc = (extracted.get("description") or "").strip()
-    site = (
+    desc = short_title(extracted.get("description") or "", 220)
+    site = clean_text(
         extracted.get("intervention_address")
         or extracted.get("location")
         or extracted.get("intervention_site")
         or ""
-    ).strip()
+    ).split("\n")[0].strip()
     items = extracted.get("line_items") or []
     labels = []
     for i in items:
-        t = (i.get("label") or i.get("description") or "").strip()
-        if t and t not in labels:
+        t = clean_text(i.get("label") or i.get("description") or "")
+        if t and len(t) < 80 and t not in labels:
             labels.append(t)
     core = desc or (", ".join(labels) if labels else "Travaux selon demande client")
     if core and not core.endswith("."):
@@ -305,8 +340,8 @@ def build_works_description(extracted: dict) -> str:
     return (
         f"{core}{site_bit}\n\n"
         "Les travaux seront exécutés en phases successives : déplacement du technicien "
-        "en Île-de-France (heures normales 8h-18h), installation et sécurisation de la "
-        "zone d'intervention, fourniture et pose ou remplacement des articles listés, "
+        "(heures normales 8h-18h), installation et sécurisation de la "
+        "zone d'intervention, fourniture et pose des articles listés, "
         "puis nettoyage de fin de chantier.\n\n"
         "Toute contrainte technique non visible lors du métré initial pourra faire "
         "l'objet d'une adaptation complémentaire après accord du client."
