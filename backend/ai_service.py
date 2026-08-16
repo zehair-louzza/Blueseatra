@@ -30,6 +30,11 @@ HERMES_FALLBACK_MODELS = [
 MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
 # Shared with Caddy on ovh-ai-stack (header X-Api-Key). Empty in local dev.
 HERMES_API_KEY = os.environ.get("HERMES_API_KEY", "")
+# Gateway Hermes Agent (OpenAI-compatible). Vide = raisonnement via Ollama.
+# https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server
+HERMES_GATEWAY_URL = os.environ.get("HERMES_GATEWAY_URL", "").rstrip("/")
+HERMES_GATEWAY_KEY = os.environ.get("HERMES_GATEWAY_KEY", "")
+HERMES_GATEWAY_MODEL = os.environ.get("HERMES_GATEWAY_MODEL", "hermes-agent")
 
 # ── Fallback cloud providers ─────────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -220,6 +225,56 @@ async def _call_hermes_ollama(
                 last_err = f"{type(exc).__name__} ({current}): {exc or repr(exc)}"
                 continue
     raise RuntimeError(last_err or "aucun modele Ollama n'a repondu")
+
+
+async def _call_hermes_gateway(
+    system_prompt: str,
+    user_message: str,
+) -> str:
+    """Call Hermes Agent via POST /v1/chat/completions behind Caddy."""
+    if not HERMES_GATEWAY_URL:
+        raise RuntimeError("HERMES_GATEWAY_URL vide")
+    headers = {"Content-Type": "application/json"}
+    if HERMES_API_KEY:
+        headers["X-Api-Key"] = HERMES_API_KEY
+    if HERMES_GATEWAY_KEY:
+        headers["Authorization"] = f"Bearer {HERMES_GATEWAY_KEY}"
+    payload = {
+        "model": HERMES_GATEWAY_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        "stream": False,
+    }
+    url = f"{HERMES_GATEWAY_URL}/v1/chat/completions"
+    async with httpx.AsyncClient(timeout=360.0) as client:
+        response = await client.post(url, json=payload, headers=headers)
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"HTTP {response.status_code} (gateway): {(response.text or '')[:180]}"
+            )
+        data = response.json()
+    content = (
+        ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    ).strip()
+    if not content:
+        raise RuntimeError("reponse gateway vide")
+    return content
+
+
+async def _call_reason(
+    model: str,
+    system_prompt: str,
+    user_message: str,
+) -> str:
+    """Raisonnement : gateway Hermes si configuré, sinon Ollama."""
+    if HERMES_GATEWAY_URL:
+        try:
+            return await _call_hermes_gateway(system_prompt, user_message)
+        except Exception:
+            pass
+    return await _call_hermes_ollama(model, system_prompt, user_message)
 
 
 async def _call_openai(
@@ -438,7 +493,7 @@ async def expand_work_into_materials(extracted: dict, tenant_settings: dict, cat
         if provider == "openai":
             raw = await _call_openai(api_key or OPENAI_API_KEY, model, EXPAND_SYSTEM, user)
         else:
-            raw = await _call_hermes_ollama(model, EXPAND_SYSTEM, user)
+            raw = await _call_reason(model, EXPAND_SYSTEM, user)
         data = _parse_json_object(_strip_think(raw))
         items = data.get("line_items") or []
         if len(items) >= 2:

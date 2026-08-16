@@ -74,6 +74,15 @@ services:
       - key: HERMES_API_KEY
         sync: false
 
+      - key: HERMES_GATEWAY_URL
+        value: https://hermes.blueseatra.com
+
+      - key: HERMES_GATEWAY_KEY
+        sync: false
+
+      - key: HERMES_GATEWAY_MODEL
+        value: hermes-agent
+
       # Connecteur MCP Perplexity (https://blueseatra-api.onrender.com/mcp)
       - key: MCP_API_KEY
         sync: false
