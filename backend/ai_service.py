@@ -18,6 +18,8 @@ load_dotenv(ROOT_DIR / ".env")
 # ── Hermes AI / Ollama (OVH VPS) ────────────────────────────────────────────
 HERMES_BASE_URL = os.environ.get("HERMES_BASE_URL", "http://localhost:11434")
 HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
+HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen3.6:27b")
+MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
 # Shared with Caddy on ovh-ai-stack (header X-Api-Key). Empty in local dev.
 HERMES_API_KEY = os.environ.get("HERMES_API_KEY", "")
 
@@ -116,6 +118,9 @@ async def resolve_ai_config(tenant_settings: dict) -> tuple[str, str, str]:
     # Hermes/Ollama: tenant key unused; gateway auth is HERMES_API_KEY.
     if provider == "hermes":
         model = model or HERMES_DEFAULT_MODEL
+        # Raisonnement: extraire / decomposer sur qwen3, pas hermes-3.
+        if (model or "").lower().startswith("hermes"):
+            model = HERMES_REASONING_MODEL
 
     return provider, model, api_key
 
@@ -140,6 +145,7 @@ async def _call_hermes_ollama(
     else:
         messages.append({"role": "user", "content": user_message})
 
+    model = MODEL_ALIASES.get((model or "").strip(), model)
     payload = {
         "model": model,
         "messages": messages,
@@ -148,21 +154,27 @@ async def _call_hermes_ollama(
             "temperature": 0.2,
             "num_predict": 4096,
         },
-        # Toujours activer le raisonnement des modeles (qwen3 / hermes).
-        "think": True,
     }
+    # hermes-3 refuse think (400). qwen3 l'accepte.
+    if (model or "").lower().startswith("qwen3"):
+        payload["think"] = True
 
     headers = {}
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
 
+    url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
     async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(
-            f"{HERMES_BASE_URL.rstrip('/')}/api/chat",
-            json=payload,
-            headers=headers,
-        )
-        response.raise_for_status()
+        response = await client.post(url, json=payload, headers=headers)
+        if response.status_code == 400 and payload.pop("think", None) is not None:
+            response = await client.post(url, json=payload, headers=headers)
+        if response.status_code >= 400:
+            detail = (response.text or "")[:240].replace("\n", " ")
+            raise httpx.HTTPStatusError(
+                f"Ollama {response.status_code} ({model}): {detail}",
+                request=response.request,
+                response=response,
+            )
         data = response.json()
         msg = data.get("message") or {}
         return (msg.get("content") or "")
