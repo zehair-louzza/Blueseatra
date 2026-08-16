@@ -1,6 +1,7 @@
 """Explainable, scored matching engine + deterministic quote calculation.
 Pricing ALWAYS comes from the catalog. AI never sets the price.
 """
+import math
 import re
 import unicodedata
 from collections import OrderedDict
@@ -246,6 +247,108 @@ def _append_priced(item: dict, qty: float, line_type: str, description: str, rea
     }, line_ht, line_vat
 
 
+def estimate_chantier(extracted: dict, material_lines: list | None = None) -> dict:
+    """Heures-homme, effectif et jours de deplacement (barème expert, pas de prix)."""
+    blob = normalize(
+        " ".join([
+            extracted.get("description") or "",
+            extracted.get("work_type") or "",
+            " ".join(
+                (l.get("description") or l.get("label") or "")
+                for l in (extracted.get("line_items") or []) + (material_lines or [])
+            ),
+        ])
+    )
+
+    def _qty_for(*needles):
+        total = 0.0
+        pool = extracted.get("line_items") or []
+        if not pool:
+            pool = [
+                l for l in (material_lines or [])
+                if l.get("line_type") not in ("note", "page_break", "lot", "sublot", "labor", "travel")
+            ]
+        for src in pool:
+            txt = normalize(src.get("description") or src.get("label") or "")
+            if any(n in txt for n in needles):
+                try:
+                    total += float(src.get("qty") or src.get("quantity") or 1)
+                except (TypeError, ValueError):
+                    total += 1
+        return total
+
+    hours = 0.0
+    notes = []
+    try:
+        if extracted.get("labor_hours"):
+            hours = float(extracted["labor_hours"])
+            notes.append("heures_ia")
+    except (TypeError, ValueError):
+        hours = 0.0
+
+    if hours <= 0:
+        # Barèmes pose (h-h) — voir skill estimation-chantier.md
+        n_spot = _qty_for("spot", "encastr")
+        n_dalle = _qty_for("dalle led", "dalle 600")
+        n_ballon = _qty_for("ballon", "ecs", "chauffe-eau", "chauffe eau")
+        n_flex = _qty_for("flexible")
+        n_vanne = _qty_for("vanne")
+        n_vitrine = _qty_for("vitrine", "volige", "profil u")
+        if n_spot:
+            hours += n_spot * 0.45
+            notes.append(f"spots_{n_spot:g}")
+        if n_dalle:
+            hours += n_dalle * 0.70
+            notes.append(f"dalles_{n_dalle:g}")
+        if n_ballon:
+            hours += max(n_ballon, 1) * 4.50
+            notes.append("ballon_ecs")
+        if n_flex:
+            hours += n_flex * 0.25
+        if n_vanne:
+            hours += n_vanne * 0.40
+        if n_vitrine or any(k in blob for k in ("vitrine", "volige", "amovible")):
+            hours += 6.0 if not n_vitrine else max(n_vitrine, 1) * 2.0
+            notes.append("protection_vitrine")
+        if any(k in blob for k in ("peinture", "enduit")):
+            hours = max(hours, 7.0)
+            notes.append("peinture_jour")
+        if hours <= 0:
+            # fallback: 0,45 h / article + chantier, min 2 h
+            n_art = 0.0
+            for l in material_lines or []:
+                if l.get("line_type") in ("note", "page_break", "lot", "sublot", "labor", "travel"):
+                    continue
+                try:
+                    n_art += float(l.get("qty") or 1)
+                except (TypeError, ValueError):
+                    n_art += 1
+            hours = max(2.0, n_art * 0.45)
+            notes.append("fallback_articles")
+        hours += 1.25  # install 0,75 + repli 0,50
+        notes.append("install_repli")
+
+    hours = max(2.0, math.ceil(hours * 4) / 4)
+    crew = 2 if hours >= 6 else 1
+    try:
+        if extracted.get("crew_size"):
+            crew = max(1, int(extracted["crew_size"]))
+    except (TypeError, ValueError):
+        pass
+    days = max(1, math.ceil(hours / (7.0 * crew)))
+    try:
+        travel_days = int(extracted["travel_days"]) if extracted.get("travel_days") else days
+    except (TypeError, ValueError):
+        travel_days = days
+    travel_days = max(1, travel_days)
+    return {
+        "labor_hours": hours,
+        "travel_days": travel_days,
+        "crew": crew,
+        "notes": notes,
+    }
+
+
 def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
     """Tolteck-style completeness: fourniture + main-d'oeuvre + deplacement."""
     extra = []
@@ -265,37 +368,43 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
     if units <= 0:
         units = 1.0
 
+    est = estimate_chantier(extracted, existing)
+    hours = est["labor_hours"]
+    travel_days = est["travel_days"]
+
     extras_buf = []
     if "DEP-001" not in codes and "deplacement" not in texts and "d\u00e9placement" not in texts:
         dep = _find_item(catalog, "DEP-001", "deplacement technicien", "deplacement")
         if dep:
             row, ht, vat = _append_priced(
-                dep, 1.0, "travel",
-                "Deplacement technicien — heures normales 8h-18h",
-                ["auto_travel", "tarif_40", "catalogue"],
+                dep, travel_days, "travel",
+                f"Deplacement technicien — {travel_days:g} jour(s), heures 8h-18h",
+                ["auto_travel", "tarif_40", "estime", f"{travel_days:g}_j"],
             )
             row["unit_price_ht"] = TRAVEL_RATE_HT
+            row["unit"] = "j"
             row["vat_rate"] = None
-            row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
+            row["line_ht"] = line_amount_ht(travel_days, TRAVEL_RATE_HT, 0) or 0
             extras_buf.append((row, row["line_ht"], 0.0))
         else:
             fake = {"item_code": "DEP-001", "item_label": "Deplacement technicien",
-                    "category": "deplacement", "unit": "u", "unit_price_ht": TRAVEL_RATE_HT}
-            row, _, _ = _append_priced(fake, 1.0, "travel",
-                "Deplacement technicien — heures normales 8h-18h", ["auto_travel", "tarif_40"])
+                    "category": "deplacement", "unit": "j", "unit_price_ht": TRAVEL_RATE_HT}
+            row, _, _ = _append_priced(fake, travel_days, "travel",
+                f"Deplacement technicien — {travel_days:g} jour(s), heures 8h-18h",
+                ["auto_travel", "tarif_40", "estime"])
             row["unit_price_ht"] = TRAVEL_RATE_HT
+            row["unit"] = "j"
             row["vat_rate"] = None
-            row["line_ht"] = line_amount_ht(1.0, TRAVEL_RATE_HT, 0) or 0
+            row["line_ht"] = line_amount_ht(travel_days, TRAVEL_RATE_HT, 0) or 0
             extras_buf.append((row, row["line_ht"], 0.0))
 
     if "MO-001" not in codes and "main d'oeuvre" not in texts and "main d oeuvre" not in texts:
         mo = _find_item(catalog, "MO-001", "main d oeuvre", "main_oeuvre")
-        hours = max(1.0, round(units * 0.4 * 4) / 4)
         if mo:
             row, ht, vat = _append_priced(
                 mo, hours, "labor",
-                "Main d'oeuvre — heures normales 7h-18h",
-                ["auto_labor", f"{units:g}_unites", "tarif_42", "catalogue"],
+                f"Main d'oeuvre pose — {hours:g} h ({est['crew']} pers.), heures 7h-18h",
+                ["auto_labor", "estime", f"{hours:g}_h", f"{est['crew']}_pers"],
             )
             row["unit_price_ht"] = LABOR_RATE_HT
             row["vat_rate"] = None

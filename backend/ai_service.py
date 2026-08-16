@@ -54,6 +54,9 @@ Extract:
 - requested_date (if mentioned)
 - di_number (if mentioned)
 - line_items: list of {description, quantity, unit} — every prestation, even if unknown to the catalog
+- labor_hours: realistic man-hours for install+pose+cleanup (number, no price)
+- travel_days: on-site days (integer)
+- crew_size: 1 if < 6h else 2
 
 Return ONLY this JSON structure with no markdown, no explanation:
 {
@@ -68,6 +71,9 @@ Return ONLY this JSON structure with no markdown, no explanation:
   \"estimated_budget\": null,
   \"requested_date\": null,
   \"di_number\": \"\",
+  \"labor_hours\": null,
+  \"travel_days\": null,
+  \"crew_size\": null,
   \"line_items\": []
 }"""
 
@@ -398,6 +404,9 @@ def _normalize_extracted(data: dict) -> dict:
         lines.append(row)
     if lines:
         data["line_items"] = lines
+    for k in ("labor_hours", "travel_days", "crew_size"):
+        if data.get(k) in ("", "null"):
+            data[k] = None
     return data
 
 
