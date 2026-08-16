@@ -18,10 +18,12 @@ load_dotenv(ROOT_DIR / ".env")
 # ── Hermes AI / Ollama (OVH VPS) ────────────────────────────────────────────
 HERMES_BASE_URL = os.environ.get("HERMES_BASE_URL", "http://localhost:11434")
 HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
-HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen3.6:27b")
+HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:14b")
+HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b")
 HERMES_FALLBACK_MODELS = [
-    os.environ.get("HERMES_REASONING_MODEL", "qwen3.6:27b"),
-    "qwen2.5:14b",
+    os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b"),
+    "qwen3.6:27b",
+    os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:14b"),
     "hermes3",
     "hermes-3",
 ]
@@ -118,8 +120,21 @@ async def _web_context_sans_prix(raw_text: str) -> str:
         return ""
 
 
-async def resolve_ai_config(tenant_settings: dict) -> tuple[str, str, str]:
-    """Return (provider, model, api_key) for this tenant."""
+def _wants_think(model: str) -> bool:
+    name = (model or "").lower()
+    return name.startswith("qwen3") or name.startswith("gemma4")
+
+
+async def resolve_ai_config(
+    tenant_settings: dict,
+    role: str = "extract",
+) -> tuple[str, str, str]:
+    """Return (provider, model, api_key) for this tenant.
+
+    role=extract → qwen2.5:14b (parse rapide).
+    role=reason → gemma4:26b (décomposition matériaux / lots).
+    Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
+    """
     provider = tenant_settings.get("ai_provider") or DEFAULT_PROVIDER
     model = tenant_settings.get("ai_model") or DEFAULT_MODEL
     api_key = tenant_settings.get("ai_key") or ""
@@ -130,9 +145,8 @@ async def resolve_ai_config(tenant_settings: dict) -> tuple[str, str, str]:
     # Hermes/Ollama: tenant key unused; gateway auth is HERMES_API_KEY.
     if provider == "hermes":
         model = model or HERMES_DEFAULT_MODEL
-        # Raisonnement: extraire / decomposer sur qwen3, pas hermes-3.
         if (model or "").lower().startswith("hermes"):
-            model = HERMES_REASONING_MODEL
+            model = HERMES_EXTRACT_MODEL if role == "extract" else HERMES_REASONING_MODEL
 
     return provider, model, api_key
 
@@ -167,8 +181,8 @@ async def _call_hermes_ollama(
             "num_predict": 4096,
         },
     }
-    # hermes-3 refuse think (400). qwen3 l'accepte.
-    if (model or "").lower().startswith("qwen3"):
+    # hermes-3 refuse think (400). qwen3 et gemma4 l'acceptent.
+    if _wants_think(model):
         payload["think"] = True
 
     headers = {}
@@ -185,7 +199,7 @@ async def _call_hermes_ollama(
     async with httpx.AsyncClient(timeout=180.0) as client:
         for current in models:
             payload["model"] = current
-            if current.lower().startswith("qwen3"):
+            if _wants_think(current):
                 payload["think"] = True
             else:
                 payload.pop("think", None)
@@ -306,7 +320,7 @@ async def extract_request_data(
     image_bytes: bytes | None = None,
 ) -> dict:
     """Main entry point: extract structured quote data from raw text/image."""
-    provider, model, api_key = await resolve_ai_config(tenant_settings)
+    provider, model, api_key = await resolve_ai_config(tenant_settings, role="extract")
 
     image_b64 = None
     if image_bytes:
@@ -420,7 +434,7 @@ async def expand_work_into_materials(extracted: dict, tenant_settings: dict, cat
     if labels:
         user += "Articles catalogue (libellés seulement, SANS prix):\n- " + "\n- ".join(labels)
     try:
-        provider, model, api_key = await resolve_ai_config(tenant_settings)
+        provider, model, api_key = await resolve_ai_config(tenant_settings, role="reason")
         if provider == "openai":
             raw = await _call_openai(api_key or OPENAI_API_KEY, model, EXPAND_SYSTEM, user)
         else:

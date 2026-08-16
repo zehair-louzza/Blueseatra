@@ -52,8 +52,10 @@ Ne plus exposer `:11434`. Pointer Caddy :
 ```
 HERMES_BASE_URL=https://ia.blueseatra.com
 HERMES_API_KEY=<même valeur que OLLAMA_API_KEY sur le VPS>
+HERMES_EXTRACT_MODEL=qwen2.5:14b
+HERMES_REASONING_MODEL=gemma4:26b
 ```
-Infra : dépôt privé `zehair-louzza/ovh-ai-stack`.
+Infra : dépôt privé `zehair-louzza/ovh-ai-stack`. FastAPI reste sur Ollama (`ia.blueseatra.com`), pas sur le gateway Hermes.
 
 ---
 
