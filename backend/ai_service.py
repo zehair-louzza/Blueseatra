@@ -19,6 +19,12 @@ load_dotenv(ROOT_DIR / ".env")
 HERMES_BASE_URL = os.environ.get("HERMES_BASE_URL", "http://localhost:11434")
 HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
 HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen3.6:27b")
+HERMES_FALLBACK_MODELS = [
+    os.environ.get("HERMES_REASONING_MODEL", "qwen3.6:27b"),
+    "qwen2.5:14b",
+    "hermes3",
+    "hermes-3",
+]
 MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
 # Shared with Caddy on ovh-ai-stack (header X-Api-Key). Empty in local dev.
 HERMES_API_KEY = os.environ.get("HERMES_API_KEY", "")
@@ -170,20 +176,36 @@ async def _call_hermes_ollama(
         headers["X-Api-Key"] = HERMES_API_KEY
 
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
+    last_err = None
+    models = []
+    for m in [model, *HERMES_FALLBACK_MODELS]:
+        alias = MODEL_ALIASES.get((m or "").strip(), m)
+        if alias and alias not in models:
+            models.append(alias)
     async with httpx.AsyncClient(timeout=180.0) as client:
-        response = await client.post(url, json=payload, headers=headers)
-        if response.status_code == 400 and payload.pop("think", None) is not None:
-            response = await client.post(url, json=payload, headers=headers)
-        if response.status_code >= 400:
-            detail = (response.text or "")[:240].replace("\n", " ")
-            raise httpx.HTTPStatusError(
-                f"Ollama {response.status_code} ({model}): {detail}",
-                request=response.request,
-                response=response,
-            )
-        data = response.json()
-        msg = data.get("message") or {}
-        return (msg.get("content") or "")
+        for current in models:
+            payload["model"] = current
+            if current.lower().startswith("qwen3"):
+                payload["think"] = True
+            else:
+                payload.pop("think", None)
+            try:
+                response = await client.post(url, json=payload, headers=headers)
+                if response.status_code == 400 and payload.pop("think", None) is not None:
+                    response = await client.post(url, json=payload, headers=headers)
+                if response.status_code >= 400:
+                    last_err = f"HTTP {response.status_code} ({current}): {(response.text or '')[:180]}"
+                    continue
+                data = response.json()
+                msg = data.get("message") or {}
+                content = (msg.get("content") or "").strip()
+                if content:
+                    return content
+                last_err = f"reponse vide ({current})"
+            except Exception as exc:
+                last_err = f"{type(exc).__name__} ({current}): {exc or repr(exc)}"
+                continue
+    raise RuntimeError(last_err or "aucun modele Ollama n'a repondu")
 
 
 async def _call_openai(
@@ -225,6 +247,57 @@ async def _call_openai(
         response.raise_for_status()
         data = response.json()
         return data["choices"][0]["message"]["content"]
+
+
+def _fallback_extract(raw_text: str) -> dict:
+    """Extraction deterministe si Ollama/Hermes ne repond pas. Aucun prix."""
+    text = (raw_text or "").replace("\r\n", "\n")
+    def _m(pat, flags=re.I):
+        m = re.search(pat, text, flags)
+        return (m.group(1).strip() if m else "")
+
+    client = _m(r"Client\s*:\s*([^\n]+)") or _m(r"client_final\s*:\s*([^\n]+)")
+    di = _m(r"N°\s*Dossier\s*DI\s*:\s*([0-9A-Za-z-]+)") or _m(r"\bDI\s*:?\s*([0-9]{6,})")
+    deadline = _m(r"retour souhaitée? le\s*:\s*([^\n]+)") or _m(r"Date de la demande\s*:\s*([^\n]+)")
+    phone = _m(r"Tél(?:éphone)?\s*[:.]\s*([^\n]+)")
+    email = _m(r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})")
+    site = ""
+    sm = re.search(r"Site d'intervention(.*?)Demande de devis", text, re.I | re.S)
+    if sm:
+        block = sm.group(1)
+        lines = [ln.strip() for ln in block.split("\n") if ln.strip()]
+        skip = {"prestataire", "anelec", "france", "téléphone", "tel portable", "e-mail"}
+        kept = [ln for ln in lines if not any(ln.lower().startswith(s) for s in skip) and "@" not in ln]
+        # often: ANELEC block then client site block — take last address-like chunk
+        site = "\n".join(kept[-5:]) if kept else ""
+    desc = ""
+    dm = re.search(r"Demande de devis[^\n]*\n(.*)$", text, re.I | re.S)
+    if dm:
+        desc = re.sub(r"\n{3,}", "\n\n", dm.group(1)).strip()
+        desc = desc[:800]
+    if not desc:
+        desc = text[:400].strip()
+    work = "electricite" if re.search(r"spot|led|ballon|plomberie", desc, re.I) else "maintenance"
+    if re.search(r"vitrine|volige|profil", desc, re.I):
+        work = "serrurerie"
+    return {
+        "client_name": client,
+        "client_email": email,
+        "client_phone": phone,
+        "client_address": "",
+        "work_type": work,
+        "description": desc or "Travaux selon demande",
+        "location": site,
+        "urgency": "normal",
+        "estimated_budget": None,
+        "requested_date": deadline,
+        "di_number": di,
+        "line_items": [{"description": desc.split(".")[0][:160], "quantity": 1, "unit": "ens"}] if desc else [],
+        "donneur_d_ordre": client,
+        "client_final": client,
+        "intervention_site": site,
+        "intervention_address": site,
+    }
 
 
 async def extract_request_data(
@@ -272,21 +345,11 @@ async def extract_request_data(
                 image_b64=image_b64,
             )
     except Exception as e:
-        # If Hermes is unavailable, return empty structure with error flag
-        return {
-            "client_name": "",
-            "client_email": "",
-            "client_phone": "",
-            "client_address": "",
-            "work_type": "",
-            "description": raw_text[:500],
-            "location": "",
-            "urgency": "normal",
-            "estimated_budget": None,
-            "requested_date": None,
-            "line_items": [],
-            "_error": f"AI engine unavailable: {str(e)}",
-        }
+        detail = f"{type(e).__name__}: {e or repr(e)}"
+        fallback = _fallback_extract(raw_text)
+        fallback["_warning"] = f"IA indisponible ({detail}). Extraction automatique de secours."
+        fallback["confidence"] = 0.45
+        return _normalize_extracted(fallback)
 
     # Parse JSON response
     try:
@@ -297,20 +360,11 @@ async def extract_request_data(
         parsed = _normalize_extracted(_parse_json_object(cleaned))
         return await expand_work_into_materials(parsed, tenant_settings)
     except json.JSONDecodeError:
-        return {
-            "client_name": "",
-            "client_email": "",
-            "client_phone": "",
-            "client_address": "",
-            "work_type": "",
-            "description": raw_text[:500],
-            "location": "",
-            "urgency": "normal",
-            "estimated_budget": None,
-            "requested_date": None,
-            "line_items": [],
-            "_raw_ai_response": raw_response[:1000],
-        }
+        fallback = _fallback_extract(raw_text)
+        fallback["_warning"] = "Reponse IA illisible. Extraction automatique de secours."
+        fallback["confidence"] = 0.45
+        fallback["_raw_ai_response"] = (raw_response or "")[:1000]
+        return _normalize_extracted(fallback)
 
 
 def _strip_think(text: str) -> str:
