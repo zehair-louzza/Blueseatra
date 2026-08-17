@@ -130,22 +130,27 @@ def table(rows, widths=None):
     return t
 
 
+def fitted(path, w=170 * mm, max_h=95 * mm):
+    p = Path(path)
+    if not p.exists():
+        return Spacer(1, 1)
+    from PIL import Image as PILImage
+    iw, ih = PILImage.open(p).size
+    h = w * (ih / iw)
+    if h > max_h:
+        h = max_h
+        w = h * (iw / ih)
+    im = Image(str(p), width=w, height=h)
+    im.hAlign = "CENTER"
+    return im
+
+
 def img(path, w=170 * mm):
-    p = Path(path)
-    if not p.exists():
-        return Spacer(1, 1)
-    im = Image(str(p), width=w, height=w * 0.45 if "schema" in p.name else w * 0.52)
-    im.hAlign = "CENTER"
-    return im
+    return fitted(path, w=w, max_h=88 * mm)
 
 
-def photo(path, w=170 * mm, ratio=0.56):
-    p = Path(path)
-    if not p.exists():
-        return Spacer(1, 1)
-    im = Image(str(p), width=w, height=w * ratio)
-    im.hAlign = "CENTER"
-    return im
+def photo(path, w=170 * mm, ratio=None):
+    return fitted(path, w=w, max_h=78 * mm)
 
 
 def header_footer(c, doc):
