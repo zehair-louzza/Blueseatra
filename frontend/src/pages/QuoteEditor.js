@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { toast } from 'sonner';
@@ -38,6 +38,8 @@ export default function QuoteEditor() {
   const [busy, setBusy] = useState(false);
   const [catalog, setCatalog] = useState([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
   const [search, setSearch] = useState('');
   const [family, setFamily] = useState('__all__');
   const [supplierBy, setSupplierBy] = useState({});
@@ -45,9 +47,12 @@ export default function QuoteEditor() {
   const load = () => api.get(`/quotes/${id}`).then((r) => setQ(r.data));
   useEffect(() => { load(); }, [id]);
   const loadCatalog = (q = '') => {
+    setCatalogLoading(true);
+    setCatalogError(false);
     api.get('/catalog/search', { params: { q, limit: 40 } })
       .then((r) => { setCatalog(r.data.items || []); })
-      .catch(() => { setCatalog([]); });
+      .catch(() => { setCatalog([]); setCatalogError(true); })
+      .finally(() => setCatalogLoading(false));
   };
   useEffect(() => { if (pickerOpen) loadCatalog(search); }, [pickerOpen]);
   useEffect(() => {
@@ -212,13 +217,18 @@ export default function QuoteEditor() {
           <Card className="card-shadow overflow-hidden border-0">
             {isDraft && (
               <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-3 py-2">
+                <Button variant="outline" size="sm" className="gap-1.5" data-testid="add-from-catalog-button" onClick={() => setPickerOpen(true)}><BookOpen className="h-4 w-4" />{t('quote.add_from_catalog')}</Button>
                 <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-1.5" data-testid="add-from-catalog-button"><BookOpen className="h-4 w-4" />{t('quote.add_from_catalog')}</Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-h-[82vh] overflow-hidden sm:max-w-3xl">
-                    <DialogHeader><DialogTitle>{t('quote.add_from_catalog')}</DialogTitle></DialogHeader>
-                    {catalog.length === 0 ? (
+                  <DialogContent className="z-[100] max-h-[82vh] overflow-hidden sm:max-w-3xl">
+                    <DialogHeader>
+                      <DialogTitle>{t('quote.add_from_catalog')}</DialogTitle>
+                      <DialogDescription className="sr-only">{t('quote.pick_item')}</DialogDescription>
+                    </DialogHeader>
+                    {catalogLoading ? (
+                      <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                    ) : catalogError ? (
+                      <p className="py-8 text-center text-sm text-muted-foreground">{t('quote.catalog_empty')}</p>
+                    ) : catalog.length === 0 ? (
                       <p className="py-8 text-center text-sm text-muted-foreground">{t('quote.catalog_empty')}</p>
                     ) : (
                       <div className="space-y-3">
