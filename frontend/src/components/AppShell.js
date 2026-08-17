@@ -11,8 +11,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   LayoutDashboard, Inbox, BookOpen, FileText, Users, ScrollText,
-  Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Building2, Waves,
+  Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Building2,
 } from 'lucide-react';
+import { BrandLogo } from '@/components/BrandLogo';
 import { cn } from '@/lib/utils';
 
 const navItems = [
@@ -45,11 +46,8 @@ const NavList = ({ onNavigate }) => {
 };
 
 const Brand = () => (
-  <div className="flex items-center gap-2 px-2">
-    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-      <Waves className="h-4 w-4" />
-    </div>
-    <span className="font-display text-lg font-semibold tracking-tight text-primary">Blueseatra</span>
+  <div className="px-2">
+    <BrandLogo to="/app" />
   </div>
 );
 

@@ -9,16 +9,16 @@ import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
 import { LanguageToggle } from '@/components/LanguageToggle';
 import { toast } from 'sonner';
-import { Waves, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const AuthShell = ({ children }) => (
   <div className="flex min-h-screen items-center justify-center bg-background px-4">
     <div className="absolute right-4 top-4"><LanguageToggle /></div>
     <div className="w-full max-w-md">
-      <Link to="/" className="mb-6 flex items-center justify-center gap-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Waves className="h-5 w-5" /></div>
-        <span className="font-display text-xl font-semibold tracking-tight text-primary">Blueseatra</span>
-      </Link>
+      <div className="mb-6 flex justify-center">
+        <BrandLogo to="/" imgClassName="h-10 max-w-[200px]" />
+      </div>
       <Card className="card-shadow border-0 p-6 sm:p-8">{children}</Card>
     </div>
   </div>
