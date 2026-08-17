@@ -42,9 +42,9 @@ export default function Landing() {
             <a href="#fonctions" className="hover:text-foreground">{t('nav.features')}</a>
             <a href="#offres" className="hover:text-foreground">{t('nav.plans')}</a>
           </nav>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <LanguageToggle />
-            <Link to="/login"><Button variant="ghost" size="sm" data-testid="nav-login">{t('nav.login')}</Button></Link>
+            <Link to="/login" className="hidden sm:inline-flex"><Button variant="ghost" size="sm" data-testid="nav-login">{t('nav.login')}</Button></Link>
             <Link to="/signup"><Button size="sm" data-testid="nav-signup">{t('nav.signup')}</Button></Link>
           </div>
         </div>
@@ -59,7 +59,7 @@ export default function Landing() {
             <p className="mt-5 max-w-[36ch] text-base leading-7 text-muted-foreground">
               {t('landing.hero_sub')}
             </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <Link to="/signup">
                 <Button size="lg" className="gap-2" data-testid="hero-cta-primary">
                   {t('landing.cta_primary')} <ArrowRight className="h-4 w-4" />
