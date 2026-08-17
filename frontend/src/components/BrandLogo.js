@@ -16,7 +16,7 @@ export function BrandLogo({
       src={src}
       alt="Blueseatra"
       className={cn(
-        variant === 'mark' ? 'h-8 w-8 object-contain' : 'h-8 w-auto max-w-[168px] object-contain object-left',
+        variant === 'mark' ? 'h-9 w-9 object-contain' : 'h-10 w-auto max-w-[220px] object-contain object-left',
         imgClassName,
       )}
     />
