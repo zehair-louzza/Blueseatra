@@ -202,22 +202,20 @@ class _Collection:
             await s.commit()
 
     async def delete_one(self, flt):
-        """Delete exactly one matching row.
+        """Delete exactly one matching row via the primary key (not ctid).
 
-        FIX: PostgreSQL does not support DELETE ... LIMIT 1. We use a subquery
-        on the physical row identifier (ctid) to guarantee only one row is removed.
+        ``table.c.ctid`` is not a mapped column, so the previous subquery
+        raised KeyError and the browser saw a dropped connection / CORS miss.
         """
         async with AsyncSessionLocal() as s:
-            # Subquery: find the ctid of the first matching row.
-            sub = (
-                select(self.model.__table__.c.ctid)
-                .where(_build_where(self.model, flt))
-                .limit(1)
-                .scalar_subquery()
-            )
-            await s.execute(
-                sa_delete(self.model).where(self.model.__table__.c.ctid == sub)
-            )
+            pk_cols = [c.key for c in sa_inspect(self.model).primary_key]
+            where = _build_where(self.model, flt)
+            if len(pk_cols) == 1:
+                pkcol = getattr(self.model, pk_cols[0])
+                sub = select(pkcol).where(where).limit(1).scalar_subquery()
+                await s.execute(sa_delete(self.model).where(pkcol == sub))
+            else:
+                await s.execute(sa_delete(self.model).where(where))
             await s.commit()
 
     async def delete_many(self, flt):
