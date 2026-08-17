@@ -427,33 +427,48 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
     return extra, extra_ht, extra_vat
 
 
-def build_works_description(extracted: dict) -> str:
-    """Bloc obligatoire 'Description / Deroulement des travaux' (modele ANELEC)."""
-    desc = short_title(extracted.get("description") or "", 220)
+def build_works_description(extracted: dict, chantier: dict | None = None) -> str:
+    """Descriptif client : périmètre, phases, logique MO et déplacement."""
+    desc = short_title(extracted.get("description") or extracted.get("option_label") or "", 280)
     site = clean_text(
         extracted.get("intervention_address")
         or extracted.get("location")
         or extracted.get("intervention_site")
         or ""
-    ).split("\n")[0].strip()
+    )
+    site_one = site.split("\n")[0].strip()
     items = extracted.get("line_items") or []
     labels = []
     for i in items:
-        t = clean_text(i.get("label") or i.get("description") or "")
-        if t and len(t) < 80 and t not in labels:
-            labels.append(t)
-    core = desc or (", ".join(labels) if labels else "Travaux selon demande client")
-    if core and not core.endswith("."):
-        core += "."
-    site_bit = f" Intervention prévue à {site}." if site else ""
+        lab = clean_text(i.get("label") or i.get("description") or "")
+        if lab and lab not in labels:
+            labels.append(lab)
+    idx = extracted.get("quote_option_index")
+    cnt = extracted.get("quote_option_count") or 1
+    title = extracted.get("option_label") or desc or "Travaux selon demande"
+    head = f"Option {idx}/{cnt} — {title}." if cnt and int(cnt) > 1 else (title if title.endswith(".") else f"{title}.")
+    fourn = ("Fournitures / pièces de cette option : " + ", ".join(labels) + ".") if labels else ""
+    site_bit = f" Intervention prévue à {site_one}." if site_one else ""
+    est = chantier or estimate_chantier(extracted, [])
+    hours = est.get("labor_hours") or extracted.get("labor_hours") or 2
+    days = est.get("travel_days") or extracted.get("travel_days") or 1
+    crew = est.get("crew") or extracted.get("crew_size") or 1
+    excl = clean_text(extracted.get("option_excludes") or "")
+    hors = f" Hors périmètre de cette option : {excl}." if excl else ""
     return (
-        f"{core}{site_bit}\n\n"
-        "Les travaux seront exécutés en phases successives : déplacement du technicien "
-        "(heures normales 8h-18h), installation et sécurisation de la "
-        "zone d'intervention, fourniture et pose des articles listés, "
-        "puis nettoyage de fin de chantier.\n\n"
-        "Toute contrainte technique non visible lors du métré initial pourra faire "
-        "l'objet d'une adaptation complémentaire après accord du client."
+        f"{head} {fourn}{site_bit}{hors}\n\n"
+        "Déroulement :\n"
+        "1. Déplacement du (des) technicien(s) en heures normales 8h-18h.\n"
+        "2. Installation, sécurisation de la zone, dépose si nécessaire.\n"
+        "3. Fourniture et pose des articles de cette option uniquement.\n"
+        "4. Essais, nettoyage et repli de chantier.\n\n"
+        f"Déplacement : {days:g} jour(s) de présence sur site = {days:g} forfait(s) "
+        f"déplacement (tarif catalogue / 40 € HT par jour par défaut). "
+        "Un jour de travaux = un déplacement, sauf consigne contraire.\n\n"
+        f"Main-d'œuvre : {hours:g} heure(s)-homme, {crew:g} personne(s), "
+        f"plafond 7 h/personne/jour (tarif catalogue / 42 € HT/h par défaut). "
+        "Les heures couvrent pose, essais et repli. Estimation si le métré n'est pas mesuré.\n\n"
+        "Toute contrainte non visible au métré pourra faire l'objet d'une adaptation après accord."
     )
 
 
