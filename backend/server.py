@@ -22,6 +22,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 import ai_service
 import matching as match_engine
+import quote_scenarios
 import pdf_service
 import mcp_bridge
 from pg_adapter import PGDatabase
@@ -990,55 +991,67 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
         raise HTTPException(400, "No active pricing catalog. Import and activate one first.")
     ver = await db.catalog_versions.find_one({"id": cat["active_version_id"]}, {"_id": 0})
 
-    extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    extracted0 = ai_service._normalize_extracted(dict(req["extracted"] or {}))
     settings = await get_tenant_ai_settings(cu.tenant_id)
     labels = [it.get("item_label") for it in items if it.get("item_label")]
-    extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
-    if extracted.get("_expanded"):
-        await db.requests.update_one({"id": request_id}, {"$set": {"extracted": extracted}})
-    lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
-    works_description = match_engine.build_works_description(extracted)
+    scenarios = quote_scenarios.split_quote_scenarios(extracted0, req.get("raw_text") or "")
     count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
-    quote_id = new_id()
-    ex = req["extracted"]
+    ex = req["extracted"] or {}
     client_recipient = ex.get("donneur_d_ordre") or ex.get("client_final") or ex.get("client_name") or ex.get("client")
     site_val = match_engine.clean_text(
         ex.get("intervention_address") or ex.get("intervention_site") or ex.get("location") or ex.get("site") or ""
     )
-    quote = {
-        "id": quote_id, "tenant_id": cu.tenant_id, "request_id": request_id,
-        "number": f"BS-{datetime.now().year}-{count + 1:04d}",
-        "status": "draft", "version": 1,
-        "client": client_recipient, "site": site_val,
-        "client_final": ex.get("client_final"),
-        "object": _intitule_with_di(ex.get("description"), ex.get("di_number")),
-        "language": req.get("language"),
-        "meta": {
-            "doc_type": ex.get("doc_type"),
-            "request_number": ex.get("request_number"),
-            "di_number": ex.get("di_number"),
-            "followup_number": ex.get("followup_number"),
-            "response_deadline": ex.get("response_deadline"),
-            "donneur_d_ordre": ex.get("donneur_d_ordre"),
+    n_opt = len(scenarios)
+    created = []
+    for i, extracted in enumerate(scenarios, 1):
+        extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
+        lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
+        works_description = match_engine.build_works_description(extracted)
+        quote_id = new_id()
+        opt_label = extracted.get("option_label") or extracted.get("description") or ""
+        obj_src = f"Option {i}/{n_opt} — {opt_label}" if n_opt > 1 else (ex.get("description") or opt_label)
+        quote = {
+            "id": quote_id, "tenant_id": cu.tenant_id, "request_id": request_id,
+            "number": f"BS-{datetime.now().year}-{count + i:04d}",
+            "status": "draft", "version": 1,
+            "client": client_recipient, "site": site_val,
             "client_final": ex.get("client_final"),
-            "intervention_site": ex.get("intervention_site"),
-            "required_deliverables": ex.get("required_deliverables") or [],
-            "works_description": works_description,
-        },
-        "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
-        "total_ttc": round(total_ht + total_vat, 2),
-        "currency": items[0]["currency"] if items else "EUR",
-        "pricing_snapshot": {
-            "catalog_id": cat["id"], "catalog_name": cat["name"],
-            "version_id": cat["active_version_id"],
-            "version_number": ver["version_number"] if ver else 1, "snapshot_at": now_iso(),
-        },
-        "created_by": cu.email, "created_at": now_iso(),
-    }
-    await db.quotes.insert_one(quote)
-    await audit(cu.tenant_id, cu.email, "quote.draft", quote_id, {"request_id": request_id})
-    quote.pop("_id", None)
-    return quote
+            "object": _intitule_with_di(obj_src, ex.get("di_number")),
+            "language": req.get("language"),
+            "meta": {
+                "doc_type": ex.get("doc_type"),
+                "request_number": ex.get("request_number"),
+                "di_number": ex.get("di_number"),
+                "followup_number": ex.get("followup_number"),
+                "response_deadline": ex.get("response_deadline"),
+                "donneur_d_ordre": ex.get("donneur_d_ordre"),
+                "client_final": ex.get("client_final"),
+                "intervention_site": ex.get("intervention_site"),
+                "required_deliverables": ex.get("required_deliverables") or [],
+                "works_description": works_description,
+                "option_index": i,
+                "option_count": n_opt,
+                "option_label": extracted.get("option_label"),
+            },
+            "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
+            "total_ttc": round(total_ht + total_vat, 2),
+            "currency": items[0]["currency"] if items else "EUR",
+            "pricing_snapshot": {
+                "catalog_id": cat["id"], "catalog_name": cat["name"],
+                "version_id": cat["active_version_id"],
+                "version_number": ver["version_number"] if ver else 1, "snapshot_at": now_iso(),
+            },
+            "created_by": cu.email, "created_at": now_iso(),
+        }
+        await db.quotes.insert_one(quote)
+        await audit(cu.tenant_id, cu.email, "quote.draft", quote_id,
+                    {"request_id": request_id, "option": i, "options": n_opt})
+        quote.pop("_id", None)
+        created.append(quote)
+    first = created[0]
+    first["sibling_quotes"] = [{"id": q["id"], "number": q["number"], "object": q["object"]} for q in created[1:]]
+    first["option_count"] = n_opt
+    return first
 
 
 @api.get("/quotes")

@@ -8,6 +8,7 @@ import json
 import re
 import base64
 import httpx
+import quote_scenarios
 import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
@@ -79,6 +80,11 @@ Extract:
 - labor_hours: realistic man-hours for install+pose+cleanup (number, no price)
 - travel_days: on-site days (integer)
 - crew_size: 1 if < 6h else 2
+- quote_options: REQUIRED when the client asks for exclusive alternatives
+  (soit A soit B, ou bien, ou les pieces suivantes, option 1 / option 2).
+  Each option is a SEPARATE quote: {label, description, line_items, labor_hours, travel_days, crew_size, excludes}.
+  AND / puis / ainsi que = ONE option with several lines. OR / soit = several options.
+  Never merge exclusive alternatives into one total.
 
 Return ONLY this JSON structure with no markdown, no explanation:
 {
@@ -100,7 +106,8 @@ Return ONLY this JSON structure with no markdown, no explanation:
   \"labor_hours\": null,
   \"travel_days\": null,
   \"crew_size\": null,
-  \"line_items\": []
+  \"line_items\": [],
+  \"quote_options\": []
 }"""
 
 _PRICE_RE = re.compile(
@@ -395,6 +402,7 @@ def _fallback_extract(raw_text: str) -> dict:
         "client_final": client,
         "intervention_site": site,
         "intervention_address": site,
+        "quote_options": quote_scenarios.detect_exclusive_options(text),
     }
 
 
@@ -576,6 +584,8 @@ def _normalize_extracted(data: dict) -> dict:
     for k in ("labor_hours", "travel_days", "crew_size"):
         if data.get(k) in ("", "null"):
             data[k] = None
+    if not isinstance(data.get("quote_options"), list):
+        data["quote_options"] = []
     return data
 
 

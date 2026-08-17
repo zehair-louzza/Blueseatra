@@ -35,7 +35,13 @@ export default function RequestDetail() {
   const reprocess = async () => { await api.post(`/requests/${id}/process`); toast.success(t('req.processing')); load(); };
   const makeQuote = async () => {
     setBusy(true);
-    try { const { data } = await api.post('/quotes/draft', { request_id: id }); navigate(`/app/quotes/${data.id}`); }
+    try {
+      const { data } = await api.post('/quotes/draft', { request_id: id });
+      const n = data.option_count || 1;
+      if (n > 1) toast.success(t('req.quotes_created', { n }));
+      else toast.success(t('req.quote_created'));
+      navigate(`/app/quotes/${data.id}`);
+    }
     catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
