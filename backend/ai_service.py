@@ -57,11 +57,20 @@ CRITICAL — materials, not a rewrite:
 - Example: replacing 3 LED spots → 3 spots LED 230V + accessoires de pose si nécessaires.
 - Reason first, then output JSON only.
 
+PARTIES — never merge these three roles. Names change on every request. Do NOT hardcode a company.
+- donneur_d_ordre = who must RECEIVE the quote (billing / legal addressee).
+  Detect from THIS document only: "Devis ... a adresser EXCLUSIVEMENT a [NAME]",
+  "Donneur d'ordre :", letterhead + IBAN/SIRET of the issuer of the demande.
+- client_final / client_name = the enseigne labeled "Client :" (site brand). Not the donneur.
+- prestataire = the company asked to quote (the tenant). Not the client, not the donneur.
+- location = intervention site address, not the donneur headquarters.
+
 Extract:
-- client_name, client_email, client_phone, client_address
+- donneur_d_ordre, donneur_email, donneur_address
+- client_name (= client_final / enseigne), client_email, client_phone, client_address
 - work_type (e.g. plomberie, electricite, peinture, menuiserie, climatisation)
 - description (full description of work requested)
-- location (site address if different from client)
+- location (site address if different from donneur)
 - urgency (urgent | normal | planifie)
 - estimated_budget (if mentioned in the source text only — copy the mention, do not invent)
 - requested_date (if mentioned)
@@ -73,7 +82,11 @@ Extract:
 
 Return ONLY this JSON structure with no markdown, no explanation:
 {
+  \"donneur_d_ordre\": \"\",
+  \"donneur_email\": \"\",
+  \"donneur_address\": \"\",
   \"client_name\": \"\",
+  \"client_final\": \"\",
   \"client_email\": \"\",
   \"client_phone\": \"\",
   \"client_address\": \"\",
@@ -326,6 +339,20 @@ def _fallback_extract(raw_text: str) -> dict:
         return (m.group(1).strip() if m else "")
 
     client = _m(r"Client\s*:\s*([^\n]+)") or _m(r"client_final\s*:\s*([^\n]+)")
+    donneur = (
+        _m(r"adresser\s+EXCLUSIVEMENT\s+[àa]\s+([A-Z0-9][A-Z0-9 .,'-]{1,80}?)(?:\s+-\s+|\s+et\s+à|\n|$)")
+        or _m(r"Donneur\s+d['’]ordre\s*:\s*([^\n]+)")
+        or _m(r"Destinataire\s+du\s+devis\s*:\s*([^\n]+)")
+    )
+    if donneur:
+        donneur = re.sub(r"\s{2,}", " ", donneur).strip(" -.,")
+    donneur_email = ""
+    excl = re.search(r"adresser\s+EXCLUSIVEMENT.{0,200}?([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})", text, re.I | re.S)
+    if excl:
+        donneur_email = excl.group(1)
+    if email and donneur_email and email.lower() == donneur_email.lower():
+        email = _m(r"E-?Mail\s*:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})") or ""
+
     di = _m(r"N°\s*Dossier\s*DI\s*:\s*([0-9A-Za-z-]+)") or _m(r"\bDI\s*:?\s*([0-9]{6,})")
     deadline = _m(r"retour souhaitée? le\s*:\s*([^\n]+)") or _m(r"Date de la demande\s*:\s*([^\n]+)")
     phone = _m(r"Tél(?:éphone)?\s*[:.]\s*([^\n]+)")
@@ -362,7 +389,8 @@ def _fallback_extract(raw_text: str) -> dict:
         "requested_date": deadline,
         "di_number": di,
         "line_items": [{"description": desc.split(".")[0][:160], "quantity": 1, "unit": "ens"}] if desc else [],
-        "donneur_d_ordre": client,
+        "donneur_d_ordre": donneur,
+        "donneur_email": donneur_email,
         "client_final": client,
         "intervention_site": site,
         "intervention_address": site,
@@ -508,14 +536,25 @@ def _normalize_extracted(data: dict) -> dict:
     """Map Hermes/Ollama keys onto the UI / devis schema."""
     if not isinstance(data, dict):
         return data
-    client = data.get("donneur_d_ordre") or data.get("client_final") or data.get("client_name") or data.get("client") or ""
+    enseigne = (data.get("client_final") or data.get("client_name") or data.get("client") or "").strip()
+    donneur = (data.get("donneur_d_ordre") or data.get("donneur") or "").strip()
+    if donneur and enseigne and donneur.lower() == enseigne.lower():
+        # do not keep a collapsed party; prefer explicit Client: as enseigne
+        enseigne = enseigne
+    if not enseigne:
+        enseigne = donneur
+        donneur = donneur
     site = data.get("intervention_address") or data.get("intervention_site") or data.get("location") or data.get("client_address") or ""
-    data.setdefault("donneur_d_ordre", client)
-    data.setdefault("client_final", client)
+    data["client_final"] = enseigne
+    data["client_name"] = enseigne
+    if donneur:
+        data["donneur_d_ordre"] = donneur
+    else:
+        data.setdefault("donneur_d_ordre", "")
     data.setdefault("intervention_site", site)
     data.setdefault("intervention_address", site)
     data.setdefault("language", data.get("language") or "fr")
-    if data.get("confidence") is None and client:
+    if data.get("confidence") is None and (enseigne or donneur):
         data["confidence"] = 0.7
     lines = []
     for li in data.get("line_items") or []:
