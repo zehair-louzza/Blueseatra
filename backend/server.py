@@ -1230,8 +1230,12 @@ async def delete_quote(quote_id: str, cu: CurrentUser = Depends(require_role("ow
     q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
     if not q:
         raise HTTPException(404, "Quote not found")
-    await db.quote_versions.delete_many({"tenant_id": cu.tenant_id, "quote_id": quote_id})
-    await db.quotes.delete_one({"id": quote_id, "tenant_id": cu.tenant_id})
+    try:
+        await db.quote_versions.delete_many({"tenant_id": cu.tenant_id, "quote_id": quote_id})
+        await db.quotes.delete_one({"id": quote_id, "tenant_id": cu.tenant_id})
+    except Exception as e:
+        logger.exception("delete_quote failed")
+        raise HTTPException(500, f"Suppression impossible ({type(e).__name__}).")
     await audit(cu.tenant_id, cu.email, "quote.delete", quote_id, {"number": q.get("number")})
     return {"ok": True}
 
@@ -1259,7 +1263,11 @@ async def delete_request(request_id: str, cu: CurrentUser = Depends(require_role
     r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0})
     if not r:
         raise HTTPException(404, "Request not found")
-    await db.requests.delete_one({"id": request_id, "tenant_id": cu.tenant_id})
+    try:
+        await db.requests.delete_one({"id": request_id, "tenant_id": cu.tenant_id})
+    except Exception as e:
+        logger.exception("delete_request failed")
+        raise HTTPException(500, f"Suppression impossible ({type(e).__name__}).")
     await audit(cu.tenant_id, cu.email, "request.delete", request_id, {"title": r.get("title")})
     return {"ok": True}
 
