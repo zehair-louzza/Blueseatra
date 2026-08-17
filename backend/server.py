@@ -1362,8 +1362,30 @@ async def dashboard(cu: CurrentUser = Depends(get_current)):
         }
         for r in requests[:8]
     ]
-    awaiting_quotes = [q for q in slim_q if q.get("status") == "draft"][:5]
-    awaiting_requests = [r for r in slim_r if r.get("status") in ("needs_review", "failed", "received")][:5]
+    awaiting_quotes = [q for q in slim_q if q.get("status") == "draft"][:6]
+    awaiting_requests = [r for r in slim_r if r.get("status") in ("needs_review", "failed", "received")][:6]
+
+    clients = {}
+    for q in quotes:
+        name = (q.get("client_name") or q.get("client") or "").strip() or "—"
+        row = clients.setdefault(name, {"name": name, "count": 0, "ht": 0.0})
+        row["count"] += 1
+        row["ht"] = round(row["ht"] + _ht(q), 2)
+    top_clients = sorted(clients.values(), key=lambda x: -x["ht"])[:5]
+
+    aging = []
+    for q in quotes:
+        if q.get("status") != "draft":
+            continue
+        created = str(q.get("created_at") or "")
+        aging.append({
+            "id": q.get("id"),
+            "number": q.get("number"),
+            "client_name": q.get("client_name") or q.get("client"),
+            "total_ht": q.get("total_ht"),
+            "created_at": created,
+        })
+    aging = aging[:8]
 
     return {
         "kpis": {
@@ -1392,6 +1414,8 @@ async def dashboard(cu: CurrentUser = Depends(get_current)):
         "awaiting_requests": awaiting_requests,
         "recent_requests": slim_r,
         "recent_quotes": slim_q,
+        "top_clients": top_clients,
+        "aging_drafts": aging,
     }
 
 
