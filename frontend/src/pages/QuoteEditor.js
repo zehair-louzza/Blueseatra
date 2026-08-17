@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { api, API, getToken, apiError } from '@/lib/api';
+import { api, apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -157,8 +157,28 @@ export default function QuoteEditor() {
     } catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
-  const send = async () => { await api.post(`/quotes/${id}/send`); toast.success(t('status.sent')); load(); };
-  const downloadPdf = () => window.open(`${API}/quotes/${id}/pdf?token=${getToken()}`, '_blank');
+  const send = async () => {
+    try { await api.post(`/quotes/${id}/send`); toast.success(t('status.sent')); load(); }
+    catch (err) { toast.error(apiError(err, 'Failed')); }
+  };
+  const downloadPdf = async () => {
+    try {
+      const res = await api.get(`/quotes/${id}/pdf`, { responseType: 'blob' });
+      const blob = res.data;
+      if (blob && blob.type && blob.type.includes('json')) {
+        const txt = await blob.text();
+        throw new Error(txt || 'PDF failed');
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `devis_${q?.number || id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) { toast.error(apiError(err, 'PDF failed')); }
+  };
 
   const families = useMemo(() => Array.from(new Set(catalog.map((i) => i.family).filter(Boolean))).sort(), [catalog]);
   const filtered = catalog.filter((it) =>

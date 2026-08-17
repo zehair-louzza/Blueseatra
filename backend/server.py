@@ -1205,6 +1205,10 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     if extracted.get("_expanded"):
         await db.requests.update_one({"id": req["id"]}, {"$set": {"extracted": extracted}})
     lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
+    old_mat = sum(float(l.get("unit_price_ht") or 0) for l in (q.get("lines") or []) if l.get("line_type") == "material")
+    new_mat = sum(float(l.get("unit_price_ht") or 0) for l in lines if l.get("line_type") == "material")
+    if old_mat > 0 and new_mat <= 0:
+        raise HTTPException(400, "Aucun article catalogue correspondant. Les prix du brouillon sont conservés.")
     meta = dict(q.get("meta") or {})
     meta["works_description"] = match_engine.build_works_description(extracted)
     if extracted.get("di_number"):
