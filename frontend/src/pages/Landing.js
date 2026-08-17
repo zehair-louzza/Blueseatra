@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { LanguageToggle } from '@/components/LanguageToggle';
-import { Waves, FileSearch, BookOpen, Sparkles, ShieldCheck, ArrowRight, Check } from 'lucide-react';
+import { FileSearch, BookOpen, Sparkles, ShieldCheck, ArrowRight, Check } from 'lucide-react';
+import { BrandLogo } from '@/components/BrandLogo';
 import { motion } from 'framer-motion';
 
 const Feature = ({ icon: Icon, title, desc }) => (
@@ -28,10 +29,7 @@ export default function Landing() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Waves className="h-4 w-4" /></div>
-            <span className="font-display text-lg font-semibold tracking-tight text-primary">Blueseatra</span>
-          </div>
+          <BrandLogo to="/" />
           <div className="flex items-center gap-2">
             <LanguageToggle />
             <Link to="/login"><Button variant="ghost" size="sm" data-testid="nav-login">{t('nav.login')}</Button></Link>
