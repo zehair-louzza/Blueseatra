@@ -1287,17 +1287,111 @@ async def quote_pdf(quote_id: str, token: Optional[str] = None,
 @api.get("/dashboard")
 async def dashboard(cu: CurrentUser = Depends(get_current)):
     t = cu.tenant_id
-    requests_count = await db.requests.count_documents({"tenant_id": t})
-    drafts = await db.quotes.count_documents({"tenant_id": t, "status": "draft"})
-    validated = await db.quotes.count_documents({"tenant_id": t, "status": {"$in": ["validated", "sent"]}})
     cat, items = await get_active_catalog(t)
-    recent_requests = await db.requests.find({"tenant_id": t}, {"_id": 0, "file_b64": 0}).sort("created_at", -1).to_list(5)
-    recent_quotes = await db.quotes.find({"tenant_id": t}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    quote_proj = {"_id": 0, "lines": 0, "pricing_snapshot": 0, "extracted": 0}
+    quotes = await db.quotes.find({"tenant_id": t}, quote_proj).sort("created_at", -1).to_list(800)
+    req_proj = {"_id": 0, "file_b64": 0, "raw_text": 0, "extracted": 0}
+    requests = await db.requests.find({"tenant_id": t}, req_proj).sort("created_at", -1).to_list(400)
+
+    def _ht(q):
+        try:
+            return float(q.get("total_ht") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _month(iso):
+        s = str(iso or "")
+        return s[:7] if len(s) >= 7 and s[0:4].isdigit() else None
+
+    now = datetime.now()
+    months = []
+    y, m = now.year, now.month
+    for _ in range(11, -1, -1):
+        months.append(f"{y:04d}-{m:02d}")
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+
+    by_status = {}
+    monthly = {k: {"draft_ht": 0.0, "won_ht": 0.0, "count": 0} for k in months}
+    for q in quotes:
+        st = q.get("status") or "draft"
+        bucket = by_status.setdefault(st, {"status": st, "count": 0, "ht": 0.0})
+        bucket["count"] += 1
+        bucket["ht"] = round(bucket["ht"] + _ht(q), 2)
+        mk = _month(q.get("created_at") or q.get("updated_at"))
+        if mk in monthly:
+            monthly[mk]["count"] += 1
+            if st == "draft":
+                monthly[mk]["draft_ht"] = round(monthly[mk]["draft_ht"] + _ht(q), 2)
+            elif st in ("validated", "sent"):
+                monthly[mk]["won_ht"] = round(monthly[mk]["won_ht"] + _ht(q), 2)
+
+    req_by = {}
+    for r in requests:
+        st = r.get("status") or "received"
+        req_by[st] = req_by.get(st, 0) + 1
+
+    drafts = by_status.get("draft", {}).get("count", 0)
+    validated = by_status.get("validated", {}).get("count", 0)
+    sent = by_status.get("sent", {}).get("count", 0)
+    draft_ht = by_status.get("draft", {}).get("ht", 0)
+    won_ht = round(
+        (by_status.get("validated") or {}).get("ht", 0) + (by_status.get("sent") or {}).get("ht", 0),
+        2,
+    )
+    slim_q = [
+        {
+            "id": q.get("id"),
+            "number": q.get("number"),
+            "status": q.get("status"),
+            "client_name": q.get("client_name") or q.get("client"),
+            "total_ht": q.get("total_ht"),
+            "total_ttc": q.get("total_ttc"),
+            "currency": q.get("currency") or "EUR",
+            "created_at": q.get("created_at"),
+        }
+        for q in quotes[:8]
+    ]
+    slim_r = [
+        {
+            "id": r.get("id"),
+            "title": r.get("title") or r.get("filename") or "Demande",
+            "status": r.get("status"),
+            "created_at": r.get("created_at"),
+        }
+        for r in requests[:8]
+    ]
+    awaiting_quotes = [q for q in slim_q if q.get("status") == "draft"][:5]
+    awaiting_requests = [r for r in slim_r if r.get("status") in ("needs_review", "failed", "received")][:5]
+
     return {
-        "kpis": {"requests": requests_count, "drafts": drafts, "validated": validated,
-                 "active_catalog_items": len(items),
-                 "active_catalog_name": cat["name"] if cat else None},
-        "recent_requests": recent_requests, "recent_quotes": recent_quotes,
+        "kpis": {
+            "requests": len(requests),
+            "drafts": drafts,
+            "validated": validated + sent,
+            "sent": sent,
+            "active_catalog_items": len(items),
+            "active_catalog_name": cat["name"] if cat else None,
+            "pipeline_draft_ht": draft_ht,
+            "pipeline_won_ht": won_ht,
+            "requests_review": req_by.get("needs_review", 0),
+            "requests_failed": req_by.get("failed", 0),
+            "requests_done": req_by.get("done", 0),
+        },
+        "pipeline": sorted(by_status.values(), key=lambda x: -x["count"]),
+        "request_status": [{"status": k, "count": v} for k, v in sorted(req_by.items())],
+        "monthly": [{"month": k, **monthly[k]} for k in months],
+        "funnel": [
+            {"key": "requests", "count": len(requests)},
+            {"key": "drafts", "count": drafts},
+            {"key": "validated", "count": validated},
+            {"key": "sent", "count": sent},
+        ],
+        "awaiting_quotes": awaiting_quotes,
+        "awaiting_requests": awaiting_requests,
+        "recent_requests": slim_r,
+        "recent_quotes": slim_q,
     }
 
 
