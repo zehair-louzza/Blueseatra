@@ -44,7 +44,9 @@ export default function QuoteEditor() {
   const [family, setFamily] = useState('__all__');
   const [supplierBy, setSupplierBy] = useState({});
 
-  const load = () => api.get(`/quotes/${id}`).then((r) => setQ(r.data));
+  const load = () => api.get(`/quotes/${id}`).then((r) => setQ(r.data)).catch((err) => {
+    toast.error(apiError(err, 'Failed'));
+  });
   useEffect(() => { load(); }, [id]);
   const loadCatalog = (q = '') => {
     setCatalogLoading(true);
