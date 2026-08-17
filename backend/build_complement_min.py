@@ -228,6 +228,7 @@ def story():
         "1. Ce complement actualise le cadrage sans l'annuler",
         "2. Les hypotheses d'hebergement de juin ont ete tranchees",
         "2b. Brief : installation complete du VPS OVH",
+        "2c. Chronologie des abandons et remplacements",
         "3. La chaine applicative est en production partielle",
         "4. L'IA locale remplace Oracle Cloud et le ZimaBoard",
         "5. Le moteur de devis refuse d'inventer un prix",
@@ -335,6 +336,39 @@ def story():
         "Interdit : hermes doctor --fix (monte read-only), provider auto "
         "(OpenRouter / Nous hors UE), coller OLLAMA_API_KEY ou API_SERVER_KEY. "
         "Apres checkout Git, recreer le conteneur : l'inode du YAML bind-monte change."
+    ))
+
+    s.append(P("2c. Chronologie des abandons et remplacements", "h1"))
+    s.append(P(
+        "Rien n'a ete coupe par caprice. Chaque abandon libere une contrainte "
+        "(souverainete, marque, RAM, schema) et un remplacement la ferme. "
+        "Le dossier de juin documente encore Oracle et le ZimaBoard : c'est l'etat "
+        "du cadrage, pas l'etat deployee."
+    ))
+    s.append(table(
+        [
+            ["Date", "Abandonne", "Pourquoi", "Remplace par"],
+            ["24-25 juin 2026", "MongoDB (proto)", "Pas de RLS metier, schema trop souple pour le devis", "Supabase Postgres, schema blueseatra, pg_adapter"],
+            ["26 juin 2026", "Cas fictif BTP Solutions", "Dossier MBA sans commanditaire reel", "ANELEC TECHNIQUE ET CONCEPT"],
+            ["11 juil. 2026", "Branding Emergent (badge, scripts, titre)", "Le SaaS ne s'appartenait pas", "Identite Blueseatra (plus tard logo lockup)"],
+            ["14-20 juil. 2026", "Provider Emergent + EMERGENT_LLM_KEY + wheel emergentintegrations", "LLM tiers, pas de routage, hors these souverainete", "Hermes / Ollama sur VPS, defaut ai_provider=hermes"],
+            ["14-20 juil. 2026", "Oracle Cloud comme hote IA", "Hors UE, dependance, ADR-001", "OVH Roubaix 162.19.44.2"],
+            ["14-20 juil. 2026", "Provider oracle dans FastAPI", "Meme motif souverainete", "hermes + filet litellm par tenant"],
+            ["Ete 2026", "ZimaBoard pour n8n / stockage", "Seconde machine inutile, trop juste", "n8n.blueseatra.com sur le meme VPS"],
+            ["Ete 2026", "Kubernetes / ingress unique", "Costume trop large pour le Projet 1", "Hostinger statique + Render + Caddy"],
+            ["15 aout 2026", "Modeles 70B / 72B dans l'UI", "Incompatibles avec 24 Go RAM", "14B / 26B MoE / 27B, un seul charge"],
+            ["16-17 aout 2026", "qwen3.6:27b comme modele principal Hermes", "Besoin d'un raisonneur distinct, ADR-003", "gemma4:26b (model + reasoning_effort high)"],
+            ["17 aout 2026", "provider: auto et wizard hermes model (Claude Opus)", "Fuite OpenRouter / Nous, hors UE", "provider custom, http://ollama:11434/v1, ollama-local"],
+            ["Non retenu", "DeepSeek-R1 32B comme raisonneur", "Trop lourd a cote de Gemma 17 Go", "Gemma 4 26B-A4B seul en principal"],
+        ],
+        [32 * mm, 48 * mm, 46 * mm, 44 * mm],
+    ))
+    s.append(Spacer(1, 3 * mm))
+    s.append(P(
+        "Ce qui n'a jamais ete abandonne : FastAPI calcule les prix, validation humaine, "
+        "catalogue du tenant, Hostinger, Render, Supabase UE, JWT, RLS. "
+        "Emergent, Oracle et le ZimaBoard etaient des echafaudages. "
+        "Le batiment, c'est le moteur de devis."
     ))
 
     s.append(P("3. La chaine applicative est en production partielle", "h1"))
