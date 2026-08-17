@@ -350,13 +350,14 @@ def _fallback_extract(raw_text: str) -> dict:
     excl = re.search(r"adresser\s+EXCLUSIVEMENT.{0,200}?([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})", text, re.I | re.S)
     if excl:
         donneur_email = excl.group(1)
+    labeled_email = _m(r"E-?Mail\s*:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})")
+    email = labeled_email or _m(r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})")
     if email and donneur_email and email.lower() == donneur_email.lower():
-        email = _m(r"E-?Mail\s*:\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})") or ""
+        email = "" if (not labeled_email or labeled_email.lower() == donneur_email.lower()) else labeled_email
 
     di = _m(r"N°\s*Dossier\s*DI\s*:\s*([0-9A-Za-z-]+)") or _m(r"\bDI\s*:?\s*([0-9]{6,})")
     deadline = _m(r"retour souhaitée? le\s*:\s*([^\n]+)") or _m(r"Date de la demande\s*:\s*([^\n]+)")
     phone = _m(r"Tél(?:éphone)?\s*[:.]\s*([^\n]+)")
-    email = _m(r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})")
     site = ""
     sm = re.search(r"Site d'intervention(.*?)Demande de devis", text, re.I | re.S)
     if sm:
@@ -443,8 +444,11 @@ async def extract_request_data(
             )
     except Exception as e:
         detail = f"{type(e).__name__}: {e or repr(e)}"
-        fallback = _fallback_extract(raw_text)
-        fallback["_warning"] = f"IA indisponible ({detail}). Extraction automatique de secours."
+        try:
+            fallback = _fallback_extract(raw_text)
+        except Exception as fe:
+            fallback = {"description": (raw_text or "")[:400], "line_items": [], "_warning": f"IA indisponible ({detail}). Secours aussi en echec ({type(fe).__name__})."}
+        fallback["_warning"] = fallback.get("_warning") or f"IA indisponible ({detail}). Extraction automatique de secours."
         fallback["confidence"] = 0.45
         return _normalize_extracted(fallback)
 
@@ -457,8 +461,11 @@ async def extract_request_data(
         parsed = _normalize_extracted(_parse_json_object(cleaned))
         return await expand_work_into_materials(parsed, tenant_settings)
     except json.JSONDecodeError:
-        fallback = _fallback_extract(raw_text)
-        fallback["_warning"] = "Reponse IA illisible. Extraction automatique de secours."
+        try:
+            fallback = _fallback_extract(raw_text)
+        except Exception as fe:
+            fallback = {"description": (raw_text or "")[:400], "line_items": [], "_warning": f"Reponse IA illisible. Secours en echec ({type(fe).__name__})."}
+        fallback["_warning"] = fallback.get("_warning") or "Reponse IA illisible. Extraction automatique de secours."
         fallback["confidence"] = 0.45
         fallback["_raw_ai_response"] = (raw_response or "")[:1000]
         return _normalize_extracted(fallback)

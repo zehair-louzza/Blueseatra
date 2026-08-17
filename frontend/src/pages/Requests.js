@@ -25,7 +25,7 @@ export default function Requests() {
   const [file, setFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const load = () => api.get('/requests').then((r) => setRows(r.data));
+  const load = () => api.get('/requests').then((r) => setRows(r.data)).catch((err) => { setRows([]); toast.error(apiError(err, 'Failed')); });
   useEffect(() => { load(); }, []);
 
   // poll while anything is processing

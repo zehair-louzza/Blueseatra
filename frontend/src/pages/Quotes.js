@@ -15,7 +15,10 @@ export default function Quotes() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [rows, setRows] = useState(null);
-  const load = () => api.get('/quotes').then((r) => setRows(r.data));
+  const load = () => api.get('/quotes').then((r) => setRows(r.data)).catch((err) => {
+    setRows([]);
+    toast.error(apiError(err, 'Failed'));
+  });
   useEffect(() => { load(); }, []);
 
   const duplicate = async (id, e) => {
