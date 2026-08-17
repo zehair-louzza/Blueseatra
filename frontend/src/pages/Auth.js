@@ -17,7 +17,7 @@ const AuthShell = ({ children }) => (
     <div className="absolute right-4 top-4"><LanguageToggle /></div>
     <div className="w-full max-w-md">
       <div className="mb-6 flex justify-center">
-        <BrandLogo to="/" imgClassName="h-10 max-w-[200px]" />
+        <BrandLogo to="/" imgClassName="h-12 max-w-[260px]" />
       </div>
       <Card className="card-shadow border-0 p-6 sm:p-8">{children}</Card>
     </div>
