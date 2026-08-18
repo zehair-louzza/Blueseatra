@@ -5,6 +5,7 @@ import csv
 import json
 import uuid
 import logging
+import asyncio
 import re
 import unicodedata
 from pathlib import Path
@@ -1004,7 +1005,16 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
     n_opt = len(scenarios)
     created = []
     for i, extracted in enumerate(scenarios, 1):
-        extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
+        # Multi-option drafts already have scoped line_items. Do not block on Ollama
+        # (Hermes 404 / cold start caused a 90s browser timeout on "Générer un devis").
+        if n_opt == 1:
+            try:
+                extracted = await asyncio.wait_for(
+                    ai_service.expand_work_into_materials(extracted, settings, labels),
+                    timeout=15,
+                )
+            except Exception:
+                logger.warning("expand_work_into_materials skipped for request %s", request_id)
         lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
         works_description = match_engine.build_works_description(extracted)
         quote_id = new_id()
