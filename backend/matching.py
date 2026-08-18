@@ -366,7 +366,14 @@ def estimate_chantier(extracted: dict, material_lines: list | None = None) -> di
         notes.append("install_repli")
 
     hours = max(2.0, float(math.ceil(hours)))
-    crew = 2 if hours >= 6 else 1
+
+    # Effectif : par defaut 2 techniciens (regle metier ANELEC — un
+    # deplacement se fait normalement a deux, securite + rapidite). Un seul
+    # technicien uniquement pour un petit travail leger (duree courte).
+    # Voir skill regles-chiffrage.md SS4 (effectif par defaut).
+    is_petit_travail = hours <= 3.0
+    crew = 1 if is_petit_travail else 2
+    notes.append("petit_travail_1_pers" if is_petit_travail else "deplacement_2_pers_defaut")
     try:
         if extracted.get("crew_size"):
             crew = max(1, int(extracted["crew_size"]))
@@ -499,11 +506,10 @@ def build_works_description(extracted: dict, chantier: dict | None = None) -> st
         "2. Installation, sécurisation de la zone, dépose si nécessaire.\n"
         "3. Fourniture et pose des articles de cette option uniquement.\n"
         "4. Essais, nettoyage et repli de chantier.\n\n"
-        f"Déplacement : {days:g} jour(s) de présence sur site = {days:g} forfait(s) "
-        f"déplacement (tarif catalogue / 40 € HT par jour par défaut). "
+        f"Déplacement : {days:g} jour(s) de présence sur site = {days:g} forfait(s) déplacement. "
         "Un jour de travaux = un déplacement, sauf consigne contraire.\n\n"
         f"Main-d'œuvre : {hours:g} heure(s)-homme, {crew:g} personne(s), "
-        f"plafond 7 h/personne/jour (tarif catalogue / 42 € HT/h par défaut). "
+        "plafond 7 h/personne/jour. "
         "Les heures couvrent pose, essais et repli. Estimation si le métré n'est pas mesuré.\n\n"
         "Toute contrainte non visible au métré pourra faire l'objet d'une adaptation après accord."
     )
