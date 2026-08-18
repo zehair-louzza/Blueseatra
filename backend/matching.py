@@ -11,6 +11,21 @@ UNIT_COMPAT = {
     "m2": {"m2"}, "ml": {"ml"}, "hr": {"hr"}, "u": {"u", "ens"}, "ens": {"ens", "u"},
 }
 SCORE_THRESHOLD = 45
+
+# Phrases d'action a retirer avant le rapprochement catalogue : on ne matche
+# jamais une phrase entiere, seulement l'article/la designation (voir skill
+# rapprochement-catalogue-sans-prix). Ex. "le remplacement total de la pompe
+# de relevage" -> "pompe de relevage".
+_ACTION_PREFIX = re.compile(
+    r"^(?:le |la |les |l['’])?"
+    r"(?:remplacement(?: total| partiel)?|pose|d[ée]pose|installation|"
+    r"r[ée]paration|changement|fourniture(?: et pose)?|mise en place|"
+    r"entretien|nettoyage|v[ée]rification|contr[ôo]le|maintenance|"
+    r"intervention sur|d[ée]montage|montage)\s+"
+    r"(?:de |du |de la |des |d['’])?",
+    re.I,
+)
+_LEADING_ARTICLE = re.compile(r"^(?:le |la |les |l['’]|du |de la |des |de )", re.I)
 # Tarifs ANELEC imposés (devis type DEV-2026-0477 / 0525)
 LABOR_RATE_HT = 42.0
 TRAVEL_RATE_HT = 40.0
@@ -67,11 +82,26 @@ def _match_query(text: str) -> str:
     return " ".join(keep)
 
 
+def article_only(text: str) -> str:
+    """Retire le verbe d'action, garde uniquement le nom de l'article pour
+    le rapprochement catalogue. Ne modifie jamais la description affichee
+    sur le devis, seulement la chaine utilisee pour chercher dans le
+    catalogue."""
+    s = clean_text(text or "")
+    prev = None
+    while prev != s:
+        prev = s
+        s = _ACTION_PREFIX.sub("", s).strip()
+    s = _LEADING_ARTICLE.sub("", s).strip()
+    return s or clean_text(text or "")
+
+
 def match_line(line: dict, catalog: list) -> dict | None:
-    raw = clean_text(_line_text(line))
+    raw_full = clean_text(_line_text(line))
     # Un paragraphe de demande n'est pas un article catalogue.
-    if len(raw) > 100 or raw.count("\n") >= 1 or len(raw.split()) > 18:
+    if len(raw_full) > 100 or raw_full.count("\n") >= 1 or len(raw_full.split()) > 18:
         return {"item": None, "score": 0, "reasons": ["texte_trop_long"], "status": "to_confirm"}
+    raw = article_only(raw_full)
     best = None
     label_norm = _match_query(raw)
     req_cat = (line.get("category") or line.get("work_type") or "").lower()
