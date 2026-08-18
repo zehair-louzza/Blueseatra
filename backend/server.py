@@ -462,7 +462,16 @@ async def process_request(request_id: str, tenant_id: str):
     try:
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
-        if req.get("source_type") == "image" and req.get("file_b64"):
+        stype = req.get("source_type")
+        if stype == "pdf_ocr":
+            # Le PDF original n'est jamais persiste (voir create_request) : le
+            # fallback visuel a deja tourne de maniere synchrone a la creation.
+            # Un "retraiter" sur une demande deja resolue en pdf_ocr ne peut
+            # pas relire le fichier disparu — il faut le reimporter.
+            raise ValueError(
+                "Ce PDF a un calque texte illisible et n'est pas conserve par le SaaS : "
+                "reimportez le fichier pour relancer une extraction visuelle.")
+        elif stype == "image" and req.get("file_b64"):
             import base64
             extracted = await ai_service.extract_from_image(
                 base64.b64decode(req["file_b64"]), settings, session_id=request_id)
@@ -498,6 +507,10 @@ async def create_request(
     source_type = "text"
     filename = None
     file_b64 = None
+    # Extraction visuelle synchrone (PDF illisible / image) : le rendu ou le
+    # fichier original ne sont JAMAIS ecrits en base ni sur disque. Tout reste
+    # en memoire le temps de cette requete HTTP, puis est jete.
+    sync_extracted = None
     if file is not None:
         filename = file.filename
         content = await file.read()
@@ -506,16 +519,37 @@ async def create_request(
         if lower.endswith(".pdf"):
             source_type = "pdf"
             raw_text = ai_service.extract_pdf_text(content)
+            # Certains PDF (police subset sans table ToUnicode, export tableau
+            # vectoriel, scan) ont un calque texte illisible meme si la page
+            # se lit tres bien a l'oeil. On rend alors les pages en image et on
+            # extrait par vision, sans jamais persister le PDF ni son rendu.
+            if ai_service.pdf_needs_vision_fallback(raw_text):
+                source_type = "pdf_ocr"
+                composite = ai_service.render_pdf_to_composite_image(content)
+                settings = await get_tenant_ai_settings(cu.tenant_id)
+                sync_extracted = await ai_service.extract_from_image(composite, settings, session_id=req_id)
+                sync_extracted["_warning"] = (
+                    (sync_extracted.get("_warning") + " ") if sync_extracted.get("_warning") else ""
+                ) + "Calque texte du PDF illisible : extraction par lecture visuelle des pages (fichier non conserve)."
         elif lower.endswith(".docx"):
             source_type = "docx"
             raw_text = ai_service.extract_docx_text(content)
+        elif lower.endswith((".xlsx", ".xlsm")):
+            source_type = "xlsx"
+            raw_text = ai_service.extract_xlsx_text(content)
+        elif lower.endswith((".csv", ".tsv")):
+            source_type = "csv"
+            raw_text = ai_service.extract_csv_text(content)
+        elif lower.endswith(".txt"):
+            source_type = "text_file"
+            raw_text = ai_service.extract_plain_text(content)
         elif lower.endswith((".png", ".jpg", ".jpeg", ".webp")):
             source_type = "image"
             import base64
             file_b64 = base64.b64encode(content).decode()
         else:
             raise HTTPException(400, "Unsupported file type")
-    if not raw_text.strip() and source_type != "image":
+    if not raw_text.strip() and source_type not in ("image", "pdf_ocr"):
         raise HTTPException(400, "No text or supported file provided")
     doc = {
         "id": req_id, "tenant_id": cu.tenant_id, "title": title, "source_type": source_type,
@@ -523,10 +557,23 @@ async def create_request(
         "extracted": None, "language": None, "confidence": None,
         "created_by": cu.email, "created_at": now_iso(),
     }
+    if sync_extracted is not None:
+        if sync_extracted.get("_error"):
+            doc["status"] = "failed"
+            doc["error"] = sync_extracted["_error"]
+        else:
+            doc["status"] = "needs_review" if (sync_extracted.get("confidence") or 0) < 0.6 else "done"
+            doc["extracted"] = sync_extracted
+            doc["language"] = sync_extracted.get("language")
+            doc["confidence"] = sync_extracted.get("confidence")
     await db.requests.insert_one(doc)
     await audit(cu.tenant_id, cu.email, "request.create", req_id, {"source": source_type})
-    background.add_task(process_request, req_id, cu.tenant_id)
-    return {"id": req_id, "status": "received"}
+    if sync_extracted is None:
+        background.add_task(process_request, req_id, cu.tenant_id)
+    else:
+        await audit(cu.tenant_id, cu.email, "request.processed", req_id,
+                    {"items": len(sync_extracted.get("line_items", [])), "lang": sync_extracted.get("language")})
+    return {"id": req_id, "status": doc["status"]}
 
 
 @api.get("/requests")
@@ -541,6 +588,33 @@ async def get_request(request_id: str, cu: CurrentUser = Depends(get_current)):
     if not r:
         raise HTTPException(404, "Request not found")
     return r
+
+
+@api.get("/requests/{request_id}/file")
+async def get_request_file(request_id: str, cu: CurrentUser = Depends(get_current)):
+    """Renvoie le fichier original pour affichage direct dans le SaaS, UNIQUEMENT
+    pour les images (deja necessaires en base pour l'extraction par vision).
+    Les PDF ne sont jamais persistes (voir create_request) : leur aperçu se
+    fait cote client au moment de l'import, sans passer par le serveur.
+    Content-Disposition inline pour que le navigateur l'ouvre plutot que de
+    le telecharger."""
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    if r.get("source_type") != "image" or not r.get("file_b64"):
+        raise HTTPException(404, "No viewable original file for this request")
+    import base64
+    content = base64.b64decode(r["file_b64"])
+    lower = (r.get("filename") or "").lower()
+    if lower.endswith(".png"):
+        media_type, ext = "image/png", "png"
+    elif lower.endswith(".webp"):
+        media_type, ext = "image/webp", "webp"
+    else:
+        media_type, ext = "image/jpeg", "jpg"
+    safe_name = (r.get("filename") or f"document.{ext}").replace('"', "")
+    return StreamingResponse(io.BytesIO(content), media_type=media_type,
+                             headers={"Content-Disposition": f'inline; filename="{safe_name}"'})
 
 
 @api.post("/requests/{request_id}/process")

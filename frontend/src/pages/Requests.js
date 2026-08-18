@@ -14,6 +14,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { toast } from 'sonner';
 import { Inbox, Plus, Upload, Loader2, FileText, Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { setFilePreview } from '@/lib/filePreviewCache';
 
 export default function Requests() {
   const { t } = useTranslation();
@@ -47,7 +48,11 @@ export default function Requests() {
       fd.append('title', title);
       if (text.trim()) fd.append('text', text);
       if (file) fd.append('file', file);
-      await api.post('/requests', fd);
+      const { data } = await api.post('/requests', fd);
+      // Le fichier original n'est jamais envoye pour stockage permanent :
+      // on garde juste une reference locale (memoire de l'onglet) pour que
+      // l'utilisateur puisse le revoir et le comparer a l'extraction.
+      if (file && data?.id) setFilePreview(data.id, file);
       toast.success(t('req.processing'));
       setOpen(false); setTitle(''); setText(''); setFile(null);
       await load();
@@ -77,8 +82,18 @@ export default function Requests() {
                 <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed bg-card px-4 py-3 text-sm text-muted-foreground transition-colors hover:bg-muted/40" data-testid="file-dropzone">
                   <Upload className="h-4 w-4" />
                   <span>{file ? file.name : t('req.file_hint')}</span>
-                  <input type="file" className="hidden" accept=".pdf,.docx,.png,.jpg,.jpeg,.webp" onChange={(e) => setFile(e.target.files[0])} data-testid="request-file-input" />
+                  <input type="file" className="hidden" accept=".pdf,.docx,.xlsx,.xlsm,.csv,.tsv,.txt,.png,.jpg,.jpeg,.webp" onChange={(e) => setFile(e.target.files[0])} data-testid="request-file-input" />
                 </label>
+                {file && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary underline underline-offset-2"
+                    onClick={() => window.open(URL.createObjectURL(file), '_blank', 'noopener')}
+                    data-testid="preview-selected-file-button"
+                  >
+                    {t('req.view_file')}
+                  </button>
+                )}
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={submitting} className="w-full" data-testid="submit-request-button">

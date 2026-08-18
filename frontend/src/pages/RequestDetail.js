@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { toast } from 'sonner';
-import { ArrowLeft, RefreshCw, FileText, Loader2, Trash2, Save } from 'lucide-react';
+import { ArrowLeft, RefreshCw, FileText, Loader2, Trash2, Save, Eye } from 'lucide-react';
+import { hasFilePreview, openFilePreview } from '@/lib/filePreviewCache';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 export default function RequestDetail() {
@@ -33,6 +34,21 @@ export default function RequestDetail() {
   }, [req]);
 
   const reprocess = async () => { await api.post(`/requests/${id}/process`); toast.success(t('req.processing')); load(); };
+  // Les PDF ne sont jamais stockes cote serveur : l'apercu "Voir le fichier"
+  // n'est disponible que via le cache local du navigateur (memoire de
+  // l'onglet, rempli juste apres l'import). Il disparait au rechargement.
+  // Les images restent servies par le backend (deja necessaires pour la
+  // vision), donc toujours disponibles.
+  const viewFile = async () => {
+    if (openFilePreview(id)) return; // preview locale (juste apres import)
+    try {
+      const res = await api.get(`/requests/${id}/file`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(res.data);
+      window.open(url, '_blank', 'noopener');
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err) { toast.error(apiError(err, t('req.view_file_failed'))); }
+  };
+  const hasViewableFile = req?.source_type === 'image' || (['pdf', 'pdf_ocr'].includes(req?.source_type) && hasFilePreview(id));
   const makeQuote = async () => {
     setBusy(true);
     try {
@@ -61,6 +77,7 @@ export default function RequestDetail() {
           </div>
         </div>
         <div className="flex gap-2">
+          {hasViewableFile && <Button variant="outline" size="sm" className="gap-1" onClick={viewFile} data-testid="view-file-button"><Eye className="h-4 w-4" />{t('req.view_file')}</Button>}
           <Button variant="secondary" size="sm" className="gap-1" onClick={reprocess} data-testid="reprocess-button"><RefreshCw className="h-4 w-4" />{t('req.reprocess')}</Button>
           <Button variant="secondary" size="sm" className="gap-1" onClick={async () => {
             try {
@@ -144,8 +161,11 @@ export default function RequestDetail() {
         </Card>
         <Card className="card-shadow border-0 p-5">
           <h2 className="mb-3 font-display text-base font-semibold">{t('req.raw')}</h2>
+          {req.source_type === 'pdf_ocr' && (
+            <p className="mb-2 text-xs text-amber-700">{t('req.pdf_ocr_notice')}</p>
+          )}
           {req.source_type === 'image' ? (
-            <p className="text-sm text-muted-foreground">{req.filename} (image)</p>
+            <button type="button" onClick={viewFile} className="text-sm text-primary underline underline-offset-2">{req.filename} ({t('req.view_file').toLowerCase()})</button>
           ) : (
             <Textarea rows={10} value={rawText} onChange={(e) => setRawText(e.target.value)} className="font-mono text-xs" data-testid="request-raw-edit" />
           )}
