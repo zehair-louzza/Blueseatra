@@ -233,30 +233,57 @@ async def _call_hermes_ollama(
         alias = MODEL_ALIASES.get((m or "").strip(), m)
         if alias and alias not in models:
             models.append(alias)
-    async with httpx.AsyncClient(timeout=180.0) as client:
-        for current in models:
-            payload["model"] = current
-            if _wants_think(current):
-                payload["think"] = True
-            else:
-                payload.pop("think", None)
+    for current in models:
+        payload["model"] = current
+        if _wants_think(current):
+            payload["think"] = True
+        else:
+            payload.pop("think", None)
+        # HERMES_BASE_URL a eu un enregistrement DNS A parasite pointant vers
+        # un hebergement mutualise sans rapport (voir incident du 2026-08-18) :
+        # le round-robin DNS envoyait ~1 requete sur 2 vers le mauvais serveur,
+        # qui repond en HTML au lieu du JSON attendu d'Ollama. Ce n'est PAS une
+        # erreur de modele : chaque tentative ouvre un client httpx neuf (donc
+        # une nouvelle resolution DNS/connexion) avant d'abandonner ce modele,
+        # et le message d'erreur distingue ce cas pour que "IA indisponible"
+        # pointe vers un probleme reseau/DNS plutot qu'un faux echec de modele.
+        for attempt in range(3):
             try:
-                response = await client.post(url, json=payload, headers=headers)
-                if response.status_code == 400 and payload.pop("think", None) is not None:
+                async with httpx.AsyncClient(timeout=180.0) as client:
                     response = await client.post(url, json=payload, headers=headers)
+                    if response.status_code == 400 and payload.pop("think", None) is not None:
+                        response = await client.post(url, json=payload, headers=headers)
+                if _looks_like_wrong_server(response):
+                    last_err = (
+                        f"routage DNS incorrect vers {HERMES_BASE_URL} (reponse HTML au lieu de JSON Ollama, "
+                        f"tentative {attempt + 1}/3) ({current})"
+                    )
+                    continue  # nouvelle tentative = nouvelle resolution DNS possible
                 if response.status_code >= 400:
                     last_err = f"HTTP {response.status_code} ({current}): {(response.text or '')[:180]}"
-                    continue
+                    break
                 data = response.json()
                 msg = data.get("message") or {}
                 content = (msg.get("content") or "").strip()
                 if content:
                     return content
                 last_err = f"reponse vide ({current})"
+                break
             except Exception as exc:
                 last_err = f"{type(exc).__name__} ({current}): {exc or repr(exc)}"
-                continue
+                break
     raise RuntimeError(last_err or "aucun modele Ollama n'a repondu")
+
+
+def _looks_like_wrong_server(response) -> bool:
+    """Detecte une reponse HTML (page d'erreur d'un autre serveur) la ou
+    Ollama repond toujours en JSON. Signale un probleme de routage/DNS plutot
+    qu'une erreur applicative normale."""
+    ctype = (response.headers.get("content-type") or "").lower()
+    if "application/json" in ctype:
+        return False
+    body_start = (response.text or "").lstrip()[:100].lower()
+    return body_start.startswith("<!doctype html") or body_start.startswith("<html")
 
 
 async def _call_hermes_gateway(
