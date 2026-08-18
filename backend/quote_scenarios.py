@@ -103,7 +103,7 @@ def detect_exclusive_options(text: str) -> list[dict]:
                 "line_items": [{"description": a_article, "quantity": 1, "unit": "ens"}],
                 "labor_hours": 4.5,
                 "travel_days": 1,
-                "crew_size": 1,
+                "crew_size": None,  # laisse estimate_chantier appliquer la regle 2 pers. par defaut
                 "excludes": b_label,
             },
             {
@@ -113,7 +113,7 @@ def detect_exclusive_options(text: str) -> list[dict]:
                 "line_items": b_items,
                 "labor_hours": 2.5,
                 "travel_days": 1,
-                "crew_size": 1,
+                "crew_size": None,  # laisse estimate_chantier decider (petit travail <= 3h -> 1 pers.)
                 "excludes": a,
             },
         ]

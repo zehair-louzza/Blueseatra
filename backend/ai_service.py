@@ -83,7 +83,7 @@ Extract:
   This is required for catalog matching (a full sentence never matches a catalog item).
 - labor_hours: realistic man-hours for install+pose+cleanup (number, no price)
 - travel_days: on-site days (integer)
-- crew_size: 1 if < 6h else 2
+- crew_size: DEFAULT 2 (most on-site work needs two technicians for safety and speed). Use 1 ONLY for a small/light job (short duration, roughly <= 3h). Do not default to 1.
 - quote_options: REQUIRED when the client asks for exclusive alternatives
   (soit A soit B, ou bien, ou les pieces suivantes, option 1 / option 2).
   Each option is a SEPARATE quote: {label, description, line_items, labor_hours, travel_days, crew_size, excludes}.
