@@ -28,6 +28,16 @@ HERMES_FALLBACK_MODELS = [
     "hermes3",
     "hermes-3",
 ]
+# Modeles multimodaux (texte + image) confirmes via `ollama show` sur le VPS.
+# qwen2.5:14b et hermes3/hermes-3 sont TEXTE SEUL : les appeler avec une
+# image renvoie HTTP 400 "Multimodal data provided, but model does not
+# support multimodal requests" (incident du 2026-08-18). Ne jamais les inclure
+# dans le repli utilise pour l'extraction par vision.
+HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL") or os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b")
+HERMES_VISION_FALLBACK_MODELS = [
+    os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b"),
+    "qwen3.6:27b",
+]
 MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
 # Shared with Caddy on ovh-ai-stack (header X-Api-Key). Empty in local dev.
 HERMES_API_KEY = os.environ.get("HERMES_API_KEY", "")
@@ -168,7 +178,10 @@ async def resolve_ai_config(
 ) -> tuple[str, str, str]:
     """Return (provider, model, api_key) for this tenant.
 
-    role=extract → qwen2.5:14b (parse rapide).
+    role=extract → qwen2.5:14b (parse rapide, texte seul).
+    role=vision → HERMES_VISION_MODEL, gemma4:26b par defaut (seul un
+      sous-ensemble des modeles Ollama installes supporte les images ; voir
+      HERMES_VISION_MODEL / HERMES_VISION_FALLBACK_MODELS).
     role=reason → gemma4:26b (décomposition matériaux / lots).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
@@ -183,7 +196,12 @@ async def resolve_ai_config(
     if provider == "hermes":
         model = model or HERMES_DEFAULT_MODEL
         if (model or "").lower().startswith("hermes"):
-            model = HERMES_EXTRACT_MODEL if role == "extract" else HERMES_REASONING_MODEL
+            if role == "vision":
+                model = HERMES_VISION_MODEL
+            elif role == "extract":
+                model = HERMES_EXTRACT_MODEL
+            else:
+                model = HERMES_REASONING_MODEL
 
     return provider, model, api_key
 
@@ -229,7 +247,12 @@ async def _call_hermes_ollama(
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
     last_err = None
     models = []
-    for m in [model, *HERMES_FALLBACK_MODELS]:
+    # Avec une image, ne jamais retomber sur un modele texte-seul (qwen2.5,
+    # hermes3/hermes-3) : ils renvoient HTTP 400 "model does not support
+    # multimodal requests" au lieu d'une vraie erreur reseau/timeout, ce qui
+    # masque le vrai probleme et gaspille le budget de tentatives.
+    fallback_pool = HERMES_VISION_FALLBACK_MODELS if image_b64 else HERMES_FALLBACK_MODELS
+    for m in [model, *fallback_pool]:
         alias = MODEL_ALIASES.get((m or "").strip(), m)
         if alias and alias not in models:
             models.append(alias)
@@ -451,7 +474,12 @@ async def extract_request_data(
     image_bytes: bytes | None = None,
 ) -> dict:
     """Main entry point: extract structured quote data from raw text/image."""
-    provider, model, api_key = await resolve_ai_config(tenant_settings, role="extract")
+    # Une image (photo ou PDF rendu) exige un modele multimodal : qwen2.5:14b
+    # (modele "extract" par defaut) est texte seul et renvoie HTTP 400
+    # "Multimodal data provided, but model does not support multimodal
+    # requests" si on lui envoie une image (incident du 2026-08-18).
+    role = "vision" if image_bytes else "extract"
+    provider, model, api_key = await resolve_ai_config(tenant_settings, role=role)
 
     image_b64 = None
     if image_bytes:
