@@ -454,7 +454,11 @@ async def company_profile_put(body: CompanyProfile,
 # ===========================================================================
 # REQUESTS
 # ===========================================================================
-async def process_request(request_id: str, tenant_id: str):
+async def process_request(request_id: str, tenant_id: str, vision_bytes: bytes | None = None):
+    """vision_bytes : image (photo ou rendu de PDF) transmise directement en
+    memoire par create_request pour les cas ou aucun fichier n'est persiste
+    (PDF au calque texte illisible). Jamais lue depuis la base ou le disque
+    dans ce cas — uniquement l'argument en memoire de cet appel."""
     req = await db.requests.find_one({"id": request_id, "tenant_id": tenant_id}, {"_id": 0})
     if not req:
         return
@@ -463,11 +467,16 @@ async def process_request(request_id: str, tenant_id: str):
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
         stype = req.get("source_type")
-        if stype == "pdf_ocr":
+        if stype == "pdf_ocr" and vision_bytes:
+            extracted = await ai_service.extract_from_image(vision_bytes, settings, session_id=request_id)
+            extracted["_warning"] = (
+                (extracted.get("_warning") + " ") if extracted.get("_warning") else ""
+            ) + "Calque texte du PDF illisible : extraction par lecture visuelle des pages (fichier non conserve)."
+        elif stype == "pdf_ocr":
             # Le PDF original n'est jamais persiste (voir create_request) : le
-            # fallback visuel a deja tourne de maniere synchrone a la creation.
-            # Un "retraiter" sur une demande deja resolue en pdf_ocr ne peut
-            # pas relire le fichier disparu — il faut le reimporter.
+            # rendu visuel n'existe que le temps de la tache d'arriere-plan
+            # lancee a la creation. Un "retraiter" plus tard sur une demande
+            # deja resolue en pdf_ocr ne peut pas relire le fichier disparu.
             raise ValueError(
                 "Ce PDF a un calque texte illisible et n'est pas conserve par le SaaS : "
                 "reimportez le fichier pour relancer une extraction visuelle.")
@@ -507,10 +516,11 @@ async def create_request(
     source_type = "text"
     filename = None
     file_b64 = None
-    # Extraction visuelle synchrone (PDF illisible / image) : le rendu ou le
-    # fichier original ne sont JAMAIS ecrits en base ni sur disque. Tout reste
-    # en memoire le temps de cette requete HTTP, puis est jete.
-    sync_extracted = None
+    # Rendu visuel (PDF au calque texte illisible) : les octets ne sont
+    # JAMAIS ecrits en base ni sur disque. Ils ne vivent qu'en memoire, portes
+    # par l'argument de la tache d'arriere-plan ci-dessous, le temps de
+    # l'extraction IA — jamais dans la reponse HTTP ni dans un champ persiste.
+    vision_bytes = None
     if file is not None:
         filename = file.filename
         content = await file.read()
@@ -522,15 +532,12 @@ async def create_request(
             # Certains PDF (police subset sans table ToUnicode, export tableau
             # vectoriel, scan) ont un calque texte illisible meme si la page
             # se lit tres bien a l'oeil. On rend alors les pages en image et on
-            # extrait par vision, sans jamais persister le PDF ni son rendu.
+            # extrait par vision en arriere-plan (l'appel au modele peut
+            # prendre largement plus longtemps que le delai d'attente du
+            # navigateur), sans jamais persister le PDF ni son rendu.
             if ai_service.pdf_needs_vision_fallback(raw_text):
                 source_type = "pdf_ocr"
-                composite = ai_service.render_pdf_to_composite_image(content)
-                settings = await get_tenant_ai_settings(cu.tenant_id)
-                sync_extracted = await ai_service.extract_from_image(composite, settings, session_id=req_id)
-                sync_extracted["_warning"] = (
-                    (sync_extracted.get("_warning") + " ") if sync_extracted.get("_warning") else ""
-                ) + "Calque texte du PDF illisible : extraction par lecture visuelle des pages (fichier non conserve)."
+                vision_bytes = ai_service.render_pdf_to_composite_image(content)
         elif lower.endswith(".docx"):
             source_type = "docx"
             raw_text = ai_service.extract_docx_text(content)
@@ -557,23 +564,10 @@ async def create_request(
         "extracted": None, "language": None, "confidence": None,
         "created_by": cu.email, "created_at": now_iso(),
     }
-    if sync_extracted is not None:
-        if sync_extracted.get("_error"):
-            doc["status"] = "failed"
-            doc["error"] = sync_extracted["_error"]
-        else:
-            doc["status"] = "needs_review" if (sync_extracted.get("confidence") or 0) < 0.6 else "done"
-            doc["extracted"] = sync_extracted
-            doc["language"] = sync_extracted.get("language")
-            doc["confidence"] = sync_extracted.get("confidence")
     await db.requests.insert_one(doc)
     await audit(cu.tenant_id, cu.email, "request.create", req_id, {"source": source_type})
-    if sync_extracted is None:
-        background.add_task(process_request, req_id, cu.tenant_id)
-    else:
-        await audit(cu.tenant_id, cu.email, "request.processed", req_id,
-                    {"items": len(sync_extracted.get("line_items", [])), "lang": sync_extracted.get("language")})
-    return {"id": req_id, "status": doc["status"]}
+    background.add_task(process_request, req_id, cu.tenant_id, vision_bytes)
+    return {"id": req_id, "status": "received"}
 
 
 @api.get("/requests")
