@@ -106,7 +106,9 @@ def match_line(line: dict, catalog: list) -> dict | None:
             best = {"item": item, "score": score, "reasons": reasons}
     if not best:
         return None
-    if best["score"] >= 90:
+    exact = any(r.startswith("exact_label") for r in best["reasons"])
+    strong_fuzzy = any(r.startswith("label_fuzzy_8") or r.startswith("label_fuzzy_9") or r.startswith("label_fuzzy_100") for r in best["reasons"])
+    if best["score"] >= 90 and (exact or strong_fuzzy):
         best["status"] = "matched"
     elif best["score"] >= SCORE_THRESHOLD:
         best["status"] = "proposed"
@@ -158,7 +160,7 @@ def build_quote_lines(extracted: dict, catalog: list):
         if extra:
             sep = " \u00b7 "
             desc = desc + " (" + sep.join(extra) + ")"
-        if m and m["status"] in ("matched", "proposed"):
+        if m and m["status"] == "matched":
             item = m["item"]
             eff_qty = max(qty, float(item.get("min_qty") or 0))
             unit_price = float(item.get("unit_price_ht") or 0)
@@ -185,6 +187,9 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "reasons": m["reasons"],
             })
         else:
+            # Regle catalogue : sans correspondance sure, AUCUN prix n'est applique.
+            # Un match flou (status "proposed") reste une suggestion humaine.
+            suggestion = m["item"] if (m and m.get("item") and m.get("status") == "proposed") else None
             lines.append({
                 "line_type": "material",
                 "request_label": li.get("label"),
@@ -192,6 +197,8 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "category": li.get("category") or extracted.get("work_type"),
                 "matched_item_code": None,
                 "matched_label": None,
+                "suggested_item_code": suggestion.get("item_code") if suggestion else None,
+                "suggested_label": suggestion.get("item_label") if suggestion else None,
                 "qty": qty,
                 "unit": li.get("unit"),
                 "unit_price_ht": None,
@@ -199,7 +206,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "line_ht": None,
                 "status": "to_confirm",
                 "score": m["score"] if m else 0,
-                "reasons": (m["reasons"] if m else []) + ["hors_catalogue"],
+                "reasons": (m["reasons"] if m else []) + (["suggestion_" + suggestion.get("item_code", "")] if suggestion else ["hors_catalogue"]),
             })
     extra, extra_ht, extra_vat = _auto_labor_and_travel(extracted, catalog, lines)
     # Ordre ANELEC / Tolteck : déplacement, main-d'œuvre, puis fournitures
