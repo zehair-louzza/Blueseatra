@@ -45,7 +45,15 @@ DEFAULT_MODEL = HERMES_DEFAULT_MODEL
 
 EXTRACTION_SYSTEM = """You are Blueseatra's document understanding engine for a B2B facility-maintenance quoting platform.
 You receive INCOMING quote requests (\"demande de devis\"), mission orders (\"ordre de mission\"), emails or photos in ANY language.
-Your job: extract structured data and return ONLY valid JSON.
+The request can arrive through ANY channel (manual upload, WhatsApp message, client website form/widget, email, API) and
+in ANY file format (PDF text or scanned/rendered image, DOCX, XLSX/CSV table, plain text, photo). Treat all channels and
+formats identically once you receive the text or image — never assume a channel-specific structure.
+
+TABLES: if the input is a rendered page image or a serialized spreadsheet/table (rows shown as \"colonne=valeur\" or
+pipe-separated cells), read it row by row. Each data row becomes one line_items entry: description = the row's article/
+designation column ONLY (see the article-name rule below, never the full row), quantity = the quantity column if present
+(else 1), unit = the unit column if present (else infer). IGNORE any column that looks like a price (\"PU\", \"P.U. HT\",
+\"Total\", \"Montant\", \"\u20ac\") \u2014 never read or repeat a number from those columns.
 
 You MAY use the technical web context provided (DTU, phasage, spec produit, lots TCE).
 You MUST NEVER output a price, tariff, amount, euro, HT, TTC, or market estimate.
@@ -616,7 +624,152 @@ def extract_pdf_text(content: bytes) -> str:
     return "\n".join(parts).strip()
 
 
+def _looks_garbled(text: str) -> bool:
+    """Detecte un calque texte PDF illisible (police subset sans table
+    ToUnicode correcte, PDF genere par certains outils/imprimantes qui
+    n'exposent pas le vrai Unicode). Symptome : beaucoup de caracteres de
+    controle et tres peu de mots reconnaissables, meme si le rendu visuel
+    (image de la page) est parfaitement lisible.
+
+    Voir skill intake-demande-devis / detection-format.md pour la logique
+    generale d'extraction multi-format.
+    """
+    s = (text or "").strip()
+    if len(s) < 20:
+        return False  # trop court pour juger ; le pipeline gere le vide separement
+    total = len(s)
+    control = sum(1 for c in s if ord(c) < 32 and c not in "\n\r\t")
+    letters = sum(1 for c in s if c.isalpha())
+    words = re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ]{3,}", s)
+    word_chars = sum(len(w) for w in words)
+    if control / total > 0.03:
+        return True
+    if letters / total < 0.35:
+        return True
+    if word_chars / total < 0.25:
+        return True
+    return False
+
+
+def render_pdf_to_composite_image(content: bytes, max_pages: int = 4, scale: float = 2.0) -> bytes:
+    """Rend les premieres pages d'un PDF en UNE image composite (empilees
+    verticalement) pour l'extraction visuelle par le modele multimodal,
+    utilise quand le calque texte est illisible ou absent (PDF scanne,
+    police sans correspondance Unicode, tableau vectoriel). Renvoie des
+    octets JPEG."""
+    import pypdfium2 as pdfium
+    from PIL import Image
+
+    pdf = pdfium.PdfDocument(io.BytesIO(content))
+    n = min(len(pdf), max_pages)
+    imgs = []
+    for i in range(n):
+        page = pdf[i]
+        bitmap = page.render(scale=scale)
+        imgs.append(bitmap.to_pil().convert("RGB"))
+        page.close()
+    pdf.close()
+    if not imgs:
+        raise ValueError("PDF vide ou illisible")
+    width = max(im.width for im in imgs)
+    gap = 8
+    total_height = sum(im.height for im in imgs) + gap * (len(imgs) - 1)
+    composite = Image.new("RGB", (width, total_height), "white")
+    y = 0
+    for im in imgs:
+        if im.width != width:
+            ratio = width / im.width
+            im = im.resize((width, int(im.height * ratio)))
+        composite.paste(im, (0, y))
+        y += im.height + gap
+    max_h = 6000  # cap resolution — la plupart des modeles vision limitent la taille d'image
+    if composite.height > max_h:
+        ratio = max_h / composite.height
+        composite = composite.resize((int(composite.width * ratio), max_h))
+    buf = io.BytesIO()
+    composite.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+def pdf_needs_vision_fallback(raw_text: str) -> bool:
+    """True si le texte extrait du calque PDF est illisible ou vide et
+    qu'il faut basculer sur un rendu visuel (voir render_pdf_to_composite_image)."""
+    return not (raw_text or "").strip() or _looks_garbled(raw_text)
+
+
 def extract_docx_text(content: bytes) -> str:
+    """Paragraphes ET tableaux (une demande de devis en tableau Word etait
+    silencieusement ignoree : seuls les paragraphes etaient lus)."""
     from docx import Document
     doc = Document(io.BytesIO(content))
-    return "\n".join(p.text for p in doc.paragraphs).strip()
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
+    for table in doc.tables:
+        parts.append("")
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            if any(cells):
+                parts.append(" | ".join(cells))
+    return "\n".join(parts).strip()
+
+
+def extract_xlsx_text(content: bytes) -> str:
+    """Serialise chaque feuille en lignes 'colonne=valeur' pour que le
+    modele lise la structure tabulaire sans halluciner de fusion de
+    colonnes. Aucune formule n'est evaluee cote agent : openpyxl renvoie
+    les valeurs calculees (data_only=True) deja mises en cache par Excel."""
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+    parts = []
+    for ws in wb.worksheets:
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+        parts.append(f"=== Feuille: {ws.title} ===")
+        header = [str(h).strip() if h is not None else "" for h in rows[0]]
+        for row in rows[1:]:
+            cells = [str(v).strip() if v is not None else "" for v in row]
+            if not any(cells):
+                continue
+            pairs = [f"{h}={v}" for h, v in zip(header, cells) if h and v]
+            parts.append(" | ".join(pairs) if pairs else " | ".join(c for c in cells if c))
+    wb.close()
+    return "\n".join(parts).strip()
+
+
+def extract_csv_text(content: bytes) -> str:
+    """CSV/TSV -> lignes 'colonne=valeur', meme logique que extract_xlsx_text
+    pour une lecture tabulaire coherente quel que soit le format source."""
+    import csv
+    text = None
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            text = content.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        text = content.decode("utf-8", errors="replace")
+    sample = text[:2048]
+    delimiter = ";" if sample.count(";") > sample.count(",") else ","
+    if "\t" in sample and sample.count("\t") > sample.count(delimiter):
+        delimiter = "\t"
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    rows = [r for r in reader if any(c.strip() for c in r)]
+    if not rows:
+        return ""
+    header = [c.strip() for c in rows[0]]
+    parts = []
+    for row in rows[1:]:
+        pairs = [f"{h}={v.strip()}" for h, v in zip(header, row) if h and v.strip()]
+        parts.append(" | ".join(pairs) if pairs else " | ".join(c.strip() for c in row if c.strip()))
+    return "\n".join(parts).strip()
+
+
+def extract_plain_text(content: bytes) -> str:
+    """Fichier .txt brut, encodage detecte au mieux (UTF-8 puis Latin-1)."""
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            return content.decode(enc).strip()
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="replace").strip()
