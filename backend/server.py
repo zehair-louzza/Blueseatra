@@ -485,7 +485,12 @@ async def process_request(request_id: str, tenant_id: str, vision_bytes: bytes |
             extracted = await ai_service.extract_from_image(
                 base64.b64decode(req["file_b64"]), settings, session_id=request_id)
         elif text.strip():
-            extracted = await ai_service.extract_from_text(text, settings, session_id=request_id)
+            # Gemma (role="file", raisonnement actif) est le moteur d'extraction
+            # par defaut pour tout fichier importe (PDF, DOCX, XLSX, CSV, TXT),
+            # tableaux inclus — decision produit du 2026-08-18. qwen2.5:14b ne
+            # sert plus qu'au texte colle manuellement (source_type == "text").
+            extracted = await ai_service.extract_from_text(
+                text, settings, session_id=request_id, from_file=(stype != "text"))
         else:
             raise ValueError("No content to process")
         if extracted.get("_error"):

@@ -178,10 +178,17 @@ async def resolve_ai_config(
 ) -> tuple[str, str, str]:
     """Return (provider, model, api_key) for this tenant.
 
-    role=extract → qwen2.5:14b (parse rapide, texte seul).
-    role=vision → HERMES_VISION_MODEL, gemma4:26b par defaut (seul un
-      sous-ensemble des modeles Ollama installes supporte les images ; voir
-      HERMES_VISION_MODEL / HERMES_VISION_FALLBACK_MODELS).
+    role=extract → qwen2.5:14b (parse rapide, texte seul). Réservé au texte
+      colle manuellement (pas un fichier importe).
+    role=file → HERMES_VISION_MODEL, gemma4:26b par defaut, raisonnement
+      toujours actif (_wants_think). Modèle PAR DEFAUT pour tout fichier
+      importe (PDF, DOCX, XLSX, CSV, TXT, image) — tableaux inclus — quel
+      que soit son etat de lisibilite. Decision du 2026-08-18 : Gemma+
+      raisonnement devient le moteur d'extraction par defaut des devis,
+      plus fiable sur les tableaux que qwen2.5:14b (texte seul, sans
+      raisonnement).
+    role=vision → alias de role=file, conserve pour la compatibilite avec
+      le code existant qui distinguait "image" de "fichier texte".
     role=reason → gemma4:26b (décomposition matériaux / lots).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
@@ -196,7 +203,7 @@ async def resolve_ai_config(
     if provider == "hermes":
         model = model or HERMES_DEFAULT_MODEL
         if (model or "").lower().startswith("hermes"):
-            if role == "vision":
+            if role in ("vision", "file"):
                 model = HERMES_VISION_MODEL
             elif role == "extract":
                 model = HERMES_EXTRACT_MODEL
@@ -206,6 +213,21 @@ async def resolve_ai_config(
     return provider, model, api_key
 
 
+# VPS d'inference CPU-only (pas de GPU, 8 vCPU/22Go RAM) : le mode
+# raisonnement de Gemma/Qwen3 peut generer plusieurs milliers de tokens de
+# reflexion avant la reponse finale, ce qui a fait grimper une extraction a
+# ~11 minutes en test reel (2026-08-18). Cette consigne est ajoutee au
+# system prompt UNIQUEMENT quand le modele a le raisonnement actif
+# (_wants_think) : elle demande une reflexion breve plutot que de desactiver
+# le raisonnement, pour garder le gain de fiabilite sur les tableaux tout en
+# reduisant le volume de texte de reflexion genere.
+_THINK_BREVITY_HINT = (
+    "\n\nMode raisonnement : reflechis brievement (quelques phrases maximum, "
+    "pas d'enumeration exhaustive etape par etape) avant de donner ta reponse "
+    "finale. La reflexion sert a verifier ton analyse, pas a la detailler."
+)
+
+
 async def _call_hermes_ollama(
     model: str,
     system_prompt: str,
@@ -213,8 +235,11 @@ async def _call_hermes_ollama(
     image_b64: str | None = None,
 ) -> str:
     """Call Hermes AI via Ollama REST API on OVH VPS."""
+    effective_system_prompt = system_prompt
+    if _wants_think(model):
+        effective_system_prompt = system_prompt + _THINK_BREVITY_HINT
     messages = [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": effective_system_prompt},
     ]
 
     if image_b64:
@@ -472,13 +497,20 @@ async def extract_request_data(
     raw_text: str,
     tenant_settings: dict,
     image_bytes: bytes | None = None,
+    from_file: bool = False,
 ) -> dict:
-    """Main entry point: extract structured quote data from raw text/image."""
-    # Une image (photo ou PDF rendu) exige un modele multimodal : qwen2.5:14b
-    # (modele "extract" par defaut) est texte seul et renvoie HTTP 400
-    # "Multimodal data provided, but model does not support multimodal
-    # requests" si on lui envoie une image (incident du 2026-08-18).
-    role = "vision" if image_bytes else "extract"
+    """Main entry point: extract structured quote data from raw text/image.
+
+    from_file=True dès que le contenu provient d'un fichier importe (PDF,
+    DOCX, XLSX, CSV, TXT, image) plutot que d'un texte colle a la main.
+    Decision produit du 2026-08-18 : Gemma (gemma4:26b, raisonnement
+    toujours actif) est le moteur d'extraction PAR DEFAUT pour tout fichier,
+    tableaux inclus — qwen2.5:14b (rapide, sans raisonnement, texte seul)
+    reste reserve au texte colle manuellement. Une image exige de toute
+    facon un modele multimodal (HTTP 400 sinon, incident du 2026-08-18) :
+    role="file" couvre les deux cas.
+    """
+    role = "file" if (image_bytes or from_file) else "extract"
     provider, model, api_key = await resolve_ai_config(tenant_settings, role=role)
 
     image_b64 = None
@@ -656,9 +688,20 @@ def _normalize_extracted(data: dict) -> dict:
     return data
 
 
-async def extract_from_text(text: str, tenant_settings: dict, session_id: str | None = None) -> dict:
-    """Adapter used by server.process_request."""
-    return await extract_request_data(text or "", tenant_settings)
+async def extract_from_text(
+    text: str,
+    tenant_settings: dict,
+    session_id: str | None = None,
+    from_file: bool = False,
+) -> dict:
+    """Adapter used by server.process_request.
+
+    from_file=True pour tout texte issu d'un fichier importe (PDF, DOCX,
+    XLSX, CSV, TXT) plutot que colle a la main — route alors vers Gemma
+    (role="file", raisonnement actif) au lieu de qwen2.5:14b. Voir
+    extract_request_data pour la justification complete.
+    """
+    return await extract_request_data(text or "", tenant_settings, from_file=from_file)
 
 
 async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_id: str | None = None) -> dict:
