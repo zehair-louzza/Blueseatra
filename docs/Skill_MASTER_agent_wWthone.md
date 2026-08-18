@@ -41,6 +41,12 @@ Ne jamais fusionner ces trois rôles. Les noms **changent à chaque demande** ; 
 
 Le PDF client s'adresse au donneur d'ordre. L'enseigne et le site décrivent le lieu des travaux.
 
+## 0.15 EXTRACTION POUR MATCHING : L'ARTICLE, PAS LA PHRASE
+
+Avant de chercher un article catalogue, retirer le verbe d'action (remplacement, pose, installation, dépose, réparation, changement, fourniture) et matcher sur le nom de l'article seul.
+
+« le remplacement total de la pompe de relevage » → matcher sur « pompe de relevage », pas la phrase entière. Une phrase complète produit de faux rapprochements (ex. un article sans rapport comme un peigne de raccordement).
+
 ## 0.2 OPTIONS EXCLUSIVES (plusieurs devis pour une demande)
 
 « soit A soit B », « ou les pièces suivantes », « option 1 / option 2 » = autant de **devis distincts** que d'alternatives. ET / puis / ainsi que = un seul devis, plusieurs lignes.

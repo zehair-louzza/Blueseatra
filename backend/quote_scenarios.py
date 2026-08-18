@@ -21,6 +21,32 @@ def _clean(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip(" \t-.,;:"))
 
 
+_ACTION_VERB_RE = re.compile(
+    r"^(?:le |la |les |l['’])?"
+    r"(?:remplacement(?: total| partiel)?|pose|d[ée]pose|installation|"
+    r"r[ée]paration|changement|fourniture(?: et pose)?|mise en place|"
+    r"entretien|nettoyage|v[ée]rification|contr[ôo]le|maintenance|"
+    r"intervention sur|d[ée]montage|montage)\s+"
+    r"(?:de |du |de la |des |d['’])?",
+    re.I,
+)
+_LEADING_ARTICLE_RE = re.compile(r"^(?:le |la |les |l['’]|du |de la |des |de )", re.I)
+
+
+def _strip_action_verb(text: str) -> str:
+    """Nom d'article seul pour le matching catalogue (pas le verbe d'action).
+    Ex. "le remplacement total de la pompe de relevage" -> "pompe de relevage".
+    Voir matching.article_only — même règle, dupliquée ici pour éviter un
+    import croisé quote_scenarios <-> matching."""
+    s = _clean(text or "")
+    prev = None
+    while prev != s:
+        prev = s
+        s = _ACTION_VERB_RE.sub("", s).strip()
+    s = _LEADING_ARTICLE_RE.sub("", s).strip()
+    return s or _clean(text or "")
+
+
 def _part_lines(block: str) -> list[str]:
     out = []
     for raw in (block or "").splitlines():
@@ -67,11 +93,14 @@ def detect_exclusive_options(text: str) -> list[dict]:
         b_items = [{"description": p, "quantity": 1, "unit": "u"} for p in parts] or [
             {"description": b_label, "quantity": 1, "unit": "ens"}
         ]
+        # Matching catalogue = nom de l'article seul, jamais la phrase d'action
+        # (voir skill devis-options-master / rapprochement-catalogue-sans-prix).
+        a_article = _strip_action_verb(a)
         return [
             {
                 "label": a[0].upper() + a[1:] if a else "Remplacement total",
                 "description": a,
-                "line_items": [{"description": a, "quantity": 1, "unit": "ens"}],
+                "line_items": [{"description": a_article, "quantity": 1, "unit": "ens"}],
                 "labor_hours": 4.5,
                 "travel_days": 1,
                 "crew_size": 1,
