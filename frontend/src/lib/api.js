@@ -11,13 +11,38 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Retry automatique sur les erreurs reseau transitoires (aucune reponse HTTP
+// recue : blip reseau mobile, defi anti-bot Cloudflare/CDN passager,
+// coupure TLS/DNS breve). Ne retente JAMAIS une erreur qui a une reponse HTTP
+// (401/404/422/500...) : celles-ci sont deterministes, pas transitoires.
+// GET uniquement (les methodes avec effet de bord ne sont jamais retentees
+// automatiquement, pour eviter de dupliquer une creation/suppression).
+const RETRYABLE_METHODS = new Set(['get', 'head', 'options']);
+const MAX_RETRIES = 2;
+const RETRY_DELAYS_MS = [500, 1500];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 api.interceptors.response.use(
   (r) => r,
-  (err) => {
+  async (err) => {
     if (err.response && err.response.status === 401) {
       localStorage.removeItem('bs_token');
       if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/signup') && window.location.pathname !== '/') {
         window.location.href = '/login';
+      }
+      return Promise.reject(err);
+    }
+    const config = err.config;
+    const method = (config?.method || 'get').toLowerCase();
+    const isNetworkError = !err.response && err.code !== 'ECONNABORTED';
+    if (isNetworkError && config && RETRYABLE_METHODS.has(method)) {
+      config.__retryCount = config.__retryCount || 0;
+      if (config.__retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAYS_MS[config.__retryCount] || RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
+        config.__retryCount += 1;
+        await sleep(delay);
+        return api(config);
       }
     }
     return Promise.reject(err);
