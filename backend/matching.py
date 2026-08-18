@@ -11,6 +11,21 @@ UNIT_COMPAT = {
     "m2": {"m2"}, "ml": {"ml"}, "hr": {"hr"}, "u": {"u", "ens"}, "ens": {"ens", "u"},
 }
 SCORE_THRESHOLD = 45
+
+# Phrases d'action a retirer avant le rapprochement catalogue : on ne matche
+# jamais une phrase entiere, seulement l'article/la designation (voir skill
+# rapprochement-catalogue-sans-prix). Ex. "le remplacement total de la pompe
+# de relevage" -> "pompe de relevage".
+_ACTION_PREFIX = re.compile(
+    r"^(?:le |la |les |l['’])?"
+    r"(?:remplacement(?: total| partiel)?|pose|d[ée]pose|installation|"
+    r"r[ée]paration|changement|fourniture(?: et pose)?|mise en place|"
+    r"entretien|nettoyage|v[ée]rification|contr[ôo]le|maintenance|"
+    r"intervention sur|d[ée]montage|montage)\s+"
+    r"(?:de |du |de la |des |d['’])?",
+    re.I,
+)
+_LEADING_ARTICLE = re.compile(r"^(?:le |la |les |l['’]|du |de la |des |de )", re.I)
 # Tarifs ANELEC imposés (devis type DEV-2026-0477 / 0525)
 LABOR_RATE_HT = 42.0
 TRAVEL_RATE_HT = 40.0
@@ -67,11 +82,26 @@ def _match_query(text: str) -> str:
     return " ".join(keep)
 
 
+def article_only(text: str) -> str:
+    """Retire le verbe d'action, garde uniquement le nom de l'article pour
+    le rapprochement catalogue. Ne modifie jamais la description affichee
+    sur le devis, seulement la chaine utilisee pour chercher dans le
+    catalogue."""
+    s = clean_text(text or "")
+    prev = None
+    while prev != s:
+        prev = s
+        s = _ACTION_PREFIX.sub("", s).strip()
+    s = _LEADING_ARTICLE.sub("", s).strip()
+    return s or clean_text(text or "")
+
+
 def match_line(line: dict, catalog: list) -> dict | None:
-    raw = clean_text(_line_text(line))
+    raw_full = clean_text(_line_text(line))
     # Un paragraphe de demande n'est pas un article catalogue.
-    if len(raw) > 100 or raw.count("\n") >= 1 or len(raw.split()) > 18:
+    if len(raw_full) > 100 or raw_full.count("\n") >= 1 or len(raw_full.split()) > 18:
         return {"item": None, "score": 0, "reasons": ["texte_trop_long"], "status": "to_confirm"}
+    raw = article_only(raw_full)
     best = None
     label_norm = _match_query(raw)
     req_cat = (line.get("category") or line.get("work_type") or "").lower()
@@ -106,7 +136,9 @@ def match_line(line: dict, catalog: list) -> dict | None:
             best = {"item": item, "score": score, "reasons": reasons}
     if not best:
         return None
-    if best["score"] >= 90:
+    exact = any(r.startswith("exact_label") for r in best["reasons"])
+    strong_fuzzy = any(r.startswith("label_fuzzy_8") or r.startswith("label_fuzzy_9") or r.startswith("label_fuzzy_100") for r in best["reasons"])
+    if best["score"] >= 90 and (exact or strong_fuzzy):
         best["status"] = "matched"
     elif best["score"] >= SCORE_THRESHOLD:
         best["status"] = "proposed"
@@ -158,7 +190,7 @@ def build_quote_lines(extracted: dict, catalog: list):
         if extra:
             sep = " \u00b7 "
             desc = desc + " (" + sep.join(extra) + ")"
-        if m and m["status"] in ("matched", "proposed"):
+        if m and m["status"] == "matched":
             item = m["item"]
             eff_qty = max(qty, float(item.get("min_qty") or 0))
             unit_price = float(item.get("unit_price_ht") or 0)
@@ -185,6 +217,9 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "reasons": m["reasons"],
             })
         else:
+            # Regle catalogue : sans correspondance sure, AUCUN prix n'est applique.
+            # Un match flou (status "proposed") reste une suggestion humaine.
+            suggestion = m["item"] if (m and m.get("item") and m.get("status") == "proposed") else None
             lines.append({
                 "line_type": "material",
                 "request_label": li.get("label"),
@@ -192,6 +227,8 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "category": li.get("category") or extracted.get("work_type"),
                 "matched_item_code": None,
                 "matched_label": None,
+                "suggested_item_code": suggestion.get("item_code") if suggestion else None,
+                "suggested_label": suggestion.get("item_label") if suggestion else None,
                 "qty": qty,
                 "unit": li.get("unit"),
                 "unit_price_ht": None,
@@ -199,7 +236,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "line_ht": None,
                 "status": "to_confirm",
                 "score": m["score"] if m else 0,
-                "reasons": (m["reasons"] if m else []) + ["hors_catalogue"],
+                "reasons": (m["reasons"] if m else []) + (["suggestion_" + suggestion.get("item_code", "")] if suggestion else ["hors_catalogue"]),
             })
     extra, extra_ht, extra_vat = _auto_labor_and_travel(extracted, catalog, lines)
     # Ordre ANELEC / Tolteck : déplacement, main-d'œuvre, puis fournitures

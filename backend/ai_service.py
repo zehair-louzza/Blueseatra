@@ -76,7 +76,11 @@ Extract:
 - estimated_budget (if mentioned in the source text only — copy the mention, do not invent)
 - requested_date (if mentioned)
 - di_number (if mentioned)
-- line_items: list of {description, quantity, unit} — every prestation, even if unknown to the catalog
+- line_items: list of {description, quantity, unit} — every prestation, even if unknown to the catalog.
+  CRITICAL: description = the ARTICLE NAME ONLY (a noun phrase), not the action sentence.
+  Strip verbs like "remplacement de", "pose de", "installation de", "changement de".
+  Example: "remplacement total de la pompe de relevage" -> description "pompe de relevage", NOT the full sentence.
+  This is required for catalog matching (a full sentence never matches a catalog item).
 - labor_hours: realistic man-hours for install+pose+cleanup (number, no price)
 - travel_days: on-site days (integer)
 - crew_size: 1 if < 6h else 2
