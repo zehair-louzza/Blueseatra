@@ -71,6 +71,14 @@ services:
       - key: HERMES_REASONING_MODEL
         value: gemma4:26b
 
+      # Modele utilise pour toute extraction avec image (photo, PDF au calque
+      # texte illisible rendu en image). DOIT etre un modele multimodal
+      # installe sur le VPS (verifie via `ollama show <modele>` -> Capabilities
+      # doit lister "vision"). qwen2.5:14b et hermes3/hermes-3 sont texte seul
+      # et renvoient HTTP 400 si on leur envoie une image (incident 2026-08-18).
+      - key: HERMES_VISION_MODEL
+        value: gemma4:26b
+
       - key: HERMES_API_KEY
         sync: false
 
