@@ -57,7 +57,7 @@ export default function RequestDetail() {
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
             <StatusBadge status={req.status} />
             <span className="uppercase">{req.language || ''}</span>
-            {req.confidence != null && <span>\u00b7 {t('req.confidence')}: {Math.round(req.confidence * 100)}%</span>}
+            {req.confidence != null && <span>· {t('req.confidence')}: {Math.round(req.confidence * 100)}%</span>}
           </div>
         </div>
         <div className="flex gap-2">
@@ -126,7 +126,7 @@ export default function RequestDetail() {
                     <div key={i} className="px-3 py-2" data-testid="extracted-line-item">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">{li.label || li.description}</span>
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{li.qty ?? li.quantity} {li.unit || ''} {li.category ? `\u00b7 ${li.category}` : ''}</span>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{li.qty ?? li.quantity} {li.unit || ''} {li.category ? `· ${li.category}` : ''}</span>
                       </div>
                       {(li.location || li.dimensions || li.specs) && (
                         <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
