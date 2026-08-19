@@ -454,8 +454,9 @@ async def company_profile_put(body: CompanyProfile,
 # ===========================================================================
 # REQUESTS
 # ===========================================================================
-async def process_request(request_id: str, tenant_id: str, vision_bytes: bytes | None = None):
-    """vision_bytes : image (photo ou rendu de PDF) transmise directement en
+async def process_request(request_id: str, tenant_id: str, vision_pages: list | None = None):
+    """vision_pages : liste d'images (une par page rendue, jamais empilees
+    — voir ai_service.extract_from_pdf_pages) transmise directement en
     memoire par create_request pour les cas ou aucun fichier n'est persiste
     (PDF au calque texte illisible). Jamais lue depuis la base ou le disque
     dans ce cas — uniquement l'argument en memoire de cet appel."""
@@ -467,8 +468,8 @@ async def process_request(request_id: str, tenant_id: str, vision_bytes: bytes |
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
         stype = req.get("source_type")
-        if stype == "pdf_ocr" and vision_bytes:
-            extracted = await ai_service.extract_from_image(vision_bytes, settings, session_id=request_id)
+        if stype == "pdf_ocr" and vision_pages:
+            extracted = await ai_service.extract_from_pdf_pages(vision_pages, settings, session_id=request_id)
             extracted["_warning"] = (
                 (extracted.get("_warning") + " ") if extracted.get("_warning") else ""
             ) + "Calque texte du PDF illisible : extraction par lecture visuelle des pages (fichier non conserve)."
@@ -542,7 +543,12 @@ async def create_request(
             # navigateur), sans jamais persister le PDF ni son rendu.
             if ai_service.pdf_needs_vision_fallback(raw_text):
                 source_type = "pdf_ocr"
-                vision_bytes = ai_service.render_pdf_to_composite_image(content)
+                # Chaque page est rendue et traitee INDIVIDUELLEMENT (jamais
+                # empilee en une seule image composite) : evite les echecs
+                # observes de certains modeles OCR sur des images composites
+                # multi-pages (decision du 2026-08-19, voir
+                # ai_service.extract_from_pdf_pages).
+                vision_bytes = ai_service.render_pdf_pages_to_images(content)
         elif lower.endswith(".docx"):
             source_type = "docx"
             raw_text = ai_service.extract_docx_text(content)
@@ -623,6 +629,53 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     if not r:
         raise HTTPException(404, "Request not found")
     background.add_task(process_request, request_id, cu.tenant_id)
+    return {"ok": True, "status": "processing"}
+
+
+async def _run_deep_vision(request_id: str, tenant_id: str, image_bytes: bytes):
+    """Tache d'arriere-plan : appel synchrone HTTP evite ici car Phi-4-
+    reasoning-vision-15B prend ~10-15 min mesure, largement au-dela du
+    timeout du proxy HTTP de Render. Meme pattern que process_request :
+    statut ecrit en base, le frontend interroge par polling."""
+    settings = await get_tenant_ai_settings(tenant_id)
+    await db.requests.update_one({"id": request_id}, {"$set": {"deep_vision_status": "processing"}})
+    try:
+        deep_result = await ai_service.escalate_to_deep_vision(image_bytes, settings)
+        await db.requests.update_one({"id": request_id}, {"$set": {
+            "deep_vision_result": deep_result, "deep_vision_status": "done",
+        }})
+        await audit(tenant_id, None, "request.deep_vision", request_id, {"engine": deep_result.get("engine")})
+    except Exception as e:
+        await db.requests.update_one({"id": request_id}, {"$set": {
+            "deep_vision_status": "failed",
+            "deep_vision_error": f"{type(e).__name__}: {e or repr(e)}",
+        }})
+
+
+@api.post("/requests/{request_id}/deep-vision")
+async def deep_vision_escalation(request_id: str, background: BackgroundTasks,
+                                 cu: CurrentUser = Depends(get_current)):
+    """Escalade manuelle explicite vers Phi-4-reasoning-vision-15B (jamais
+    automatique dans process_request — voir ai_service.escalate_to_deep_vision).
+    Uniquement disponible pour les photos (source_type == "image") : ce sont
+    les seuls fichiers dont l'octet original reste en base (file_b64). Les
+    PDF ne sont jamais persistes (voir create_request), donc aucune image
+    n'est disponible pour relancer une analyse apres la requete initiale.
+    Tres lent (~10-15 min mesure) : traite en arriere-plan (voir
+    _run_deep_vision), le frontend interroge GET /requests/{id} pour suivre
+    deep_vision_status."""
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    if r.get("source_type") != "image" or not r.get("file_b64"):
+        raise HTTPException(
+            400,
+            "Analyse approfondie disponible uniquement pour les photos importees "
+            "(le fichier original n'est pas conserve pour les autres types).",
+        )
+    import base64
+    image_bytes = base64.b64decode(r["file_b64"])
+    background.add_task(_run_deep_vision, request_id, cu.tenant_id, image_bytes)
     return {"ok": True, "status": "processing"}
 
 

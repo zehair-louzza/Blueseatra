@@ -39,6 +39,187 @@ HERMES_VISION_FALLBACK_MODELS = [
     "qwen3.6:27b",
 ]
 MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
+
+# Cascade de STRUCTURATION (texte deja extrait -> JSON final), routage
+# sequentiel via Hermes (decision du 2026-08-19). Distincte de la cascade
+# OCR ci-dessus : s'applique uniquement au texte deja lisible (sortie OCR,
+# ou fichier texte natif comme DOCX/XLSX/CSV/TXT), jamais a une image (ces
+# modeles candidats qwen3:14b/deepseek-r1:14b sont TEXTE SEUL, pas
+# multimodaux). Motif : en test isole ce jour, gemma4:26b seul a renvoye
+# une reponse VIDE a deux reprises sur un document reel (budget de
+# raisonnement epuise sans jamais fermer le bloc de reflexion), et
+# qwen3.6:27b s'est confirme trop lent (~2 tok/s, jamais termine en moins
+# de 10-23 min sur ce document dans plusieurs tentatives). Ordre : les deux
+# modeles 14B (plus petits, donc plus rapides sur ce CPU sans GPU) d'abord,
+# Gemma en 3e (deja fiable sur la majorite des documents, connu pour ce cas
+# limite precis), qwen3.6:27b en tout dernier recours seulement.
+HERMES_STRUCTURING_MODEL_1 = os.environ.get("HERMES_STRUCTURING_MODEL_1", "qwen3:14b")
+HERMES_STRUCTURING_MODEL_2 = os.environ.get("HERMES_STRUCTURING_MODEL_2", "deepseek-r1:14b")
+HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3") or os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b")
+HERMES_STRUCTURING_MODEL_4 = os.environ.get("HERMES_STRUCTURING_MODEL_4", "qwen3.6:27b")
+# Timeouts PROVISOIRES par etage (secondes) : aucun des 4 modeles n'a ete
+# mesure jusqu'a une completion reussie sur ce VPS a cette date (tests
+# interrompus par l'utilisateur avant la fin, ou reponse vide) -- valeurs
+# prudentes basees sur la taille du modele et le comportement observe, PAS
+# sur la regle 1.2x-de-l-etape-suivante utilisee pour la cascade OCR (qui
+# exige une duree reelle mesuree). A RECALIBRER avec _STRUCTURING_STAGE_MEASURED_SECONDS
+# des qu'un test complet jusqu'a completion est disponible pour chaque modele.
+_STRUCTURING_CASCADE_TIMEOUTS = {
+    "Qwen3-14B": 480.0,
+    "DeepSeek-R1-14B": 480.0,
+    "Gemma4-26B": 900.0,
+    "Qwen3.6-27B": 900.0,
+}
+
+
+def _structuring_cascade_stages() -> list[tuple[str, str, float]]:
+    """Etages de la cascade de structuration (label, modele, timeout),
+    recalcule a chaque appel (modeles surchargeables par variable
+    d'environnement en cours d'execution)."""
+    order = [
+        ("Qwen3-14B", HERMES_STRUCTURING_MODEL_1),
+        ("DeepSeek-R1-14B", HERMES_STRUCTURING_MODEL_2),
+        ("Gemma4-26B", HERMES_STRUCTURING_MODEL_3),
+        ("Qwen3.6-27B", HERMES_STRUCTURING_MODEL_4),
+    ]
+    return [
+        (label, model, _STRUCTURING_CASCADE_TIMEOUTS.get(label, 900.0))
+        for label, model in order
+    ]
+
+
+async def _call_structuring_cascade(system_prompt: str, user_message: str) -> tuple[str, str]:
+    """Essaie chaque etage de _structuring_cascade_stages() dans l'ordre ;
+    une reponse VIDE compte comme un echec de cet etage (pas seulement une
+    exception/timeout), et passe a l'etage suivant -- c'est precisement le
+    mode d'echec observe chez gemma4:26b sur certains documents. Renvoie
+    (contenu_brut, label_du_modele_qui_a_reussi). Leve RuntimeError si tous
+    les etages echouent, avec le detail de chaque echec."""
+    errors = []
+    for label, model, timeout in _structuring_cascade_stages():
+        effective_system_prompt = system_prompt
+        if _wants_think(model):
+            effective_system_prompt = system_prompt + _THINK_BREVITY_HINT
+        payload = {
+            "model": MODEL_ALIASES.get((model or "").strip(), model),
+            "messages": [
+                {"role": "system", "content": effective_system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "stream": False,
+            "options": {"temperature": 0.2, "num_predict": 4096},
+        }
+        if _wants_think(model):
+            payload["think"] = True
+        headers = {}
+        if HERMES_API_KEY:
+            headers["X-Api-Key"] = HERMES_API_KEY
+        url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(url, json=payload, headers=headers)
+            if response.status_code >= 400:
+                errors.append(f"{label}: HTTP {response.status_code}: {(response.text or '')[:180]}")
+                continue
+            data = response.json()
+            msg = data.get("message") or {}
+            content = (msg.get("content") or "").strip()
+            if content:
+                return content, label
+            errors.append(f"{label}: reponse vide")
+        except Exception as exc:
+            errors.append(f"{label}: {type(exc).__name__}: {exc or repr(exc)}")
+    raise RuntimeError("; ".join(errors) if errors else "aucun modele de structuration n'a repondu")
+# OCR specialise (PaddleOCR-VL-1.6, 96.33% OmniDocBench v1.6) : premiere
+# etape de la cascade d'extraction sur image/PDF illisible. Transcription
+# litterale rapide (~100s/page mesure), avant structuration par Gemma en
+# appel texte (pas de re-encodage image, donc plus rapide que la vision
+# directe). Decision du 2026-08-18 apres evaluation comparative de
+# PaddleOCR-VL-1.6, DeepSeek-OCR-2 et Phi-4-reasoning-vision-15B — voir
+# le rapport de recherche et 0quater dans le skill intake-demande-devis
+# pour le detail des rejets (DeepSeek-OCR-2 : hallucine puis degenere en
+# boucle ; Phi-4 : 12,5 min/page et paraphrase au lieu de transcrire).
+HERMES_OCR_MODEL = os.environ.get("HERMES_OCR_MODEL", "AuditAid/PaddleOCR-VL-1.6-0.9B:latest")
+# Deuxieme etape OCR : LightOnOCR-2-1B, entraine avec une forte couverture
+# de documents FRANCAIS (pertinent pour ce cas d'usage), SOTA sur
+# OlmOCR-Bench (83.2) a seulement 596M parametres. Sortie Markdown/HTML
+# mieux structuree que PaddleOCR (tableaux avec rowspan/colspan corrects),
+# mesure a ~200s, aucun echec observe sur nos tests (contrairement a
+# Paddle qui a echoue une fois sur une image composite a 3 pages).
+HERMES_OCR_SECONDARY_MODEL = os.environ.get("HERMES_OCR_SECONDARY_MODEL", "maternion/LightOnOCR-2:1b")
+# Troisieme etape OCR avant le recours a la vision directe de Gemma :
+# modele officiel Ollama (pas de GGUF communautaire a risque), qualite
+# superieure a Paddle/LightOnOCR sur ce type de document (tableaux
+# correctement restructures), mesure a ~246s contre ~600-750s pour
+# Gemma-vision. Decision du 2026-08-18 apres comparaison de 8 modeles
+# (voir aussi les rejets : DeepSeek-OCR-2, GLM-4.1V-9B-Thinking,
+# Granite Vision 3.2-2B — tous invent(ent)/degenerent sur ce type de
+# document dense).
+HERMES_OCR_ESCALATION_MODEL = os.environ.get("HERMES_OCR_ESCALATION_MODEL", "qwen2.5vl:7b")
+# Quatrieme etape OCR, la plus fiable des quatre (meilleure fidelite de
+# structure de tableau observee, HTML avec rowspan/colspan correct) mais
+# la plus lente des etapes OCR specialisees (quant Q8_0 lourde), ~587s.
+# Base sur Qwen2.5-VL-7B, affine par renforcement (RLVR) specifiquement
+# pour l'OCR (allenai/olmOCR-2-7B-1025). Decision du 2026-08-19.
+HERMES_OCR_TERTIARY_MODEL = os.environ.get("HERMES_OCR_TERTIARY_MODEL", "richardyoung/olmocr2:7b-q8")
+
+# Duree moyenne mesuree en conditions reelles sur ce VPS (2026-08-18/19,
+# document de test : PDF francais dense avec tableaux, incident reel
+# "LOT_20_LA_SABLIERE"). Sert de base a la regle de timeout par etage
+# (decision du 2026-08-19, marge reduite le meme jour de 1.5x a 1.2x) :
+# le timeout d'une etape = 1.2x la duree mesuree de l'etape SUIVANTE
+# (plus lente mais plus fiable/puissante), jamais une valeur arbitraire
+# fixe. Objectif : ne jamais attendre sur un modele bloque/degrade plus
+# longtemps que ce qu'il faudrait de toute facon pour que l'etape
+# suivante fasse le travail, avec une marge reduite a 20%.
+_OCR_STAGE_TIMEOUT_MULTIPLIER = 1.2
+# Timeout du DERNIER recours (vision directe de Gemma) : contrairement
+# aux etapes OCR ci-dessus, il n'y a pas d'"etape suivante" a mesurer
+# pour lui appliquer la regle 1.2x — plafond fixe, aligne sur le timeout
+# deja utilise ailleurs pour Gemma en mode raisonnement (voir _wants_think
+# dans _call_hermes_ollama). Nomme explicitement plutot que laisse en dur
+# dans chaque appelant, pour qu'un changement futur ne se fasse qu'ici.
+_OCR_FINAL_FALLBACK_TIMEOUT = 900.0
+_OCR_STAGE_MEASURED_SECONDS = {
+    "PaddleOCR-VL-1.6": 110,
+    "LightOnOCR-2-1B": 200,
+    "Qwen2.5-VL-7B": 246,
+    "olmOCR-2-7B": 587,
+    "Gemma-vision": 650,
+}
+
+
+def _ocr_cascade_stages() -> list[tuple[str, str, float]]:
+    """Etages de la cascade OCR (label, modele, timeout en secondes),
+    du plus rapide/fiable-suffisant au plus lent, classes par fiabilite
+    ET vitesse (decision du 2026-08-19 apres comparaison de 9 modeles) :
+    aucun modele hallucinant/degenerant (DeepSeek-OCR-2, Granite Vision
+    3.2-2B, GLM-4.1V-9B-Thinking sans vision fonctionnelle) n'entre dans
+    cette liste, quelle que soit sa vitesse. Le timeout de chaque etape
+    est calcule via la regle 1.2x (voir _OCR_STAGE_MEASURED_SECONDS) sur
+    la duree mesuree de l'etape suivante. Recalcule a chaque appel (pas
+    mis en cache) : les modeles restent surchargeables par variable
+    d'environnement en cours d'execution."""
+    order = [
+        ("PaddleOCR-VL-1.6", HERMES_OCR_MODEL),
+        ("LightOnOCR-2-1B", HERMES_OCR_SECONDARY_MODEL),
+        ("Qwen2.5-VL-7B", HERMES_OCR_ESCALATION_MODEL),
+        ("olmOCR-2-7B", HERMES_OCR_TERTIARY_MODEL),
+    ]
+    stages = []
+    for i, (label, model) in enumerate(order):
+        next_label = order[i + 1][0] if i + 1 < len(order) else "Gemma-vision"
+        timeout = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * _OCR_STAGE_MEASURED_SECONDS.get(next_label, 650))
+        stages.append((label, model, timeout))
+    return stages
+# Modele d'escalade manuelle uniquement (jamais automatique) : trop lent
+# (~12,5 min/page mesure sur ce materiel) et tendance a paraphraser/resumer
+# plutot qu'a transcrire litteralement, ce qui le rend risque pour les
+# champs critiques (dates, montants, identifiants de dossier). Reserve a
+# un declenchement explicite de l'utilisateur (bouton "analyse approfondie").
+HERMES_ESCALATION_VISION_MODEL = os.environ.get(
+    "HERMES_ESCALATION_VISION_MODEL", "hf.co/DevQuasar/microsoft.Phi-4-reasoning-vision-15B-GGUF:Q4_K_M"
+)
 # Shared with Caddy on ovh-ai-stack (header X-Api-Key). Empty in local dev.
 HERMES_API_KEY = os.environ.get("HERMES_API_KEY", "")
 # Gateway Hermes Agent (OpenAI-compatible). Vide = raisonnement via Ollama.
@@ -169,7 +350,11 @@ async def _web_context_sans_prix(raw_text: str) -> str:
 
 def _wants_think(model: str) -> bool:
     name = (model or "").lower()
-    return name.startswith("qwen3") or name.startswith("gemma4")
+    return (
+        name.startswith("qwen3")
+        or name.startswith("gemma4")
+        or name.startswith("deepseek-r1")
+    )
 
 
 async def resolve_ai_config(
@@ -545,8 +730,25 @@ async def extract_request_data(
             + web_ctx
         )
 
+    # Cascade de structuration sequentielle (decision du 2026-08-19) : ne
+    # s'applique QUE lorsqu'il n'y a pas d'image (texte deja lisible, sortie
+    # OCR ou fichier texte natif) et que le fournisseur reste hermes/ollama
+    # (un tenant qui a explicitement choisi OpenAI garde ce choix, pas de
+    # cascade locale). Une image passe toujours par le chemin existant
+    # (gemma4:26b + son pool de secours vision) car qwen3:14b/deepseek-r1:14b
+    # sont des modeles TEXTE SEUL, sans capacite multimodale.
+    use_structuring_cascade = (
+        from_file and image_b64 is None and provider in ("hermes", "ollama")
+    )
+
+    structuring_engine = None
     try:
-        if provider == "hermes":
+        if use_structuring_cascade:
+            raw_response, structuring_engine = await _call_structuring_cascade(
+                system_prompt=EXTRACTION_SYSTEM,
+                user_message=user_message,
+            )
+        elif provider == "hermes":
             raw_response = await _call_hermes_ollama(
                 model=model,
                 system_prompt=EXTRACTION_SYSTEM,
@@ -600,6 +802,8 @@ async def extract_request_data(
             cleaned = cleaned.split("\n", 1)[1]
             cleaned = cleaned.rsplit("```", 1)[0]
         parsed = _normalize_extracted(_parse_json_object(cleaned))
+        if structuring_engine:
+            parsed["_structuring_engine"] = structuring_engine
         return await expand_work_into_materials(parsed, tenant_settings)
     except json.JSONDecodeError:
         # Meme regle : une reponse Gemma illisible sur un fichier importe ne
@@ -745,9 +949,304 @@ async def extract_from_text(
     return await extract_request_data(text or "", tenant_settings, from_file=from_file)
 
 
+async def _call_ocr_model(image_bytes: bytes, model: str, timeout: float = 240.0) -> str:
+    """Transcription litterale via un modele OCR/vision specialise (pas de
+    raisonnement general) : rapide et fidele au pixel, mais ne structure
+    rien. Utilisee pour chaque etape OCR de la cascade (PaddleOCR-VL-1.6,
+    puis Qwen2.5-VL-7B en second avis) ; jamais la reponse finale.
+    Leve une exception sur tout echec (reseau, HTTP, reponse vide) ; c'est
+    au niveau appelant (extract_from_image) de decider du secours."""
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    payload = {
+        "model": model,
+        "messages": [{
+            "role": "user",
+            "content": (
+                "Transcribe all text from this document image exactly as written, "
+                "preserving layout, tables and reading order. Do not summarize, "
+                "translate, or add any text that is not visible in the image."
+            ),
+            "images": [image_b64],
+        }],
+        "stream": False,
+    }
+    headers = {}
+    if HERMES_API_KEY:
+        headers["X-Api-Key"] = HERMES_API_KEY
+    url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, json=payload, headers=headers)
+    if response.status_code >= 400:
+        raise RuntimeError(f"{model} HTTP {response.status_code}: {(response.text or '')[:180]}")
+    data = response.json()
+    content = ((data.get("message") or {}).get("content") or "").strip()
+    if not content:
+        raise RuntimeError(f"{model}: reponse vide")
+    return content
+
+
+def _ocr_result_acceptable(text: str) -> bool:
+    """Filtre deterministe apres l'etape PaddleOCR : rejette un resultat
+    trop court ou charabia (memes signes que _looks_garbled, mais applique
+    a la SORTIE de l'OCR plutot qu'au calque texte PDF d'origine — detecte
+    un echec de l'OCR lui-meme, ex. image trop degradee)."""
+    s = (text or "").strip()
+    if len(s) < 40:
+        return False
+    return not _looks_garbled(s)
+
+
+def _extraction_seems_incomplete(extracted: dict, source_text: str) -> bool:
+    """Deuxieme filtre deterministe, applique APRES que Gemma ait structure
+    le texte OCR en JSON : sert de juge peu couteux (pas d'appel IA
+    supplementaire) pour decider si le resultat est exploitable ou s'il
+    faut escalader vers la vision directe. Un texte OCR substantiel sans
+    aucune ligne ni description exploitee est le signe le plus net d'une
+    structuration ratee malgre une transcription correcte."""
+    if extracted.get("_error"):
+        return True
+    if (extracted.get("confidence") or 0) < 0.3:
+        return True
+    has_substantial_text = len((source_text or "").strip()) > 200
+    line_items = extracted.get("line_items") or []
+    description = (extracted.get("description") or "").strip()
+    if has_substantial_text and not line_items and not description:
+        return True
+    return False
+
+
+async def _try_ocr_stage(image_bytes: bytes, model: str, tenant_settings: dict, timeout: float = 240.0) -> tuple[dict | None, str | None, str | None]:
+    """Tente une etape OCR+structuration complete avec un modele donne.
+    Renvoie (resultat, texte_ocr, erreur) : resultat est None si l'etape
+    doit etre consideree en echec (erreur OCR, texte inutilisable, ou
+    structuration jugee incomplete par _extraction_seems_incomplete) —
+    dans ce cas l'appelant passe a l'etape suivante de la cascade. Le
+    timeout est calcule par l'appelant selon la regle 1.2x (voir
+    _ocr_cascade_stages) : ne pas attendre sur ce modele plus longtemps
+    que necessaire pour de toute facon passer a l'etape suivante."""
+    try:
+        ocr_text = await _call_ocr_model(image_bytes, model, timeout=timeout)
+    except Exception as e:
+        return None, None, f"{type(e).__name__}: {e or repr(e)}"
+    if not _ocr_result_acceptable(ocr_text):
+        return None, ocr_text, None
+    result = await extract_request_data(ocr_text, tenant_settings, from_file=True)
+    if _extraction_seems_incomplete(result, ocr_text):
+        return None, ocr_text, None
+    return result, ocr_text, None
+
+
 async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_id: str | None = None) -> dict:
-    """Adapter used by server.process_request for photos."""
-    return await extract_request_data("", tenant_settings, image_bytes=image_bytes)
+    """Adapter used by server.process_request for photos and rendered PDF
+    pages. Cascade IA-uniquement, decision du 2026-08-18 (comparaison de 8
+    modeles — voir 0quater du skill intake-demande-devis pour le detail) :
+
+    1. PaddleOCR-VL-1.6 transcrit l'image en texte litteral (le plus
+       rapide, specialise OCR, ~110s/page mesure, mais a echoue une fois
+       sur une image composite a plusieurs pages).
+    2. LightOnOCR-2-1B (entraine avec une forte couverture de documents
+       francais, SOTA OlmOCR-Bench a seulement 596M parametres), sortie
+       mieux structuree (Markdown/HTML avec tableaux corrects), ~200s.
+    3. Qwen2.5-VL-7B (officiel Ollama, qualite superieure sur ce type de
+       document), ~246s.
+    4. olmOCR-2-7B (meilleure fidelite de structure de tableau observee),
+       ~587s.
+
+    Apres chaque etape : filtre deterministe (_ocr_result_acceptable) sur
+    le texte OCR, puis structuration par Gemma en appel TEXTE (role="file")
+    — pas de re-encodage d'image — et deuxieme filtre deterministe
+    (_extraction_seems_incomplete) sur le JSON resultant. Si une etape
+    echoue, depasse son timeout (regle 1.2x, voir _ocr_cascade_stages), ou
+    produit un resultat insuffisant, passage a l'etape suivante.
+
+    5. Secours final : vision directe de Gemma sur l'image (comportement
+       historique avant cette cascade, ~600-750s mesure), utilise si
+       aucune des quatre etapes OCR precedentes n'a produit un resultat
+       exploitable.
+
+    Chaque etape reste 100% IA (jamais d'heuristique de secours sur le
+    contenu du fichier, conformement a la regle 0ter/0quater du skill
+    intake-demande-devis). Phi-4-reasoning-vision-15B n'est PAS dans cette
+    cascade automatique : voir escalate_to_deep_vision pour l'escalade
+    manuelle explicite. DeepSeek-OCR-2, GLM-4.1V-9B-Thinking et Granite
+    Vision 3.2-2B ont ete evalues et rejetes (invention de contenu et/ou
+    degenerescence en boucle sur ce type de document dense).
+    """
+    last_ocr_text = None
+    errors = []
+    for label, model, timeout in _ocr_cascade_stages():
+        result, ocr_text, error = await _try_ocr_stage(image_bytes, model, tenant_settings, timeout=timeout)
+        if ocr_text is not None:
+            last_ocr_text = ocr_text
+        if error:
+            errors.append(f"{label}: {error}")
+        if result is not None:
+            result["_ocr_engine"] = label
+            result["_ocr_text"] = ocr_text
+            return result
+
+    # Secours final : vision directe de Gemma. Atteint si aucune etape OCR
+    # n'a produit un resultat exploitable (erreurs listees dans errors, ou
+    # structuration jugee incomplete malgre un texte OCR correct).
+    fallback = await extract_request_data("", tenant_settings, image_bytes=image_bytes)
+    if errors:
+        fallback["_ocr_fallback_reason"] = (
+            "Etapes OCR indisponibles (" + "; ".join(errors) + ") — secours vision directe Gemma."
+        )
+    else:
+        fallback["_ocr_fallback_reason"] = (
+            "Extraction structuree jugee incomplete a partir des etapes OCR — "
+            "secours vision directe Gemma."
+        )
+    if last_ocr_text:
+        fallback["_ocr_text"] = last_ocr_text
+    fallback["_ocr_engine"] = HERMES_VISION_MODEL
+    return fallback
+
+
+async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> dict:
+    """Escalade manuelle uniquement (jamais appelee automatiquement par le
+    pipeline) : Phi-4-reasoning-vision-15B, reserve aux cas ou Gemma et
+    PaddleOCR-VL-1.6 echouent tous les deux ou restent insuffisants selon
+    l'utilisateur. Tres lent (~12,5 min/page mesure) et a tendance a
+    paraphraser/resumer plutot qu'a transcrire litteralement — le resultat
+    doit etre presente comme un complement a comparer, jamais comme un
+    remplacement silencieux de l'extraction Gemma/PaddleOCR existante."""
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    payload = {
+        "model": HERMES_ESCALATION_VISION_MODEL,
+        "messages": [{
+            "role": "user",
+            "content": (
+                "Extract all text and structured information from this document image. "
+                "Do not invent content that is not visible in the image."
+            ),
+            "images": [image_b64],
+        }],
+        "stream": False,
+        "options": {"num_predict": 2000},
+    }
+    headers = {}
+    if HERMES_API_KEY:
+        headers["X-Api-Key"] = HERMES_API_KEY
+    url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
+    async with httpx.AsyncClient(timeout=1200.0) as client:
+        response = await client.post(url, json=payload, headers=headers)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Escalade vision HTTP {response.status_code}: {(response.text or '')[:180]}")
+    data = response.json()
+    content = ((data.get("message") or {}).get("content") or "").strip()
+    return {
+        "engine": HERMES_ESCALATION_VISION_MODEL,
+        "content": content,
+        "warning": (
+            "Analyse approfondie generee par un modele de raisonnement visuel lent, "
+            "a tendance a paraphraser plutot qu'a transcrire litteralement — a comparer "
+            "avec l'extraction principale, ne pas utiliser seule comme source de verite."
+        ),
+    }
+
+
+async def _ocr_page_text(image_bytes: bytes) -> tuple[str | None, str | None, str | None]:
+    """Tente l'OCR d'UNE page via la cascade a 4 etages
+    (_ocr_cascade_stages : PaddleOCR-VL-1.6 -> LightOnOCR-2-1B ->
+    Qwen2.5-VL-7B -> olmOCR-2-7B), transcription litterale seule, pas de
+    structuration JSON — celle-ci se fait une seule fois sur le texte
+    combine de toutes les pages, voir extract_from_pdf_pages. Chaque
+    etape a son propre timeout selon la regle 1.2x. Renvoie
+    (texte, moteur, erreur) ; texte est None si toutes les etapes ont
+    echoue ou produit un texte inutilisable pour cette page precise."""
+    errors = []
+    for label, model, timeout in _ocr_cascade_stages():
+        try:
+            text = await _call_ocr_model(image_bytes, model, timeout=timeout)
+        except Exception as e:
+            errors.append(f"{label}: {type(e).__name__}: {e or repr(e)}")
+            continue
+        if _ocr_result_acceptable(text):
+            return text, label, None
+    return None, None, "; ".join(errors) if errors else None
+
+
+async def extract_from_pdf_pages(pages: list[bytes], tenant_settings: dict, session_id: str | None = None) -> dict:
+    """Traite chaque page d'un PDF INDIVIDUELLEMENT plutot qu'empilees en
+    une seule image composite. Decision du 2026-08-19 : une image
+    composite multi-pages peut depasser les limites de
+    resolution/aspect-ratio de certains modeles OCR specialises (observe
+    en conditions reelles : echec HTTP 500 de PaddleOCR-VL-1.6 sur une
+    image a 3 pages empilees, alors qu'il reussit systematiquement page
+    par page sur le meme document). Traiter page par page isole aussi le
+    cout d'un secours vision a la seule page qui echoue, plutot que de
+    refaire tout le document en vision directe si une seule page pose
+    probleme.
+
+    Pour chaque page : cascade OCR (_ocr_page_text). Si toutes les etapes
+    echouent pour cette page, secours vision directe de Gemma UNIQUEMENT
+    sur cette page (transcription litterale, pas de structuration).
+    Le texte de toutes les pages est ensuite concatene et structure en
+    UNE SEULE fois par Gemma (evite de payer N fois le cout de
+    structuration).
+    """
+    page_texts = []
+    engines_used = []
+    fallback_pages = []
+    for i, page_bytes in enumerate(pages):
+        text, engine, _error = await _ocr_page_text(page_bytes)
+        if not text:
+            try:
+                text = await _call_ocr_model(page_bytes, HERMES_VISION_MODEL, timeout=_OCR_FINAL_FALLBACK_TIMEOUT)
+                engine = HERMES_VISION_MODEL
+                fallback_pages.append(i + 1)
+            except Exception:
+                text = None
+        if text:
+            page_texts.append(f"--- Page {i + 1} ---\n{text}")
+            if engine and engine not in engines_used:
+                engines_used.append(engine)
+
+    if not page_texts:
+        return {
+            "_error": "Aucune page n'a pu etre lue par un modele IA (OCR specialise ou vision directe).",
+            "line_items": [], "confidence": 0.0,
+        }
+
+    combined_text = "\n\n".join(page_texts)
+    result = await extract_request_data(combined_text, tenant_settings, from_file=True)
+    result["_ocr_engine"] = " + ".join(engines_used) if engines_used else HERMES_VISION_MODEL
+    result["_ocr_text"] = combined_text
+    if fallback_pages:
+        result["_ocr_fallback_reason"] = (
+            f"Page(s) {', '.join(map(str, fallback_pages))} illisible(s) par les modeles OCR specialises — "
+            "lecture visuelle directe par Gemma pour cette/ces page(s) uniquement."
+        )
+    return result
+
+
+def render_pdf_pages_to_images(content: bytes, max_pages: int = 4, scale: float = 2.0) -> list[bytes]:
+    """Rend chaque page en image INDIVIDUELLE (jamais empilees) — voir
+    extract_from_pdf_pages pour la justification. Renvoie une liste
+    d'octets JPEG, une entree par page."""
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(io.BytesIO(content))
+    n = min(len(pdf), max_pages)
+    images = []
+    max_h = 3000  # cap resolution par page — la plupart des modeles vision limitent la taille d'image
+    for i in range(n):
+        page = pdf[i]
+        bitmap = page.render(scale=scale)
+        img = bitmap.to_pil().convert("RGB")
+        page.close()
+        if img.height > max_h:
+            ratio = max_h / img.height
+            img = img.resize((int(img.width * ratio), max_h))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        images.append(buf.getvalue())
+    pdf.close()
+    if not images:
+        raise ValueError("PDF vide ou illisible")
+    return images
 
 
 def extract_pdf_text(content: bytes) -> str:
