@@ -269,6 +269,17 @@ async def _call_hermes_ollama(
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
 
+    # VPS CPU-only : Gemma en mode raisonnement peut prendre de 80s a plus de
+    # 10 minutes selon la charge et la longueur du raisonnement genere
+    # (mesure en conditions reelles le 2026-08-18). Un timeout de 180s
+    # provoquait un ReadTimeout sur des extractions parfaitement valides,
+    # qui basculaient alors sur l'extracteur de secours degrade -> exactement
+    # le probleme signale ("Contenu source" jamais lu par l'IA). Ce timeout
+    # ne bloque jamais de requete HTTP utilisateur : l'appel tourne dans une
+    # tache d'arriere-plan (voir process_request), un delai genereux est donc
+    # sans risque. Calcule par modele plus bas (current_timeout), car la
+    # liste de repli peut mixer un modele avec raisonnement et un modele sans.
+
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
     last_err = None
     models = []
@@ -295,9 +306,18 @@ async def _call_hermes_ollama(
         # une nouvelle resolution DNS/connexion) avant d'abandonner ce modele,
         # et le message d'erreur distingue ce cas pour que "IA indisponible"
         # pointe vers un probleme reseau/DNS plutot qu'un faux echec de modele.
+        current_timeout = 900.0 if _wants_think(current) else 180.0
+        # Un raisonnement lent-mais-reussi n'est PAS le meme probleme qu'un
+        # routage DNS parasite (reponse HTML instantanee, voir
+        # _looks_like_wrong_server) : retenter le MEME modele apres un vrai
+        # ReadTimeout ne fait que doubler/tripler une attente deja tres
+        # longue sans rien resoudre. Seule la detection "mauvais serveur"
+        # justifie une nouvelle tentative sur le meme modele ; tout autre
+        # echec (timeout, erreur HTTP, reponse vide) passe directement au
+        # modele suivant de la liste de repli.
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=180.0) as client:
+                async with httpx.AsyncClient(timeout=current_timeout) as client:
                     response = await client.post(url, json=payload, headers=headers)
                     if response.status_code == 400 and payload.pop("think", None) is not None:
                         response = await client.post(url, json=payload, headers=headers)
@@ -319,7 +339,7 @@ async def _call_hermes_ollama(
                 break
             except Exception as exc:
                 last_err = f"{type(exc).__name__} ({current}): {exc or repr(exc)}"
-                break
+                break  # pas de retry sur le meme modele : voir commentaire ci-dessus
     raise RuntimeError(last_err or "aucun modele Ollama n'a repondu")
 
 
@@ -551,6 +571,20 @@ async def extract_request_data(
             )
     except Exception as e:
         detail = f"{type(e).__name__}: {e or repr(e)}"
+        # Regle produit du 2026-08-18 : un fichier importe (from_file=True ou
+        # image) ne doit JAMAIS etre "devine" par l'extracteur heuristique de
+        # secours (regex sur le texte brut) — c'est exactement ce qui produisait
+        # une extraction vide/plausible en apparence alors que l'IA n'avait
+        # jamais reellement lu le contenu (incident "LOT_20_LA_SABLIERE").
+        # Pour un fichier, un echec de Gemma doit rester un echec visible
+        # (statut "failed"), jamais un resultat degrade qui a l'air valide.
+        # Le texte colle manuellement (from_file=False) garde le filet de
+        # securite heuristique : il n'y a pas d'alternative IA-only pour ce
+        # canal et un resultat partiel reste mieux qu'un blocage total.
+        if from_file or image_bytes:
+            return {"_error": f"Extraction Gemma indisponible ({detail}). Aucune extraction de secours "
+                                "n'est utilisee pour un fichier importe : reimportez ou reessayez.",
+                    "line_items": [], "confidence": 0.0}
         try:
             fallback = _fallback_extract(raw_text)
         except Exception as fe:
@@ -568,6 +602,13 @@ async def extract_request_data(
         parsed = _normalize_extracted(_parse_json_object(cleaned))
         return await expand_work_into_materials(parsed, tenant_settings)
     except json.JSONDecodeError:
+        # Meme regle : une reponse Gemma illisible sur un fichier importe ne
+        # doit jamais etre remplacee par une extraction heuristique degradee.
+        if from_file or image_bytes:
+            return {"_error": "Reponse de Gemma illisible (JSON invalide) sur ce fichier. "
+                                "Aucune extraction de secours n'est utilisee : reessayez.",
+                    "line_items": [], "confidence": 0.0,
+                    "_raw_ai_response": (raw_response or "")[:1000]}
         try:
             fallback = _fallback_extract(raw_text)
         except Exception as fe:
