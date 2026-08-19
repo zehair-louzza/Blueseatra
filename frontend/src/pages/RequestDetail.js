@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { toast } from 'sonner';
-import { ArrowLeft, RefreshCw, FileText, Loader2, Trash2, Save, Eye } from 'lucide-react';
+import { ArrowLeft, RefreshCw, FileText, Loader2, Trash2, Save, Eye, Sparkles } from 'lucide-react';
 import { hasFilePreview, openFilePreview } from '@/lib/filePreviewCache';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
@@ -22,6 +22,8 @@ export default function RequestDetail() {
   const [title, setTitle] = useState('');
   const [rawText, setRawText] = useState('');
 
+  const [deepVisionBusy, setDeepVisionBusy] = useState(false);
+
   const load = () => api.get(`/requests/${id}`).then((r) => {
     setReq(r.data);
     setTitle(r.data.title || '');
@@ -32,6 +34,20 @@ export default function RequestDetail() {
     if (!req || !['received', 'processing'].includes(req.status)) return;
     const x = setInterval(load, 3000); return () => clearInterval(x);
   }, [req]);
+  useEffect(() => {
+    if (!req || req.deep_vision_status !== 'processing') return;
+    const x = setInterval(load, 5000); return () => clearInterval(x);
+  }, [req]);
+
+  const runDeepVision = async () => {
+    setDeepVisionBusy(true);
+    try {
+      await api.post(`/requests/${id}/deep-vision`);
+      toast.success(t('req.deep_vision_processing'));
+      load();
+    } catch (err) { toast.error(apiError(err, t('req.deep_vision_failed'))); }
+    finally { setDeepVisionBusy(false); }
+  };
 
   const reprocess = async () => { await api.post(`/requests/${id}/process`); toast.success(t('req.processing')); load(); };
   // Les PDF ne sont jamais stockes cote serveur : l'apercu "Voir le fichier"
@@ -160,14 +176,57 @@ export default function RequestDetail() {
           )}
         </Card>
         <Card className="card-shadow border-0 p-5">
-          <h2 className="mb-3 font-display text-base font-semibold">{t('req.raw')}</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-base font-semibold">{t('req.ai_extraction')}</h2>
+            {ex?._ocr_engine && (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground" data-testid="ocr-engine-badge">
+                {t('req.ocr_badge', { engine: ex._ocr_engine })}
+              </span>
+            )}
+          </div>
           {req.source_type === 'pdf_ocr' && (
             <p className="mb-2 text-xs text-amber-700">{t('req.pdf_ocr_notice')}</p>
           )}
-          {req.source_type === 'image' ? (
-            <button type="button" onClick={viewFile} className="text-sm text-primary underline underline-offset-2">{req.filename} ({t('req.view_file').toLowerCase()})</button>
+          {ex?._ocr_fallback_reason && (
+            <p className="mb-2 text-xs text-amber-700">{ex._ocr_fallback_reason}</p>
+          )}
+          {ex?._ocr_text ? (
+            <Textarea rows={10} value={ex._ocr_text} readOnly className="font-mono text-xs" data-testid="ai-ocr-text" />
+          ) : ['image', 'pdf_ocr'].includes(req.source_type) ? (
+            <p className="text-sm text-muted-foreground" data-testid="ai-ocr-fallback-note">{t('req.ocr_fallback_note')}</p>
           ) : (
-            <Textarea rows={10} value={rawText} onChange={(e) => setRawText(e.target.value)} className="font-mono text-xs" data-testid="request-raw-edit" />
+            <div>
+              <Textarea rows={10} value={rawText} onChange={(e) => setRawText(e.target.value)} className="font-mono text-xs" data-testid="request-raw-edit" />
+              <p className="mt-1 text-xs text-muted-foreground">{t('req.edited_text_note')}</p>
+            </div>
+          )}
+          {req.source_type === 'image' && (
+            <div className="mt-4 border-t pt-4">
+              <Button
+                variant="outline" size="sm" className="gap-1"
+                onClick={runDeepVision}
+                disabled={deepVisionBusy || req.deep_vision_status === 'processing'}
+                data-testid="deep-vision-button"
+              >
+                {(deepVisionBusy || req.deep_vision_status === 'processing')
+                  ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {t('req.deep_vision_button')}
+              </Button>
+              <p className="mt-1 text-xs text-muted-foreground">{t('req.deep_vision_hint')}</p>
+              {req.deep_vision_status === 'processing' && (
+                <p className="mt-2 text-xs text-amber-700" data-testid="deep-vision-processing">{t('req.deep_vision_processing')}</p>
+              )}
+              {req.deep_vision_status === 'failed' && (
+                <p className="mt-2 text-xs text-rose-700" data-testid="deep-vision-error">{t('req.deep_vision_failed')}: {req.deep_vision_error}</p>
+              )}
+              {req.deep_vision_status === 'done' && req.deep_vision_result && (
+                <div className="mt-3 rounded-lg border bg-muted/40 p-3" data-testid="deep-vision-result">
+                  <h3 className="mb-1 text-xs font-semibold uppercase text-muted-foreground">{t('req.deep_vision_result_title')}</h3>
+                  <p className="mb-2 text-xs text-amber-700">{t('req.deep_vision_warning')}</p>
+                  <p className="whitespace-pre-wrap text-xs">{req.deep_vision_result.content}</p>
+                </div>
+              )}
+            </div>
           )}
         </Card>
       </div>
