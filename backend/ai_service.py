@@ -16,11 +16,19 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-# File d'attente légère : borne le nombre d'appels Ollama simultanés PAR process.
-# Le VPS CPU ne traite qu'1-2 inférences à la fois ; au-delà, les requêtes
-# attendent leur tour ici au lieu de saturer le CPU et de déclencher des
-# timeouts en cascade. Aligner sur OLLAMA_NUM_PARALLEL côté serveur Ollama.
-_OLLAMA_MAX_CONCURRENCY = int(os.environ.get("OLLAMA_MAX_CONCURRENCY", "2"))
+# File d'attente légère : borne le nombre d'appels Ollama simultanés PAR
+# process. Le serveur Ollama a OLLAMA_NUM_PARALLEL=1 (verifie sur le VPS le
+# 2026-08-23) : il ne traite qu'UNE seule inference a la fois, quel que soit
+# le nombre de requetes HTTP recues. Un semaphore a 2 ici (valeur precedente)
+# laissait le backend envoyer 2 requetes simultanees vers un serveur qui n'en
+# execute qu'une -- la 2e attendait de toute facon derriere la 1re au niveau
+# d'Ollama, mais SANS jamais liberer son slot de semaphore local pendant
+# cette attente, ce qui pouvait meme aggraver la contention plutot que
+# l'attenuer. Aligne desormais EXACTEMENT sur OLLAMA_NUM_PARALLEL cote
+# serveur : le backend n'envoie jamais plus d'une requete Ollama a la fois,
+# les autres appels (structuration ET cascade OCR, voir plus bas) attendent
+# ici plutot que de s'empiler cote serveur.
+_OLLAMA_MAX_CONCURRENCY = int(os.environ.get("OLLAMA_MAX_CONCURRENCY", "1"))
 _OLLAMA_SEMAPHORE = asyncio.Semaphore(_OLLAMA_MAX_CONCURRENCY)
 
 # ── Hermes AI / Ollama (OVH VPS) ────────────────────────────────────────────
@@ -1029,8 +1037,14 @@ async def _call_ocr_model(image_bytes: bytes, model: str, timeout: float = 240.0
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, json=payload, headers=headers)
+    # 2026-08-23 : cette fonction (toute la cascade OCR) ne passait par AUCUN
+    # semaphore alors que _call_structuring_cascade et _call_hermes_ollama en
+    # ont un -- incoherence qui laissait la cascade OCR contourner entierement
+    # la limite de concurrence cote backend. Desormais alignee sur le meme
+    # _OLLAMA_SEMAPHORE que le reste du fichier.
+    async with _OLLAMA_SEMAPHORE:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=payload, headers=headers)
     if response.status_code >= 400:
         raise RuntimeError(f"{model} HTTP {response.status_code}: {(response.text or '')[:180]}")
     data = response.json()
@@ -1186,8 +1200,13 @@ async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> 
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
-    async with httpx.AsyncClient(timeout=1200.0) as client:
-        response = await client.post(url, json=payload, headers=headers)
+    # 2026-08-23 : alignee sur _OLLAMA_SEMAPHORE comme le reste du fichier
+    # (voir _call_ocr_model). Ce bouton est declenche manuellement, donc
+    # rare, mais un appel de 1200s hors semaphore pouvait quand meme
+    # contourner la limite de concurrence pendant toute sa duree.
+    async with _OLLAMA_SEMAPHORE:
+        async with httpx.AsyncClient(timeout=1200.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
     if response.status_code >= 400:
         raise RuntimeError(f"Escalade vision HTTP {response.status_code}: {(response.text or '')[:180]}")
     data = response.json()
@@ -1354,10 +1373,19 @@ def extract_pdf_text(content: bytes) -> str:
         page.close()
     pdf.close()
     text = "\n".join(parts).strip()
-    # Ajoute les tableaux extraits de façon déterministe (structure préservée).
-    tables_md = _extract_pdf_tables_markdown(content)
-    if tables_md:
-        text = (text + "\n\n=== Tableaux détectés ===\n" + tables_md).strip()
+    # 2026-08-23 : n'ajouter les tableaux pdfplumber QUE si le calque texte
+    # natif est deja lisible. Bug reel observe en production ("Test 10",
+    # capture d'ecran fournie par l'utilisateur) : sur un PDF a police subset
+    # sans table ToUnicode (calque texte illisible, meme symptome que
+    # _looks_garbled plus bas), pdfplumber lit CE MEME calque casse et
+    # produit un tableau markdown tout aussi illisible (codes (cid:XXX)),
+    # qui polluait "Contenu source" sans le moindre benefice -- le vrai texte
+    # dans ce cas ne peut venir que de la lecture visuelle (vision_bytes),
+    # jamais de pdfplumber qui lit la meme couche de police cassee.
+    if text and not _looks_garbled(text):
+        tables_md = _extract_pdf_tables_markdown(content)
+        if tables_md and not _looks_garbled(tables_md):
+            text = (text + "\n\n=== Tableaux détectés ===\n" + tables_md).strip()
     return text
 
 
