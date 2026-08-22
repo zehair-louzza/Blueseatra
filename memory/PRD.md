@@ -40,7 +40,10 @@ sur CPU 22 Go → OOM + 80 s-11 min/doc. Rustines aggravantes : `OLLAMA_KEEP_ALI
 - Docs ajoutées : FILE-ATTENTE-ASYNC.md, RENDER-ENV-A-COLLER.md.
 
 ## Backlog / prochaines étapes
-- P0 : appliquer FIX-IMMEDIAT-ENV.md sur Render, `ollama pull qwen2.5:7b` + `qwen2.5vl:7b`.
+- P0 : appliquer FIX-IMMEDIAT-ENV.md sur Render, `ollama pull qwen2.5:7b` + `qwen2.5vl:7b` (script `scripts/pull-and-benchmark.sh`).
 - P1 : déployer compose + service extraction corrigés sur le VPS.
-- P1 : brancher file d'attente async (n8n / Redis-RQ) pour la concurrence 10-100.
+- P1 : file durable — livrée en 3 options (RQ `services/queue/rq_worker.py`, Supabase SKIP LOCKED `supabase_queue.sql`+`supabase_worker.py`, n8n) ; démo `queue_demo.py` testée (pic 100 devis, concurrence bornée à 2). Reste : provisionner Redis/worker sur Render OU exécuter le SQL Supabase + wiring `create_request`.
 - P2 : évaluer GPU L4 si synchrone rapide requis ; simplifier les cascades de `ai_service.py`.
+
+## Limite d'environnement (rappel)
+Le SaaS Blueseatra ne démarre pas dans le pod (venv incomplet + `backend/.env` absent : JWT_SECRET + Supabase). Le testing_agent n'est donc pas exécutable ; validations faites par exécution directe isolée (import ai_service, extraction tableau pdfplumber, démo file).
