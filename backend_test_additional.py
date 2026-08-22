@@ -4,7 +4,7 @@ import sys
 import io
 from datetime import datetime
 
-BASE_URL = "https://language-bridge-421.preview.emergentagent.com/api"
+BASE_URL = "https://vps-ai-tuner.preview.emergentagent.com/api"
 
 class AdditionalTester:
     def __init__(self):

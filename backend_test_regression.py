@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import datetime
 
-BASE_URL = "https://language-bridge-421.preview.emergentagent.com/api"
+BASE_URL = "https://vps-ai-tuner.preview.emergentagent.com/api"
 
 # Real French maintenance request text from PRESTA MAINTENANCE for SFR
 FRENCH_MAINTENANCE_TEXT = """Demande de devis N° 26061000
