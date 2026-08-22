@@ -31,8 +31,13 @@ sur CPU 22 Go → OOM + 80 s-11 min/doc. Rustines aggravantes : `OLLAMA_KEEP_ALI
 ## Statut
 - Audit + architecture + chiffrage GPU : FAIT.
 - Service d'extraction de référence : FAIT + testé (exécution directe).
-- NON APPLIQUÉ automatiquement au SaaS live Blueseatra (Supabase externe, non bootable ici) :
-  les correctifs `ai_service.py` sont fournis en env-vars + module de référence, à appliquer par l'utilisateur.
+- Correctifs appliqués au code `backend/ai_service.py` (validés à l'import + test tableau isolé) :
+  - défauts modèles → qwen2.5:7b / qwen2.5vl:7b (fini gemma4:26b / qwen3.6:27b / deepseek-r1 / Phi-4-15B) ;
+  - `extract_pdf_text` injecte désormais les tableaux via pdfplumber (structure préservée) ;
+  - limiteur de concurrence `_OLLAMA_SEMAPHORE` (OLLAMA_MAX_CONCURRENCY, défaut 2).
+- SaaS non bootable dans le pod : dépendances venv incomplètes (rapidfuzz/sqlalchemy installés) +
+  `backend/.env` absent (JWT_SECRET + Supabase requis) → config utilisateur, hors périmètre.
+- Docs ajoutées : FILE-ATTENTE-ASYNC.md, RENDER-ENV-A-COLLER.md.
 
 ## Backlog / prochaines étapes
 - P0 : appliquer FIX-IMMEDIAT-ENV.md sur Render, `ollama pull qwen2.5:7b` + `qwen2.5vl:7b`.

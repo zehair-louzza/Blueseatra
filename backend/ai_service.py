@@ -16,15 +16,24 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
+# File d'attente légère : borne le nombre d'appels Ollama simultanés PAR process.
+# Le VPS CPU ne traite qu'1-2 inférences à la fois ; au-delà, les requêtes
+# attendent leur tour ici au lieu de saturer le CPU et de déclencher des
+# timeouts en cascade. Aligner sur OLLAMA_NUM_PARALLEL côté serveur Ollama.
+_OLLAMA_MAX_CONCURRENCY = int(os.environ.get("OLLAMA_MAX_CONCURRENCY", "2"))
+_OLLAMA_SEMAPHORE = asyncio.Semaphore(_OLLAMA_MAX_CONCURRENCY)
+
 # ── Hermes AI / Ollama (OVH VPS) ────────────────────────────────────────────
 HERMES_BASE_URL = os.environ.get("HERMES_BASE_URL", "http://localhost:11434")
 HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
-HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:14b")
-HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b")
+# CPU-only (8 vCPU / 22 Go, pas de GPU) : petits modeles 7B par defaut.
+# Les gros modeles (gemma4:26b, qwen3.6:27b) prenaient 80s-11min/doc et
+# saturaient la RAM. Surchargeable par variable d'env si un jour un GPU arrive.
+HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b")
+HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen2.5:7b")
 HERMES_FALLBACK_MODELS = [
-    os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b"),
-    "qwen3.6:27b",
-    os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:14b"),
+    os.environ.get("HERMES_REASONING_MODEL", "qwen2.5:7b"),
+    os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b"),
     "hermes3",
     "hermes-3",
 ]
@@ -33,10 +42,9 @@ HERMES_FALLBACK_MODELS = [
 # image renvoie HTTP 400 "Multimodal data provided, but model does not
 # support multimodal requests" (incident du 2026-08-18). Ne jamais les inclure
 # dans le repli utilise pour l'extraction par vision.
-HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL") or os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b")
+HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL", "qwen2.5vl:7b")
 HERMES_VISION_FALLBACK_MODELS = [
-    os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b"),
-    "qwen3.6:27b",
+    os.environ.get("HERMES_VISION_MODEL", "qwen2.5vl:7b"),
 ]
 MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
 
@@ -53,10 +61,10 @@ MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
 # modeles 14B (plus petits, donc plus rapides sur ce CPU sans GPU) d'abord,
 # Gemma en 3e (deja fiable sur la majorite des documents, connu pour ce cas
 # limite precis), qwen3.6:27b en tout dernier recours seulement.
-HERMES_STRUCTURING_MODEL_1 = os.environ.get("HERMES_STRUCTURING_MODEL_1", "qwen3:14b")
-HERMES_STRUCTURING_MODEL_2 = os.environ.get("HERMES_STRUCTURING_MODEL_2", "deepseek-r1:14b")
-HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3") or os.environ.get("HERMES_REASONING_MODEL", "gemma4:26b")
-HERMES_STRUCTURING_MODEL_4 = os.environ.get("HERMES_STRUCTURING_MODEL_4", "qwen3.6:27b")
+HERMES_STRUCTURING_MODEL_1 = os.environ.get("HERMES_STRUCTURING_MODEL_1", "qwen2.5:7b")
+HERMES_STRUCTURING_MODEL_2 = os.environ.get("HERMES_STRUCTURING_MODEL_2", "qwen2.5:7b")
+HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3", "qwen2.5:7b")
+HERMES_STRUCTURING_MODEL_4 = os.environ.get("HERMES_STRUCTURING_MODEL_4", "qwen2.5:7b")
 # Timeouts PROVISOIRES par etage (secondes) : aucun des 4 modeles n'a ete
 # mesure jusqu'a une completion reussie sur ce VPS a cette date (tests
 # interrompus par l'utilisateur avant la fin, ou reponse vide) -- valeurs
@@ -116,8 +124,9 @@ async def _call_structuring_cascade(system_prompt: str, user_message: str) -> tu
             headers["X-Api-Key"] = HERMES_API_KEY
         url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(url, json=payload, headers=headers)
+            async with _OLLAMA_SEMAPHORE:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    response = await client.post(url, json=payload, headers=headers)
             if response.status_code >= 400:
                 errors.append(f"{label}: HTTP {response.status_code}: {(response.text or '')[:180]}")
                 continue
@@ -502,10 +511,11 @@ async def _call_hermes_ollama(
         # modele suivant de la liste de repli.
         for attempt in range(3):
             try:
-                async with httpx.AsyncClient(timeout=current_timeout) as client:
-                    response = await client.post(url, json=payload, headers=headers)
-                    if response.status_code == 400 and payload.pop("think", None) is not None:
+                async with _OLLAMA_SEMAPHORE:
+                    async with httpx.AsyncClient(timeout=current_timeout) as client:
                         response = await client.post(url, json=payload, headers=headers)
+                        if response.status_code == 400 and payload.pop("think", None) is not None:
+                            response = await client.post(url, json=payload, headers=headers)
                 if _looks_like_wrong_server(response):
                     last_err = (
                         f"routage DNS incorrect vers {HERMES_BASE_URL} (reponse HTML au lieu de JSON Ollama, "
@@ -1249,6 +1259,38 @@ def render_pdf_pages_to_images(content: bytes, max_pages: int = 4, scale: float 
     return images
 
 
+def _extract_pdf_tables_markdown(content: bytes) -> str:
+    """Extraction DÉTERMINISTE des tableaux d'un PDF natif via pdfplumber.
+    Rend chaque tableau en markdown (structure lignes/colonnes préservée) pour
+    qu'un petit modèle rapide (qwen2.5:7b) puisse le structurer sans avoir à
+    « démêler » la mise en page — ce qui évite le recours à un gros modèle en
+    mode raisonnement (gemma4:26b, ~11 min sur CPU). Ne lève jamais : si
+    pdfplumber échoue, on renvoie "" et le texte pypdfium reste la source."""
+    try:
+        import pdfplumber
+    except Exception:
+        return ""
+    out = []
+    try:
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            for pnum, page in enumerate(pdf.pages, 1):
+                for ti, table in enumerate(page.extract_tables() or [], 1):
+                    rows = [[(c or "").strip().replace("\n", " ") for c in row]
+                            for row in table if row]
+                    if not rows:
+                        continue
+                    width = max(len(r) for r in rows)
+                    rows = [r + [""] * (width - len(r)) for r in rows]
+                    out.append(f"\n[Tableau p.{pnum}.{ti}]")
+                    out.append("| " + " | ".join(rows[0]) + " |")
+                    out.append("| " + " | ".join(["---"] * width) + " |")
+                    for r in rows[1:]:
+                        out.append("| " + " | ".join(r) + " |")
+    except Exception:
+        return ""
+    return "\n".join(out).strip()
+
+
 def extract_pdf_text(content: bytes) -> str:
     import pypdfium2 as pdfium
     pdf = pdfium.PdfDocument(io.BytesIO(content))
@@ -1259,7 +1301,12 @@ def extract_pdf_text(content: bytes) -> str:
         textpage.close()
         page.close()
     pdf.close()
-    return "\n".join(parts).strip()
+    text = "\n".join(parts).strip()
+    # Ajoute les tableaux extraits de façon déterministe (structure préservée).
+    tables_md = _extract_pdf_tables_markdown(content)
+    if tables_md:
+        text = (text + "\n\n=== Tableaux détectés ===\n" + tables_md).strip()
+    return text
 
 
 def _looks_garbled(text: str) -> bool:
