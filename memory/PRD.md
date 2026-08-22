@@ -53,4 +53,6 @@ Le SaaS Blueseatra ne démarre pas dans le pod (venv incomplet + `backend/.env` 
 - Backend 100% opérationnel (signup/login/catalogs/requests/quotes). Frontend non démarrable (deps Node 22 vs pod Node 20) → tests API uniquement.
 - testing_agent (backend-only) : iteration_6 = 50/50 OK, AUCUNE régression des changements ai_service.py ; a trouvé 1 bug pré-existant (cache catalogue non invalidé → prix périmés 45s).
 - FIX appliqué : helper `_evict_catalog_cache` appelé dans import/activate/deactivate/delete/PATCH catalog. testing_agent iteration_7 = 56/56 OK, fenêtre de prix périmés supprimée. PATCH vérifié via repro+curl.
+- Items suivants (single-active, cache Redis opt-in, file RQ opt-in) implémentés + vérifiés manuellement (pytest 56/56 in-memory ET Redis, enqueue RQ end-to-end) — testing_agent NON relancé (passation demandée).
+- Documentation de passation : `/app/HANDOFF.md` (+ section traçabilité dans `/app/README.md`).
 - Compte de test : qa@example.com / Test1234! (voir memory/test_credentials.md).

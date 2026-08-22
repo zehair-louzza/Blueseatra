@@ -4,6 +4,27 @@
 
 ---
 
+## 🛠 Journal des changements — Optimisation IA locale VPS OVH (juin 2026)
+
+> Traçabilité des changements apportés pour faire tourner l'IA locale efficacement sur le VPS OVH (CPU seul) et durcir le SaaS. Détail complet + backlog : **[`HANDOFF.md`](./HANDOFF.md)**. Livrables infra : **[`ovh-ai-stack-corrige/`](./ovh-ai-stack-corrige/)**.
+
+**Cause racine corrigée** : des modèles de 17-18 Go en raisonnement tournaient sur un VPS CPU 22 Go (80 s-11 min/doc, OOM). Bascule vers de petits modèles rapides + parsing déterministe des tableaux + traitement asynchrone.
+
+**Changements de code (`backend/`)**
+- `ai_service.py` : défauts modèles → `qwen2.5:7b` / `qwen2.5vl:7b` (fini `gemma4:26b`, `qwen3.6:27b`, `Phi-4-15B`) ; `extract_pdf_text` extrait désormais les **tableaux via pdfplumber** avant le LLM ; ajout d'un limiteur de concurrence Ollama (`OLLAMA_MAX_CONCURRENCY`).
+- `server.py` : **invalidation du cache catalogue** sur import/activate/deactivate/delete/patch (corrige des prix périmés 45 s) ; **un seul catalogue actif** par tenant ; **cache catalogue Redis opt-in** (`REDIS_URL`, invalidation inter-workers) ; **file d'attente RQ opt-in** dans `create_request`.
+- `database.py` : SSL non requis pour PostgreSQL `localhost` (Supabase inchangé en prod).
+- `extraction_worker.py` (nouveau) : worker RQ de la file d'extraction.
+- `requirements.txt` : `redis`, `rq`.
+
+**Livré séparément** (`ovh-ai-stack-corrige/`) : audit chiffré, compose/Caddyfile/hermes corrigés, service d'extraction, file durable (RQ / Supabase SKIP LOCKED / n8n), chiffrage GPU OVH, scripts de pull/benchmark et de **test e2e réel** contre `ia.blueseatra.com`.
+
+**Statut** : flux métier + fix cache validés par testing_agent (jusqu'à 56/56). *À valider par le prochain agent* : single-active / cache Redis / file RQ (vérifiés manuellement, testing_agent non relancé) ; extraction IA réelle (à tester depuis Render→VPS). Voir `HANDOFF.md` §5.
+
+**Compatibilité** : toutes les nouveautés Redis sont **opt-in** — sans `REDIS_URL`, le comportement est identique à l'existant (cache in-memory + `BackgroundTasks`).
+
+---
+
 ## Table des matières
 
 1. [Présentation](#1-présentation)

@@ -37,3 +37,14 @@ EMERGENT_LLM_KEY=... EXTRACT_PROVIDER=emergent python test_extraction.py
 
 > ⚠️ `EXTRACT_PROVIDER=emergent` sort les données de l'UE (démo/dev uniquement).
 > En production, **toujours** `EXTRACT_PROVIDER=ollama` (local, RGPD).
+
+---
+
+## Journal des changements & passation
+
+La traçabilité complète (actions réalisées, fichiers modifiés, statut de validation, environnement de test) et le **backlog priorisé (P0/P1/P2)** sont dans **[`../HANDOFF.md`](../HANDOFF.md)**.
+
+### Suggestions d'amélioration (résumé)
+- **P0** : `ollama pull qwen2.5:7b`+`qwen2.5vl:7b` sur le VPS ; coller les env Render ; lancer `scripts/test-extraction-e2e.py` (mesure réelle) et ajuster `OLLAMA_NUM_PARALLEL`.
+- **P1** : déployer `compose.yaml` + `services/extraction/` ; provisionner Redis + worker (`services/queue/`) ; corriger le Bearer Hermes si exposé ; aligner les timeouts inter-couches.
+- **P2** : GPU L4 Gravelines si synchrone rapide requis ; simplifier les cascades restantes ; `OLLAMA_CONTEXT_LENGTH=16384` ; healthcheck `ollama ps` ; limites `cpus:` par conteneur ; observabilité (temps par étape + modèle réellement utilisé) ; router au VLM uniquement les vrais scans.

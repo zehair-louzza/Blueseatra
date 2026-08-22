@@ -577,7 +577,13 @@ async def create_request(
     }
     await db.requests.insert_one(doc)
     await audit(cu.tenant_id, cu.email, "request.create", req_id, {"source": source_type})
-    background.add_task(process_request, req_id, cu.tenant_id, vision_bytes)
+    # File durable opt-in : si REDIS_URL est défini ET pas d'octets vision en
+    # mémoire (RGPD : ils ne transitent pas par Redis), on met le job en file
+    # (worker RQ séparé). Sinon comportement historique (tâche de fond in-process).
+    if vision_bytes is None and _redis_sync() is not None:
+        _enqueue_extraction(req_id, cu.tenant_id)
+    else:
+        background.add_task(process_request, req_id, cu.tenant_id, vision_bytes)
     return {"id": req_id, "status": "received"}
 
 
@@ -963,9 +969,10 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
             {"tenant_id": cu.tenant_id, "catalog_id": cat_id}, {"$set": {"status": "archived"}})
         await db.catalog_versions.update_one({"id": ver_id}, {"$set": {"status": "active", "activated_at": now_iso()}})
         await db.catalogs.update_one({"id": cat_id}, {"$set": {"active_version_id": ver_id}})
+        await _deactivate_other_catalogs(cu.tenant_id, cat_id)
         activated = True
 
-    _evict_catalog_cache(cu.tenant_id)
+    await _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.import", cat_id,
                 {"version": version_number, "success": len(items), "errors": len(errors), "activated": activated})
     return {"catalog_id": cat_id, "version_id": ver_id, "version_number": version_number,
@@ -988,7 +995,8 @@ async def activate_version(catalog_id: str, version_id: str,
         {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}, {"$set": {"status": "archived"}})
     await db.catalog_versions.update_one({"id": version_id}, {"$set": {"status": "active", "activated_at": now_iso()}})
     await db.catalogs.update_one({"id": catalog_id}, {"$set": {"active_version_id": version_id}})
-    _evict_catalog_cache(cu.tenant_id)
+    await _deactivate_other_catalogs(cu.tenant_id, catalog_id)
+    await _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.activate", catalog_id, {"version_id": version_id})
     return {"ok": True}
 
@@ -1006,7 +1014,7 @@ async def update_catalog(catalog_id: str, body: dict,
         updates["name"] = str(body["name"]).strip()
     if updates:
         await db.catalogs.update_one({"id": catalog_id, "tenant_id": cu.tenant_id}, {"$set": updates})
-        _evict_catalog_cache(cu.tenant_id)
+        await _evict_catalog_cache(cu.tenant_id)
         await audit(cu.tenant_id, cu.email, "catalog.update", catalog_id, updates)
     return {"ok": True, **updates}
 
@@ -1020,7 +1028,7 @@ async def deactivate_catalog(catalog_id: str,
     await db.catalog_versions.update_many(
         {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}, {"$set": {"status": "archived"}})
     await db.catalogs.update_one({"id": catalog_id}, {"$set": {"active_version_id": None}})
-    _evict_catalog_cache(cu.tenant_id)
+    await _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.deactivate", catalog_id, {})
     return {"ok": True}
 
@@ -1039,7 +1047,7 @@ async def delete_catalog(catalog_id: str,
     await db.catalog_versions.delete_many(flt)
     await db.import_jobs.delete_many(flt)
     await db.catalogs.delete_one({"id": catalog_id, "tenant_id": cu.tenant_id})
-    _evict_catalog_cache(cu.tenant_id)
+    await _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.delete", catalog_id, {"name": cat.get("name")})
     return {"ok": True}
 
@@ -1057,17 +1065,67 @@ def _slim_item(item: dict) -> dict:
     return {k: item.get(k) for k in _SLIM_ITEM_KEYS}
 
 
-def _evict_catalog_cache(tenant_id):
+_REDIS_ASYNC = None
+_REDIS_SYNC = None
+_CATALOG_KEY = "blueseatra:catalog_active:"
+
+
+def _redis_async():
+    """Client Redis async partagé (opt-in). None si REDIS_URL absent -> cache in-memory."""
+    global _REDIS_ASYNC
+    url = os.environ.get("REDIS_URL")
+    if not url:
+        return None
+    if _REDIS_ASYNC is None:
+        import redis.asyncio as aioredis
+        _REDIS_ASYNC = aioredis.from_url(url, encoding="utf-8", decode_responses=True)
+    return _REDIS_ASYNC
+
+
+def _redis_sync():
+    """Client Redis synchrone (pour RQ). None si REDIS_URL absent."""
+    global _REDIS_SYNC
+    url = os.environ.get("REDIS_URL")
+    if not url:
+        return None
+    if _REDIS_SYNC is None:
+        import redis as _redislib
+        _REDIS_SYNC = _redislib.from_url(url)
+    return _REDIS_SYNC
+
+
+def _enqueue_extraction(request_id, tenant_id):
+    """Met l'extraction en file durable (worker RQ séparé : extraction_worker.py)."""
+    from rq import Queue
+    Queue("extraction", connection=_redis_sync(), default_timeout=600).enqueue(
+        "extraction_worker.run_extraction", request_id, tenant_id)
+
+
+async def _evict_catalog_cache(tenant_id):
     """Invalide le cache catalogue du tenant après toute mutation (import/activate/
-    deactivate/delete) pour ne jamais chiffrer un devis avec d'anciens prix."""
+    deactivate/delete). Tient aussi entre workers/pods via Redis (si REDIS_URL)."""
     _CATALOG_CACHE.pop(tenant_id, None)
+    r = _redis_async()
+    if r is not None:
+        await r.delete(_CATALOG_KEY + tenant_id)
 
 
-async def get_active_catalog(tenant_id):
-    now = datetime.now(timezone.utc).timestamp()
-    hit = _CATALOG_CACHE.get(tenant_id)
-    if hit and now - hit[0] < _CATALOG_TTL_S:
-        return hit[1], hit[2]
+async def _deactivate_other_catalogs(tenant_id, keep_catalog_id):
+    """Un seul catalogue actif par tenant : désactive tous les autres catalogues
+    actifs (archive leur version active + active_version_id = None) pour lever
+    toute ambiguïté sur le catalogue qui chiffre un devis."""
+    others = await db.catalogs.find(
+        {"tenant_id": tenant_id, "active_version_id": {"$ne": None}}, {"id": 1}).to_list(1000)
+    for c in others:
+        if c["id"] == keep_catalog_id:
+            continue
+        await db.catalog_versions.update_many(
+            {"tenant_id": tenant_id, "catalog_id": c["id"], "status": "active"},
+            {"$set": {"status": "archived"}})
+        await db.catalogs.update_one({"id": c["id"]}, {"$set": {"active_version_id": None}})
+
+
+async def _load_active_catalog(tenant_id):
     cat = await db.catalogs.find_one(
         {"tenant_id": tenant_id, "active_version_id": {"$ne": None}}, {"_id": 0}, sort=[("created_at", -1)])
     if not cat:
@@ -1084,6 +1142,24 @@ async def get_active_catalog(tenant_id):
             continue
         seen.add(code)
         items.append(_slim_item(it))
+    return cat, items
+
+
+async def get_active_catalog(tenant_id):
+    r = _redis_async()
+    if r is not None:
+        cached = await r.get(_CATALOG_KEY + tenant_id)
+        if cached is not None:
+            d = json.loads(cached)
+            return d["cat"], d["items"]
+        cat, items = await _load_active_catalog(tenant_id)
+        await r.set(_CATALOG_KEY + tenant_id, json.dumps({"cat": cat, "items": items}), ex=_CATALOG_TTL_S)
+        return cat, items
+    now = datetime.now(timezone.utc).timestamp()
+    hit = _CATALOG_CACHE.get(tenant_id)
+    if hit and now - hit[0] < _CATALOG_TTL_S:
+        return hit[1], hit[2]
+    cat, items = await _load_active_catalog(tenant_id)
     _CATALOG_CACHE[tenant_id] = (now, cat, items)
     return cat, items
 
