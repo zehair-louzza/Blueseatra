@@ -47,3 +47,10 @@ sur CPU 22 Go → OOM + 80 s-11 min/doc. Rustines aggravantes : `OLLAMA_KEEP_ALI
 
 ## Limite d'environnement (rappel)
 Le SaaS Blueseatra ne démarre pas dans le pod (venv incomplet + `backend/.env` absent : JWT_SECRET + Supabase). Le testing_agent n'est donc pas exécutable ; validations faites par exécution directe isolée (import ai_service, extraction tableau pdfplumber, démo file).
+
+## Boot local + tests (2026-06, MàJ)
+- SaaS booté localement sur PostgreSQL LOCAL (pod) : `backend/.env` de test + `frontend/.env` créés, `database.py` patché (SSL non requis en localhost), tables créées via `Base.metadata.create_all`.
+- Backend 100% opérationnel (signup/login/catalogs/requests/quotes). Frontend non démarrable (deps Node 22 vs pod Node 20) → tests API uniquement.
+- testing_agent (backend-only) : iteration_6 = 50/50 OK, AUCUNE régression des changements ai_service.py ; a trouvé 1 bug pré-existant (cache catalogue non invalidé → prix périmés 45s).
+- FIX appliqué : helper `_evict_catalog_cache` appelé dans import/activate/deactivate/delete/PATCH catalog. testing_agent iteration_7 = 56/56 OK, fenêtre de prix périmés supprimée. PATCH vérifié via repro+curl.
+- Compte de test : qa@example.com / Test1234! (voir memory/test_credentials.md).

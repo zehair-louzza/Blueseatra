@@ -965,6 +965,7 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
         await db.catalogs.update_one({"id": cat_id}, {"$set": {"active_version_id": ver_id}})
         activated = True
 
+    _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.import", cat_id,
                 {"version": version_number, "success": len(items), "errors": len(errors), "activated": activated})
     return {"catalog_id": cat_id, "version_id": ver_id, "version_number": version_number,
@@ -987,6 +988,7 @@ async def activate_version(catalog_id: str, version_id: str,
         {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}, {"$set": {"status": "archived"}})
     await db.catalog_versions.update_one({"id": version_id}, {"$set": {"status": "active", "activated_at": now_iso()}})
     await db.catalogs.update_one({"id": catalog_id}, {"$set": {"active_version_id": version_id}})
+    _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.activate", catalog_id, {"version_id": version_id})
     return {"ok": True}
 
@@ -1004,6 +1006,7 @@ async def update_catalog(catalog_id: str, body: dict,
         updates["name"] = str(body["name"]).strip()
     if updates:
         await db.catalogs.update_one({"id": catalog_id, "tenant_id": cu.tenant_id}, {"$set": updates})
+        _evict_catalog_cache(cu.tenant_id)
         await audit(cu.tenant_id, cu.email, "catalog.update", catalog_id, updates)
     return {"ok": True, **updates}
 
@@ -1017,6 +1020,7 @@ async def deactivate_catalog(catalog_id: str,
     await db.catalog_versions.update_many(
         {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}, {"$set": {"status": "archived"}})
     await db.catalogs.update_one({"id": catalog_id}, {"$set": {"active_version_id": None}})
+    _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.deactivate", catalog_id, {})
     return {"ok": True}
 
@@ -1035,6 +1039,7 @@ async def delete_catalog(catalog_id: str,
     await db.catalog_versions.delete_many(flt)
     await db.import_jobs.delete_many(flt)
     await db.catalogs.delete_one({"id": catalog_id, "tenant_id": cu.tenant_id})
+    _evict_catalog_cache(cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "catalog.delete", catalog_id, {"name": cat.get("name")})
     return {"ok": True}
 
@@ -1050,6 +1055,12 @@ _SLIM_ITEM_KEYS = (
 
 def _slim_item(item: dict) -> dict:
     return {k: item.get(k) for k in _SLIM_ITEM_KEYS}
+
+
+def _evict_catalog_cache(tenant_id):
+    """Invalide le cache catalogue du tenant après toute mutation (import/activate/
+    deactivate/delete) pour ne jamais chiffrer un devis avec d'anciens prix."""
+    _CATALOG_CACHE.pop(tenant_id, None)
 
 
 async def get_active_catalog(tenant_id):

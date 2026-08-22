@@ -35,6 +35,20 @@ Base = declarative_base()
 engine = None
 AsyncSessionLocal = None
 
+
+def _build_connect_args(url: str) -> dict:
+    args = {
+        "prepared_statement_cache_size": 0,
+        "statement_cache_size": 0,
+        "command_timeout": 30,
+        "server_settings": {"search_path": f"{DB_SCHEMA},public"},
+    }
+    # Supabase impose TLS, mais un PostgreSQL LOCAL (tests) n'a pas de SSL.
+    if not any(h in url for h in ("localhost", "127.0.0.1")):
+        args["ssl"] = "require"
+    return args
+
+
 if DATABASE_URL:
     # FIX: support both 'postgres://' (Supabase default) and 'postgresql://'.
     _url = DATABASE_URL
@@ -56,18 +70,7 @@ if DATABASE_URL:
         # Without this, stale / recycled connections crash on first use.
         pool_pre_ping=True,
         echo=False,
-        connect_args={
-            # Transaction pooler (Supavisor :6543) cannot reuse prepared statements.
-            # Set both keys: asyncpg versions differ on the parameter name.
-            "prepared_statement_cache_size": 0,
-            "statement_cache_size": 0,
-            "command_timeout": 30,
-            # FIX: Supabase requires SSL. 'require' verifies the server certificate chain.
-            "ssl": "require",
-            # Point every connection at the Blueseatra schema. Keeping 'public'
-            # in the path lets shared extensions/types still resolve.
-            "server_settings": {"search_path": f"{DB_SCHEMA},public"},
-        },
+        connect_args=_build_connect_args(_url),
     )
     AsyncSessionLocal = async_sessionmaker(
         bind=engine,

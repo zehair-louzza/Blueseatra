@@ -1,0 +1,49 @@
+{
+  "summary": "Backend-only non-regression run after ai_service.py changes (qwen2.5:7b defaults, pdfplumber table extraction in extract_pdf_text, _OLLAMA_SEMAPHORE). Executed 50 pytest tests against the public /api URL: auth (signup/login/me/RBAC), members (list/invite/role/RBAC viewer), settings/integrations + company-profile roundtrips, catalogs (template, import preview, import, activate/deactivate/patch/delete, items, /catalog/active, /catalog/search), requests CRUD, deterministic quotes (draft+rapidfuzz matching, list/get, PATCH totals recompute, validate/send/reopen/duplicate/rematch, PDF, delete), dashboard/audit/health, plus 9 offline unit tests on the modified ai_service functions. 50/50 passed. NO functional regression detected from the ai_service.py changes. One PRE-EXISTING (not a regression) business bug reproduced: the 45s _CATALOG_CACHE is never invalidated on import/activate/deactivate/delete.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/catalog/active, GET /api/catalog/search, POST /api/quotes/draft (server.py _CATALOG_CACHE, lines 1042-1076)",
+        "issue": "Per-tenant active-catalog cache (TTL 45s) is never invalidated by POST /catalogs/import, /catalogs/{id}/activate/{ver}, /catalogs/{id}/deactivate or DELETE /catalogs/{id}. Reproduced (tests/repro_catalog_cache.py): after import+activate of a new catalog, /catalog/active and /catalog/search still return the OLD catalog for up to 45s (search for the new item = 0 hits); after DELETE of the active catalog the cache still serves the DELETED catalog (a full test run right after deletion got /catalog/search returning the deleted catalog with 0 items). Business impact: a quote drafted right after a price import is priced with stale prices. Fix: pop _CATALOG_CACHE[tenant_id] in import_catalog / activate_version / deactivate_catalog / delete_catalog."
+      },
+      {
+        "endpoint": "POST /api/requests",
+        "issue": "Informational only (expected in this env): the background AI extraction fails (Ollama unreachable) and the request ends in needs_review/failed. Not asserted as a bug per the review scope."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_settings_members_dashboard.py",
+    "/app/backend/tests/test_ai_service_unit.py",
+    "/app/backend/tests/repro_catalog_cache.py",
+    "/app/test_reports/pytest/pytest_results_it6.xml"
+  ],
+  "action_items": [
+    "Invalidate _CATALOG_CACHE (server.py) on catalog import/activate/deactivate/delete - only real defect found; pre-existing, unrelated to ai_service.py changes.",
+    "Optional: server.py is 1629 lines - consider splitting routers (auth/catalogs/quotes) into modules."
+  ],
+  "critical_code_review_comments": [
+    "server.py get_active_catalog() caches per tenant for 45s with no invalidation hook; every mutation endpoint that changes the active version must evict the entry (pricing correctness risk).",
+    "ai_service.py _extract_pdf_tables_markdown is defensive (returns '' on any failure) and pdf_needs_vision_fallback still returns False on table-heavy native PDFs -> the pdfplumber addition does not divert native-text PDFs to the vision pipeline (verified by unit tests).",
+    "_OLLAMA_SEMAPHORE is a module-level asyncio.Semaphore(2) - correct for a single-process uvicorn worker, but with multiple uvicorn workers the effective concurrency becomes 2 x workers; consider documenting/aligning with OLLAMA_NUM_PARALLEL.",
+    "server.py 1629 lines: exceeds the 700-line guideline, split into routers."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_settings_members_dashboard.py (new)",
+    "/app/backend/tests/repro_catalog_cache.py (new)"
+  ],
+  "success_rate": {"backend": "100% (50/50 tests)", "frontend": "not tested (frontend not startable in pod - out of scope)"},
+  "seed_data_creation": "TEST_ signup accounts + invited member test_member_*@example.com (viewer/operator) in the QA tenant; one seeded request (extracted JSON injected via psql because Ollama is unreachable) + derived quote, both deleted by fixtures; TEST_ catalogs imported then deleted; company-profile and settings values restored after roundtrip tests.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "qa@example.com / Test1234! (owner, QA SARL)",
+  "context_for_next_testing_agent": "Suite: /app/backend/tests/backend_test.py (30 tests, deterministic flows) + test_settings_members_dashboard.py (11 tests: members/settings/company-profile/catalog lifecycle/dashboard coherence) + test_ai_service_unit.py (9 offline unit tests on the modified ai_service code). conftest.py seeds AI-extracted content directly via psql (DATABASE_URL) because Ollama is unreachable. IMPORTANT: because of the non-invalidated 45s _CATALOG_CACHE, wait ~50s after any catalog activate/import/delete before asserting on /catalog/active, /catalog/search or /quotes/draft pricing, otherwise tests are flaky (repro_catalog_cache.py leaves the cache dirty for 45s).",
+  "rca_of_the_issue": "Stale catalog: get_active_catalog() stores (timestamp, catalog, items) in the module-level dict _CATALOG_CACHE keyed by tenant_id with a 45s TTL, and none of the mutating catalog endpoints evict the key. Repro: warm cache via GET /catalog/active -> POST /catalogs/import?activate=true -> GET /catalog/active still shows the old catalog and /catalog/search finds 0 hits for the newly imported item; correct data only appears after the TTL. Mitigation: evict/refresh the tenant entry inside import_catalog, activate_version, deactivate_catalog and delete_catalog."
+}

@@ -1,0 +1,52 @@
+{
+  "summary": "Backend-only re-test of the _CATALOG_CACHE invalidation FIX (server.py _evict_catalog_cache). Wrote a new dedicated suite /app/backend/tests/test_catalog_cache_invalidation.py (6 tests, all assertions IMMEDIATE with zero sleep so any residual 45s stale window fails): import+activate visible at once on /catalog/active and /catalog/search (with correct price), activate/{ver} version switch (10.00 -> 20.00 -> back to 10.00 immediately), deactivate (catalog no longer served + search empty), deactivate of ALL active catalogs (=> catalog null, items [], search empty), DELETE of the active catalog (not served, search empty), and quote pricing freshness (imported '<Peinture murale deux couches>' at 777.77 then POST /quotes/draft immediately -> pricing_snapshot.catalog_id == new catalog AND line unit_price_ht == 777.77). ALL 6 PASS => the 45s stale-price window is GONE. Full regression: 56/56 tests pass across backend_test.py (auth/RBAC, catalogs, requests CRUD, deterministic quotes incl. matching/PDF/status/duplicate/rematch, dashboard/audit), test_settings_members_dashboard.py, test_ai_service_unit.py and the new cache suite - and the whole suite now runs in 19s instead of needing the 45-75s TTL waits, which is itself confirmation of the fix. One residual MINOR gap found: PATCH /catalogs/{id} does NOT call _evict_catalog_cache (reproduced: client_code stays 'DEMO' for up to 45s after patching to 'TESTPATCH').",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "PATCH /api/catalogs/{catalog_id} (server.py update_catalog ~996)",
+        "issue": "Only mutation endpoint left without _evict_catalog_cache(). Reproduced with tests/repro_patch_catalog_cache.py: PATCH client_code -> 'TESTPATCH' returns ok, but GET /catalog/active immediately still reports client_code 'DEMO' for up to 45s (same for a renamed catalog). Impact is metadata-only (name/client_code shown in UI and copied into quote pricing_snapshot), no price impact. One-line fix: add _evict_catalog_cache(cu.tenant_id) after the update_one."
+      },
+      {
+        "endpoint": "POST /api/catalogs/import?activate=true",
+        "issue": "Pre-existing behaviour (not a regression): activating a new catalog does not deactivate the other catalogs of the tenant; get_active_catalog() silently picks the newest by created_at among all catalogs with active_version_id != None. Two catalogs can therefore be 'active' simultaneously and which one prices a quote depends on created_at ordering."
+      },
+      {
+        "endpoint": "POST /api/requests (AI extraction)",
+        "issue": "Informational, expected in this pod: Ollama/OVH unreachable so background extraction ends in failed/needs_review. Not asserted as a bug."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_catalog_cache_invalidation.py",
+    "/app/backend/tests/repro_patch_catalog_cache.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_settings_members_dashboard.py",
+    "/app/backend/tests/test_ai_service_unit.py",
+    "/app/test_reports/pytest/pytest_results_it7.xml"
+  ],
+  "action_items": [
+    "Add _evict_catalog_cache(cu.tenant_id) to update_catalog (PATCH /catalogs/{id}) - last non-evicting mutation (metadata staleness only).",
+    "Decide/document whether importing+activating a catalog should deactivate the tenant's other catalogs (today two catalogs can be active and created_at decides which prices quotes).",
+    "Optional: server.py is 1639 lines - split into routers (auth/catalogs/quotes)."
+  ],
+  "critical_code_review_comments": [
+    "_evict_catalog_cache is correctly called in import_catalog (968), activate_version (991), deactivate_catalog (1022) and delete_catalog (1041); verified end-to-end with immediate (no-sleep) assertions - fix is effective.",
+    "_CATALOG_CACHE is a process-local dict: eviction only affects the worker handling the mutation. Fine today (uvicorn --workers 1) but with >1 worker or >1 pod the stale-price bug returns; move to a shared store (Redis) or add a version/generation stamp read from DB if scaling out.",
+    "delete_catalog evicts unconditionally (harmless) but note the cache stores the whole slim item list per tenant; with 5000-item caps and many tenants memory growth is unbounded (no LRU / max size).",
+    "get_active_catalog picks the newest catalog with a non-null active_version_id instead of a single explicit tenant-level active pointer - fragile invariant (see minor issue above)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_catalog_cache_invalidation.py (new, 6 tests)",
+    "/app/backend/tests/repro_patch_catalog_cache.py (new repro)",
+    "/app/backend/tests/conftest.py (updated obsolete stale-cache comment in demo_catalog_active)"
+  ],
+  "success_rate": {"backend": "100% (56/56 tests, incl. 6 new cache-invalidation tests)", "frontend": "not tested (out of scope; frontend not startable - Node 20 vs 22)"},
+  "seed_data_creation": "TEST_CACHE_* catalogs imported and deleted by the new suite; seeded request (extracted JSON injected via psql) + derived quote deleted by fixtures; demo catalog re-activated after each test; one leftover inactive TEST_Catalogue_* from backend_test.py deleted manually. Final state verified: only 'Catalogue de demonstration' remains and it is active.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "qa@example.com / Test1234! (owner, QA SARL)",
+  "context_for_next_testing_agent": "FIX CONFIRMED: no need to wait out the 45s TTL anymore after import/activate/deactivate/delete - the whole suite runs in ~19s. Suites: backend_test.py (30), test_settings_members_dashboard.py (11), test_ai_service_unit.py (9), test_catalog_cache_invalidation.py (6, new). Run: cd /app/backend && python -m pytest tests/ -v --junitxml=/app/test_reports/pytest/pytest_results_itN.xml. conftest.py still seeds extracted AI content via psql (Ollama unreachable, expected). Remaining known gap: PATCH /catalogs/{id} does not evict the cache (repro_patch_catalog_cache.py).",
+  "rca_of_the_issue": "Previous bug: get_active_catalog() memoised (timestamp, catalog, items) in module-level _CATALOG_CACHE keyed by tenant_id with a 45s TTL and no mutation evicted it, so /catalog/active, /catalog/search and /quotes/draft could serve prices from a superseded/deleted catalog for up to 45s. Fix verified: _evict_catalog_cache(tenant_id) pops the tenant entry inside import_catalog, activate_version, deactivate_catalog and delete_catalog; the next read repopulates from Postgres. Residual: update_catalog (PATCH) omits the eviction, so catalog name/client_code can remain stale for the TTL (metadata only)."
+}
