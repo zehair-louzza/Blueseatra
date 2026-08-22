@@ -1,0 +1,60 @@
+# Reverse proxy OVH — TLS Let's Encrypt. Ollama & extraction jamais publics sans clé.
+{
+        email {$ACME_EMAIL}
+}
+
+(security_headers) {
+        header {
+                Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+                X-Content-Type-Options nosniff
+                X-Frame-Options DENY
+                Referrer-Policy no-referrer
+                Permissions-Policy "camera=(), microphone=(), geolocation=()"
+                -Server
+        }
+}
+
+(require_api_key) {
+        @unauthorized not header X-Api-Key {$OLLAMA_API_KEY}
+        respond @unauthorized "Unauthorized" 401
+}
+
+# API Ollama (extraction/génération FastAPI). Exige X-Api-Key.
+{$PUBLIC_DOMAIN} {
+        import security_headers
+        import require_api_key
+        reverse_proxy ollama:11434 {
+                header_up Host {upstream_hostport}
+                flush_interval -1
+        }
+}
+
+# Service d'extraction dédié (parsing + structuration). Même clé.
+# Optionnel : exposez-le si FastAPI appelle /extract plutôt que /api/chat.
+{$EXTRACT_DOMAIN} {
+        import security_headers
+        import require_api_key
+        reverse_proxy extraction:8000 {
+                flush_interval -1
+        }
+}
+
+# n8n — UI + webhooks.
+{$N8N_HOST} {
+        import security_headers
+        reverse_proxy n8n:5678 {
+                flush_interval -1
+        }
+}
+
+# Hermes Agent (optionnel). CORRECTIF : Caddy réinjecte le Bearer attendu par
+# Hermes (ADR-004) — sinon un appel qui passe X-Api-Key se prenait un 401 Hermes.
+{$HERMES_HOST} {
+        import security_headers
+        import require_api_key
+        reverse_proxy hermes:8642 {
+                header_up Host {upstream_hostport}
+                header_up Authorization "Bearer {$API_SERVER_KEY}"
+                flush_interval -1
+        }
+}

@@ -1,0 +1,116 @@
+# compose.yaml — corrigé pour VPS CPU (8 vCPU / 22 Go), cible 10-100 users via file async.
+# Change majeur vs original : petits modèles 7B chauds au lieu de modèles 17-18 Go
+# rechargés à chaque appel ; service d'extraction dédié (parsing déterministe des
+# tableaux) ; Hermes déplacé en profil optionnel ; limites CPU pour ne pas affamer Caddy.
+name: ovh-ai-stack
+
+networks:
+  frontend: { driver: bridge }
+  backend:  { driver: bridge }
+
+volumes:
+  ollama_data:
+  n8n_data:
+  caddy_data:
+  caddy_config:
+  hermes_data:
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    env_file: [.env]
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [ollama, n8n, extraction]
+    networks: [frontend, backend]
+    security_opt: ["no-new-privileges:true"]
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_KEEP_ALIVE: 30m          # petits modèles -> on les garde chauds (fini le reload 18 Go)
+      OLLAMA_MAX_LOADED_MODELS: 2     # qwen2.5:7b (texte) + qwen2.5vl:7b (vision) coexistent
+      OLLAMA_NUM_PARALLEL: 2          # 2 requêtes concurrentes réalistes sur 8 vCPU
+      OLLAMA_CONTEXT_LENGTH: 16384    # devis tabulaires multi-pages
+    volumes: [ollama_data:/root/.ollama]
+    networks: [backend]
+    mem_limit: 14g
+    cpus: "6"
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama ps >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Étage central : parsing déterministe (tableaux) + structuration LLM. Le PDF
+  # brut ne va plus au chat Ollama. Mettre EXTRACT_PROVIDER=ollama en prod (RGPD).
+  extraction:
+    build: ./services/extraction
+    restart: unless-stopped
+    environment:
+      EXTRACT_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      TEXT_MODEL: qwen2.5:7b
+    networks: [backend]
+    depends_on:
+      ollama: { condition: service_healthy }
+    mem_limit: 4g
+    cpus: "2"
+    security_opt: ["no-new-privileges:true"]
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      N8N_HOST: ${N8N_HOST}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST}/
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Europe/Paris}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 168
+      N8N_SECURE_COOKIE: "true"
+      NODE_ENV: production
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n-files:/files
+    networks: [backend]
+    mem_limit: 1g
+    cpus: "1"
+    security_opt: ["no-new-privileges:true"]
+
+  # OPTIONNEL — lancé seulement avec `docker compose --profile hermes up -d`.
+  # Hors du chemin critique du SaaS (FastAPI appelle directement /api/chat).
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    profiles: ["hermes"]
+    restart: unless-stopped
+    command: ["gateway", "run"]
+    env_file: [.env]
+    environment:
+      OPENAI_BASE_URL: http://ollama:11434/v1
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-ollama-local}
+      HERMES_MODEL: qwen2.5:7b
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: "0.0.0.0"
+      API_SERVER_KEY: ${API_SERVER_KEY:?definir API_SERVER_KEY dans .env}
+    volumes:
+      - hermes_data:/opt/data
+      - ./hermes/config.yaml:/opt/data/config.yaml:ro
+    networks: [backend]
+    depends_on:
+      ollama: { condition: service_healthy }
+    mem_limit: 2g
+    security_opt: ["no-new-privileges:true"]

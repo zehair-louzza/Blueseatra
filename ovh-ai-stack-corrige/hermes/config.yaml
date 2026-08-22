@@ -1,0 +1,45 @@
+# Hermes Agent — config OPTIONNELLE (profil "hermes"), modèles locaux légers uniquement.
+# Hermes est HORS du chemin critique du SaaS (FastAPI appelle directement Ollama /api/chat).
+# Ne l'activez que si vous utilisez réellement l'orchestration d'agents.
+# Tous les slots pointent vers le MÊME petit modèle -> aucun thrashing (MAX_LOADED_MODELS).
+model:
+  provider: custom
+  default: qwen2.5:7b
+  base_url: http://ollama:11434/v1
+  api_key: ollama-local
+  api_mode: chat_completions
+
+# Pas de mode raisonnement lourd sur CPU.
+agent:
+  reasoning_effort: none
+
+# Secours local uniquement (jamais provider: auto -> sortie UE interdite).
+fallback_providers:
+  - provider: custom
+    model: hermes3
+    base_url: http://ollama:11434/v1
+    key_env: OPENAI_API_KEY
+
+auxiliary:
+  vision:
+    provider: main
+    model: qwen2.5vl:7b
+    base_url: http://ollama:11434/v1
+    api_key: ollama-local
+    reasoning_effort: none
+    max_concurrency: 1
+
+delegation:
+  base_url: http://ollama:11434/v1
+  api_key: ollama-local
+  model: qwen2.5:7b
+  api_mode: chat_completions
+  max_concurrent_children: 1
+  orchestrator_enabled: false
+
+gateway:
+  api_server:
+    enabled: true
+    host: "0.0.0.0"
+    port: 8642
+    max_concurrent_runs: 2

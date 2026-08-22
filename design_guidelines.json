@@ -1,0 +1,155 @@
+{
+  "project_name": "Blueseatra Extraction Studio",
+  "app_type": "dashboard / saas_app",
+  "language": "fr",
+  "target_audience": "B2B Construction / BTP Estimators, Economistes de la construction, Conducteurs de travaux",
+  "core_value_proposition": "De la demande au devis : lit le dossier BTP, structure les lots TCE (Tous Corps d'État) et prépare un brouillon de devis. L'IA ne fixe jamais un prix — l'humain garde le contrôle ultime.",
+  "sovereignty_badge": "Hébergement VPS OVH Éco-Responsable • LLM Local Souverain RGPD",
+
+  "archetype": "Swiss Technical & Engineering Precision (Archetype 4 + Archetype 1)",
+  "theme_strategy": {
+    "default_mode": "light",
+    "support_toggle": true,
+    "rationale": "High tabular density for BTP office monitors and outdoor site tablets requiring maximum contrast under bright lighting, with dark mode for high-tech technical evaluation."
+  },
+
+  "colors": {
+    "primary": {
+      "navy_main": "#0F172A",
+      "ocean_blue": "#0284C7",
+      "slate_surface": "#F8FAFC",
+      "border_subtle": "#E2E8F0"
+    },
+    "confidence_badges": {
+      "confirme": {
+        "bg": "#ECFDF5",
+        "text": "#047857",
+        "border": "#A7F3D0",
+        "label": "Confirmé (haute précision)"
+      },
+      "estime": {
+        "bg": "#FFFBEB",
+        "text": "#B45309",
+        "border": "#FDE68A",
+        "label": "Estimé (à revoir)"
+      },
+      "a_confirmer": {
+        "bg": "#FEF2F2",
+        "text": "#B91C1C",
+        "border": "#FECACA",
+        "label": "À confirmer (incertitude)"
+      }
+    },
+    "pipeline_status": {
+      "deterministic_ocr": "#2563EB",
+      "local_llm": "#9333EA",
+      "validation_success": "#059669",
+      "error_alert": "#DC2626"
+    },
+    "forbidden_colors": [
+      "#7351B7",
+      "#1B93A4"
+    ]
+  },
+
+  "typography": {
+    "heading_font": "Outfit, Manrope, or Cabinet Grotesk (Banned for Dashboards: Space Grotesk)",
+    "body_font": "IBM Plex Sans or Inter",
+    "mono_font": "IBM Plex Mono or JetBrains Mono",
+    "hierarchy": {
+      "page_title": "text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100",
+      "section_title": "text-lg sm:text-xl font-semibold tracking-tight text-slate-800 dark:text-slate-200",
+      "table_header": "text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400",
+      "body_text": "text-sm text-slate-700 dark:text-slate-300 leading-relaxed",
+      "code_json": "text-xs font-mono bg-slate-900 text-slate-100 p-4 rounded-lg"
+    }
+  },
+
+  "layout_and_components": {
+    "header": {
+      "title": "Blueseatra Extraction Studio",
+      "subtitle": "Analyse automatique de Dossiers de Consultation BTP (DCE / Appels d'Offres)",
+      "sovereign_pill": "VPS OVH Cloud • IA Locale Offline",
+      "no_price_guarantee_pill": "L'IA ne fixe aucun prix — L'humain garde le dernier mot",
+      "actions": ["Queue Active Indicator", "BTP Template Selector", "Export Global", "Theme Toggle"]
+    },
+    "bento_grid_structure": "MODE B: High Density Dashboard Grid (grid-cols-1 lg:grid-cols-12 gap-6)",
+    "left_panel": {
+      "span": "col-span-12 lg:col-span-4 space-y-6",
+      "components": [
+        {
+          "name": "FileDropzone",
+          "description": "Zone de glisser-déposer pour PDF scanné, DOCX, XLSX ou photo de devis/DCE BTP. Support du multi-page et prévisualisation rapide.",
+          "data_testid": "file-dropzone"
+        },
+        {
+          "name": "PipelineStatusCard",
+          "description": "Visualisation temps réel de l'architecture hybride : Étape 1 : Parseur déterministe (PyMuPDF/Tabula/OCR) -> Étape 2 : LLM Local Souverain (Ollama/Mistral/Llama3 sur VPS OVH). Affichage du temps de réponse et coût 0€ token.",
+          "data_testid": "pipeline-architecture-panel"
+        },
+        {
+          "name": "AsyncJobQueue",
+          "description": "File d'attente des documents soumis avec statut en direct (En attente, Extraction OCR, Structuration LLM, Terminé, Anomalie détectée) et polling interactif.",
+          "data_testid": "async-job-queue"
+        }
+      ]
+    },
+    "right_panel": {
+      "span": "col-span-12 lg:col-span-8 space-y-6",
+      "components": [
+        {
+          "name": "ExtractionGuaranteeBanner",
+          "description": "Bannière d'engagement éthique & sécurité : 'Garantie Blueseatra : Zéro hallucination tarifaire. L'IA extrait les lots TCE, les métrés et désignations. Vous saisissez/validez vos prix unitaire de revient.'",
+          "data_testid": "no-price-guarantee-banner"
+        },
+        {
+          "name": "ExtractedPartiesCard",
+          "description": "Synthèse des entités extraites du dossier BTP (Donneur d'ordre / Architecte / Maitre d'Ouvrage, Client final, Adresse du Chantier, Date limite de réponse).",
+          "data_testid": "extracted-parties-card"
+        },
+        {
+          "name": "RequestedItemsTable",
+          "description": "Tableau interactif des postes extraits (Lots TCE : Terrassement, Gros Œuvre, Cloisons, Électricité, Plomberie, Peinture). Colonnes : Code Lot, Désignation BTP, Quantité, Unité (m², m³, ens, u, ml), Badge de confiance, Actions d'édition.",
+          "data_testid": "requested-items-table"
+        },
+        {
+          "name": "RawTablesAndJsonViewer",
+          "description": "Onglets de contrôle : Vue Tableaux Bruts (OCR) / Vue JSON Structuré / Inspection visuelle avec mise en surbrillance des données sources.",
+          "data_testid": "raw-tables-json-viewer"
+        },
+        {
+          "name": "BlockingQuestionsPanel",
+          "description": "Alertes & questions bloquantes soulevées par l'IA (ex: 'Unité manquante page 4 lot Électricité', 'Incohérence métré carrelage'). Permet la correction immédiate par l'économiste.",
+          "data_testid": "blocking-questions-panel"
+        }
+      ]
+    }
+  },
+
+  "images": {
+    "blueprint_background": "https://images.unsplash.com/photo-1721244654392-9c912a6eb236?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwzfHxjb25zdHJ1Y3Rpb24lMjBhcmNoaXRlY3QlMjBibHVlcHJpbnRzJTIwZW5naW5lZXJpbmclMjBwbGFufGVufDB8fHx8MTc4NzQyOTQ0NXww&ixlib=rb-4.1.0&q=85",
+    "architect_drafting": "https://images.unsplash.com/photo-1503387837-b154d5074bd2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHw0fHxjb25zdHJ1Y3Rpb24lMjBhcmNoaXRlY3QlMjBibHVlcHJpbnRzJTIwZW5naW5lZXJpbmclMjBwbGFufGVufDB8fHx8MTc4NzQyOTQ0NXww&ixlib=rb-4.1.0&q=85",
+    "floorplan_detail": "https://images.pexels.com/photos/4458205/pexels-photo-4458205.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+  },
+
+  "instructions_to_main_agent": [
+    "Ensure all components are in standard JavaScript React (.jsx) syntax.",
+    "Do NOT use Space Grotesk for headings in dashboards; use Outfit, Manrope, or Cabinet Grotesk for crisp readability.",
+    "The UI MUST be in French, matching BTP construction terms (Métrés, Lots TCE, Donneur d'ordre, DPGF, BPU, Devis Brouillon).",
+    "Prominently display the 'L'IA ne fixe jamais un prix' trust badge and guarantee in the header and extraction viewer.",
+    "Add explicit data-testid attributes to all interactive elements, table rows, dropzones, export buttons, and badges.",
+    "Include simulated real-time job polling and async processing controls (Pending -> Parsing -> Structuring -> Done) with demo sample files (e.g. 'DCE_Renovation_Ecole_Lyon.pdf', 'Appel_Offres_Residence_Azur.pdf').",
+    "Provide full JSON copy/export functionality and table row inline editing for BTP items."
+  ],
+
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Avoid generic centered layouts or plain gradients. Use structured Bento grids with high-contrast borders and clear typography hierarchy.",
+    "Containers with borders MUST have internal padding (p-6 or p-8) to prevent text collision.",
+    "Hover states must explicitly set text colors to guarantee APCA contrast.",
+    "Every interactive button, badge, input, and modal must feature micro-interactions (subtle hover scale, border color transition).",
+    "All interactive elements MUST include data-testid attributes for testing."
+  ]
+},
+overwrite: true,
+path: "/app/design_guidelines.json"
+}
