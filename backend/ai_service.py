@@ -38,14 +38,48 @@ HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
 # 2026-08-23 : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b,
 # qwen2.5:14b et Phi-4-reasoning-vision-15B ont ete supprimes du VPS a la
 # demande de l'utilisateur (63 Go liberes). Les modeles de reference
-# deviennent qwen2.5vl:7b (vision) et qwen2.5:7b (structuration texte).
-# CONSEQUENCE ASSUMEE : aucun des deux n'a de mode raisonnement natif, ce
-# qui revient sur la decision du 2026-08-18 ("raisonnement toujours actif
-# pour tout fichier importe"). La fiabilite sur les tableaux denses et les
-# mises en page ambigues sera donc moindre qu'avec Gemma+raisonnement --
-# a re-evaluer si un modele de raisonnement est reinstalle.
+# deviennent qwen2.5vl:7b (vision, sans raisonnement natif) et qwen2.5:7b
+# (structuration texte, sans raisonnement natif) : role=file/vision reste
+# donc sans raisonnement (voir decision du 2026-08-18 "raisonnement
+# toujours actif pour tout fichier importe", caduque pour ce role tant
+# qu'un modele de raisonnement multimodal n'est pas reinstalle).
+#
+# role=reason (decomposition materiaux/lots, EXPAND_SYSTEM) repointe le
+# meme jour sur gpt-oss:20b (deja installe, seul modele avec raisonnement
+# natif confirme -- voir _wants_think). Configure sur Render, pas ici : le
+# defaut ci-dessous reste qwen2.5vl:7b pour ne rien changer par surprise
+# sur un environnement qui n'aurait pas explicitement pose la variable.
 HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b")
 HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b")
+
+# gpt-oss ne peut PAS desactiver son raisonnement ("think": false/None est
+# ignore par Ollama pour ce modele) mais accepte un niveau gradue --
+# confirme en reel le 23/08 sur ce VPS (prompt trivial, mesure end-to-end) :
+#   think="low"    -> ~15 car. de reflexion, ~3.2s total
+#   think="medium" -> ~156 car. de reflexion, ~8.9s total
+#   think="high"   -> ~275 car. de reflexion, ~12.3s total
+# Un vrai prompt de decomposition materiaux/lots sera plus long dans les
+# trois cas, mais l'ordre et l'ecart relatif entre niveaux doivent tenir.
+# "medium" par defaut : coherent avec agent.reasoning_effort: medium deja
+# choisi pour le meme modele cote Hermes (hermes/config.yaml, ovh-ai-stack).
+_VALID_REASONING_EFFORTS = ("low", "medium", "high")
+HERMES_REASONING_EFFORT = os.environ.get("HERMES_REASONING_EFFORT", "medium")
+if HERMES_REASONING_EFFORT not in _VALID_REASONING_EFFORTS:
+    HERMES_REASONING_EFFORT = "medium"
+
+# Modeles avec un niveau de raisonnement REELLEMENT gradue (low/medium/high),
+# par opposition a un simple on/off (qwen3*/gemma4*/deepseek-r1*, voir
+# _wants_think : aucun n'est installe aujourd'hui, mais le code doit rester
+# correct si l'un d'eux est reinstalle sans support gradue confirme).
+_GRADUATED_THINK_PREFIXES = ("gpt-oss",)
+
+
+def _has_graduated_think(model: str) -> bool:
+    """True si ce modele accepte think="low"/"medium"/"high" (pas juste
+    booleen). Seul gpt-oss est confirme en reel sur ce VPS (23/08)."""
+    return (model or "").lower().startswith(_GRADUATED_THINK_PREFIXES)
+
+
 HERMES_FALLBACK_MODELS = [
     os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b"),
     os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b"),
@@ -537,10 +571,23 @@ async def _call_hermes_ollama(
     system_prompt: str,
     user_message: str,
     image_b64: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> str:
-    """Call Hermes AI via Ollama REST API on OVH VPS."""
+    """Call Hermes AI via Ollama REST API on OVH VPS.
+
+    reasoning_effort ("low"/"medium"/"high") ne s'applique qu'aux modeles a
+    raisonnement gradue (_has_graduated_think -- gpt-oss aujourd'hui).
+    Ignore silencieusement pour un modele booleen-only (qwen3/gemma4/
+    deepseek-r1) ou un modele sans raisonnement : retombe sur
+    HERMES_REASONING_EFFORT si omis ou invalide.
+    """
+    graduated = _has_graduated_think(model)
     effective_system_prompt = system_prompt
-    if _wants_think(model):
+    # Le hint "reflechis brievement" compense l'absence de controle natif
+    # de profondeur sur les modeles booleen-only. Un modele gradue controle
+    # deja sa profondeur via "think", ajouter ce hint serait contradictoire
+    # avec un niveau "high" explicitement demande -- omis pour lui.
+    if _wants_think(model) and not graduated:
         effective_system_prompt = system_prompt + _THINK_BREVITY_HINT
     messages = [
         {"role": "system", "content": effective_system_prompt},
@@ -565,9 +612,20 @@ async def _call_hermes_ollama(
             "num_predict": 4096,
         },
     }
-    # hermes-3 refuse think (400). qwen3, gemma4 et gpt-oss l'acceptent
-    # (gpt-oss teste en reel le 2026-08-23 : think=true booleen accepte).
-    if _wants_think(model):
+    # hermes-3 refuse think (400). qwen3 et gemma4 n'acceptent qu'un
+    # booleen ; gpt-oss accepte un niveau gradue "low"/"medium"/"high"
+    # (teste en reel le 2026-08-23 : les trois niveaux changent reellement
+    # la profondeur ET la latence -- ~3.2s/8.9s/12.3s mesures sur un prompt
+    # trivial, voir HERMES_REASONING_EFFORT en tete de fichier). "think":
+    # false/None est ignore par Ollama pour gpt-oss -- il ne peut pas
+    # desactiver son raisonnement, seulement en regler la profondeur. Fixe
+    # ici uniquement pour coherence de `payload` avant la boucle de repli
+    # plus bas, qui le recalcule de toute facon pour CHAQUE candidat
+    # (necessaire car un repli peut changer de famille de modele).
+    if graduated:
+        effort = reasoning_effort if reasoning_effort in _VALID_REASONING_EFFORTS else HERMES_REASONING_EFFORT
+        payload["think"] = effort
+    elif _wants_think(model):
         payload["think"] = True
 
     headers = {}
@@ -599,7 +657,13 @@ async def _call_hermes_ollama(
             models.append(alias)
     for current in models:
         payload["model"] = current
-        if _wants_think(current):
+        # Recalcule a chaque candidat de la liste de repli : un repli peut
+        # changer de famille de modele (gpt-oss gradue -> hermes3 sans
+        # raisonnement, par exemple), le traitement "think" doit suivre.
+        if _has_graduated_think(current):
+            effort = reasoning_effort if reasoning_effort in _VALID_REASONING_EFFORTS else HERMES_REASONING_EFFORT
+            payload["think"] = effort
+        elif _wants_think(current):
             payload["think"] = True
         else:
             payload.pop("think", None)
@@ -721,14 +785,21 @@ async def _call_reason(
     model: str,
     system_prompt: str,
     user_message: str,
+    reasoning_effort: str | None = None,
 ) -> str:
-    """Raisonnement : gateway Hermes si configuré, sinon Ollama."""
+    """Raisonnement : gateway Hermes si configuré, sinon Ollama.
+
+    reasoning_effort ("low"/"medium"/"high") ne s'applique qu'au repli
+    Ollama direct : le gateway Hermes gere deja son propre niveau via
+    agent.reasoning_effort (hermes/config.yaml, ovh-ai-stack), non
+    controlable depuis cet appel.
+    """
     if HERMES_GATEWAY_URL:
         try:
             return await _call_hermes_gateway(system_prompt, user_message)
         except Exception:
             pass
-    return await _call_hermes_ollama(model, system_prompt, user_message)
+    return await _call_hermes_ollama(model, system_prompt, user_message, reasoning_effort=reasoning_effort)
 
 
 async def _call_openai(
