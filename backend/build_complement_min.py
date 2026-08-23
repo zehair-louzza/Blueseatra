@@ -307,8 +307,8 @@ def story():
             ["Durcissement", "UFW 22/80/443, no-new-privileges", "ufw status"],
             ["Secrets", ".env hors Git, openssl rand -hex 32", "jamais dans le chat"],
             ["Compose", "caddy, ollama 18g, hermes 2g, n8n", "docker compose ps"],
-            ["Modeles", "ollama pull gemma4:26b, qwen3.6:27b, qwen2.5:14b, hermes3", "ollama list"],
-            ["Hermes YAML", "model.default=gemma4:26b, provider custom, pas auto", "hermes doctor"],
+            ["Modeles", "ollama pull gpt-oss:20b, qwen2.5vl:7b, qwen2.5:7b, hermes3", "ollama list"],
+            ["Hermes YAML", "model.default=gpt-oss:20b, provider custom, pas auto", "hermes doctor"],
             ["API Hermes", "API_SERVER_ENABLED, 8642 interne, Bearer", "health 0.20.1"],
             ["Git VPS", "cle github_ovh_ai_stack, force-recreate apres pull", "git log"],
         ],
@@ -319,8 +319,8 @@ def story():
         "Commandes cibles (VPS, une a la fois). "
         "GIT_SSH_COMMAND='ssh -i ~/.ssh/github_ovh_ai_stack -o IdentitiesOnly=yes' git pull. "
         "docker compose up -d --force-recreate hermes. "
-        "docker compose exec ollama ollama pull gemma4:26b. "
-        "Ne jamais publier 11434 ni 8642. HERMES_MODEL=gemma4:26b dans .env."
+        "docker compose exec ollama ollama pull gpt-oss:20b. "
+        "Ne jamais publier 11434 ni 8642. HERMES_MODEL=gpt-oss:20b dans .env."
     ))
     cfg = SCREENS / "ollama-config.jpg"
     if cfg.exists():
@@ -329,7 +329,7 @@ def story():
             "Figure D. Capture hermes model dans le conteneur. A ne pas suivre : "
             "le wizard propose anthropic/claude-opus-4.6, provider none / auto, "
             "et 127.0.0.1:11434. La config validee reste Ollama Docker "
-            "(http://ollama:11434/v1, api_key ollama-local, gemma4:26b).",
+            "(http://ollama:11434/v1, api_key ollama-local, gpt-oss:20b).",
             "cap",
         ))
     s.append(P(
@@ -360,6 +360,7 @@ def story():
             ["16-17 aout 2026", "qwen3.6:27b comme modele principal Hermes", "Besoin d'un raisonneur distinct, ADR-003", "gemma4:26b (model + reasoning_effort high)"],
             ["17 aout 2026", "provider: auto et wizard hermes model (Claude Opus)", "Fuite OpenRouter / Nous, hors UE", "provider custom, http://ollama:11434/v1, ollama-local"],
             ["Non retenu", "DeepSeek-R1 32B comme raisonneur", "Trop lourd a cote de Gemma 17 Go", "Gemma 4 26B-A4B seul en principal"],
+            ["23 aout 2026", "gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b, Phi-4-vision-15B", "63 Go a liberer, aucun ne raisonne + a la vision a la fois", "gpt-oss:20b (raisonnement gradue) ; qwen2.5:7b / qwen2.5vl:7b (extraction)"],
         ],
         [32 * mm, 48 * mm, 46 * mm, 44 * mm],
     ))
@@ -404,17 +405,20 @@ def story():
     s.append(table(
         [
             ["Role", "Modele", "Chemin"],
-            ["Extraction", "qwen2.5:14b", "FastAPI → Ollama /api/chat"],
-            ["Raisonnement", "gemma4:26b (hermes-agent)", "FastAPI → Hermes /v1 + Bearer"],
-            ["Repli", "gemma4:26b puis qwen3.6:27b", "Ollama"],
+            ["Extraction", "qwen2.5:7b (texte) / qwen2.5vl:7b (fichier)", "FastAPI → Ollama /api/chat"],
+            ["Raisonnement", "gpt-oss:20b, think low/medium/high", "FastAPI → Ollama /api/chat direct"],
+            ["Repli", "hermes3 (sans raisonnement natif)", "Ollama"],
             ["Prix / TVA / marge", "aucun LLM", "FastAPI uniquement"],
         ],
         [48 * mm, 62 * mm, 60 * mm],
     ))
     s.append(Spacer(1, 3 * mm))
     s.append(P(
-        "Gemma 4 26B-A4B est un MoE 25,2B / 3,8B actifs, tag officiel gemma4:26b, "
-        "Q4_K_M, environ 17 Go.<super>1</super> OLLAMA_MAX_LOADED_MODELS=1. "
+        "Mise a jour du 23 aout 2026 : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b et "
+        "Phi-4-reasoning-vision-15B ont ete supprimes du VPS (63 Go liberes). gpt-oss:20b (20,9B parametres, "
+        "MXFP4, deja installe) reprend le raisonnement : seul modele restant avec capacite thinking confirmee "
+        "(`ollama show gpt-oss:20b`), mais il ne peut pas la desactiver -- seulement en regler la profondeur "
+        "via HERMES_REASONING_EFFORT. OLLAMA_MAX_LOADED_MODELS=1. "
         "provider: auto est interdit. litellm reste un filet par tenant, jamais une source de prix."
     ))
 
