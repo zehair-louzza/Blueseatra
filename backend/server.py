@@ -543,6 +543,18 @@ async def create_request(
             # navigateur), sans jamais persister le PDF ni son rendu.
             if ai_service.pdf_needs_vision_fallback(raw_text):
                 source_type = "pdf_ocr"
+                # 2026-08-23 : ne JAMAIS persister le calque texte natif quand
+                # il est illisible. Bug reel observe en production ("Test 10") :
+                # meme quand ce repli vision se declenchait correctement, le
+                # texte brut garbled (ex. codes (cid:XXX) ou caracteres de
+                # controle) restait ecrit dans raw_text et donc affiche tel
+                # quel dans le panneau "Contenu source" du frontend -- alors
+                # que la vraie extraction utilisee est celle de vision_bytes
+                # ci-dessous, jamais celle-ci. Un texte garbled ici n'a aucune
+                # valeur (ni pour l'utilisateur, ni pour aucun code aval :
+                # detect_exclusive_options ne trouve jamais de motif dans du
+                # charabia) et ne fait qu'induire en erreur.
+                raw_text = ""
                 # Chaque page est rendue et traitee INDIVIDUELLEMENT (jamais
                 # empilee en une seule image composite) : evite les echecs
                 # observes de certains modeles OCR sur des images composites
