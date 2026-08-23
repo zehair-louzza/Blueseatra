@@ -184,6 +184,15 @@ HERMES_OCR_MODEL = os.environ.get("HERMES_OCR_MODEL", "AuditAid/PaddleOCR-VL-1.6
 # champ par champ contre le document source (aucune invention). Plus
 # rapide ET plus petit que LightOnOCR-2-1B (~200s) : positionne avant lui
 # dans la cascade.
+# 2026-08-23 (suite) : teste egalement sur un document a tableau dense reel
+# (LOT_20_LA_SABLIERE-1.pdf, bordereau de sous-traitance avec 5 lignes
+# d'articles, colonnes Designation/F.P./Un./Quantite/P.U. HT/Total/Nota) --
+# succes HTTP 200 en 167.8s, toutes les lignes et quantites restituees
+# fidelement, y compris la distinction fine entre "X X" (deux colonnes
+# cochees) et "X" seul selon la ligne. Deux imprecisions mineures de niveau
+# caractere relevees ("T+33" lu "T*33", "qualite" lu "qualifie"), aucune
+# invention de contenu ni ligne de tableau manquee/dupliquee -- confirme le
+# point fort documente sur les tableaux complexes (OmniDocBench V1.5).
 HERMES_OCR_GLM_MODEL = os.environ.get("HERMES_OCR_GLM_MODEL", "glm-ocr:latest")
 # Troisieme etape OCR : LightOnOCR-2-1B, entraine avec une forte couverture
 # de documents FRANCAIS (pertinent pour ce cas d'usage), SOTA sur
