@@ -7,6 +7,7 @@ import io
 import json
 import re
 import base64
+import uuid
 import httpx
 import quote_scenarios
 import asyncio
@@ -647,10 +648,31 @@ async def _call_hermes_gateway(
     system_prompt: str,
     user_message: str,
 ) -> str:
-    """Call Hermes Agent via POST /v1/chat/completions behind Caddy."""
+    """Call Hermes Agent via POST /v1/chat/completions behind Caddy.
+
+    ADR-005 (ovh-ai-stack): always send a fresh X-Hermes-Session-Id.
+
+    Without it, Hermes' stateless API derives the session/task id as
+    sha256(system_prompt + first_user_message). Two calls whose text
+    happens to match -- a retry after our own timeout, or two clients
+    submitting identical wording -- collide on that derived id. Hermes'
+    skill_view tool dedupes repeat views PER task id, assuming a repeat
+    view means "the model already has this in its current conversation":
+    true for a real multi-turn session, false here, since our stateless
+    calls never share conversation history. A colliding id makes Hermes
+    silently skip re-sending the skill content the model needs, so it
+    stalls or answers from a rule set it never actually received. A
+    random UUID per call guarantees no two independent requests are ever
+    treated as the same task, at the cost of Hermes never reusing a
+    Docker sandbox dir across our calls (irrelevant here: this path
+    never needs one).
+    """
     if not HERMES_GATEWAY_URL:
         raise RuntimeError("HERMES_GATEWAY_URL vide")
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "X-Hermes-Session-Id": str(uuid.uuid4()),
+    }
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
     if HERMES_GATEWAY_KEY:
