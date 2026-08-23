@@ -446,11 +446,23 @@ async def _web_context_sans_prix(raw_text: str) -> str:
 
 
 def _wants_think(model: str) -> bool:
+    """True for models with native reasoning/thinking mode on this VPS.
+
+    2026-08-23 : ajout de "gpt-oss" -- seul modele installe aujourd'hui
+    avec capacite "thinking" confirmee (`ollama show gpt-oss:20b` ->
+    completion, tools, thinking ; teste en reel via /api/chat avec
+    think=true (booleen) : Ollama accepte, renvoie un champ
+    message.thinking rempli). gemma4/qwen3.6/qwen3/deepseek-r1/qwen2.5:14b
+    ont ete supprimes du VPS le meme jour -- conserves ici seulement pour
+    ne pas casser un futur tenant qui aurait un override ai_model vers un
+    modele reinstalle plus tard.
+    """
     name = (model or "").lower()
     return (
         name.startswith("qwen3")
         or name.startswith("gemma4")
         or name.startswith("deepseek-r1")
+        or name.startswith("gpt-oss")
     )
 
 
@@ -462,23 +474,26 @@ async def resolve_ai_config(
 
     2026-08-23 : docstring realignee sur l'etat reel apres suppression de
     gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b et
-    Phi-4-reasoning-vision-15B du VPS (63 Go liberes). AUCUN des modeles
-    restants n'a de mode raisonnement natif (_wants_think renvoie False
-    pour qwen2.5:7b, qwen2.5vl:7b et hermes3) : la decision du 2026-08-18
-    ("raisonnement toujours actif pour tout fichier importe") est donc
-    caduque tant qu'un modele de raisonnement n'est pas reinstalle.
+    Phi-4-reasoning-vision-15B du VPS (63 Go liberes), PUIS apres avoir
+    repointe HERMES_REASONING_MODEL sur gpt-oss:20b (seul modele installe
+    avec capacite "thinking" confirmee -- voir _wants_think). qwen2.5:7b,
+    qwen2.5vl:7b et hermes3 restent sans raisonnement natif ; gpt-oss:20b
+    n'a pas la vision (role=file/vision continue donc sur HERMES_VISION_MODEL,
+    pas sur le modele de raisonnement).
 
     role=extract → HERMES_EXTRACT_MODEL (qwen2.5:7b par defaut, texte seul).
       Reserve au texte colle manuellement (pas un fichier importe).
     role=file → HERMES_VISION_MODEL (qwen2.5vl:7b par defaut, seul modele
       multimodal restant sur le VPS). Modele PAR DEFAUT pour tout fichier
       importe (PDF, DOCX, XLSX, CSV, TXT, image) — tableaux inclus — quel
-      que soit son etat de lisibilite.
+      que soit son etat de lisibilite. Ne raisonne pas nativement.
     role=vision → alias de role=file, conserve pour la compatibilite avec
       le code existant qui distinguait "image" de "fichier texte".
     role=reason (tout role hors extract/vision/file) → HERMES_REASONING_MODEL
-      (qwen2.5vl:7b par defaut, comme HERMES_VISION_MODEL : aucun modele de
-      raisonnement dedie n'est plus installe sur le VPS).
+      (gpt-oss:20b, seul modele avec raisonnement natif reellement installe --
+      decomposition materiaux/lots, EXPAND_SYSTEM). Timeout 900s (voir
+      _wants_think) car Ollama force le raisonnement sur gpt-oss quoi qu'il
+      arrive ("think": false/None est ignore pour ce modele).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
     provider = tenant_settings.get("ai_provider") or DEFAULT_PROVIDER
@@ -550,7 +565,8 @@ async def _call_hermes_ollama(
             "num_predict": 4096,
         },
     }
-    # hermes-3 refuse think (400). qwen3 et gemma4 l'acceptent.
+    # hermes-3 refuse think (400). qwen3, gemma4 et gpt-oss l'acceptent
+    # (gpt-oss teste en reel le 2026-08-23 : think=true booleen accepte).
     if _wants_think(model):
         payload["think"] = True
 
