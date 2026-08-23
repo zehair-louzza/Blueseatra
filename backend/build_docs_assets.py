@@ -64,7 +64,7 @@ def build_routage() -> None:
     boxes = [
         (40, 82, 400, 200, "FastAPI extract", [
             "POST ia.blueseatra.com/api/chat",
-            "qwen2.5:7b (texte) / qwen2.5vl:7b (fichier)",
+            "qwen2.5:7b (texte), qwen2.5vl:7b (image)",
         ]),
         (500, 82, 900, 200, "FastAPI reason", [
             "POST hermes.blueseatra.com/v1 (gateway)",
@@ -72,8 +72,9 @@ def build_routage() -> None:
             "hermes-agent = gpt-oss:20b (think gradue)",
         ]),
         (1000, 82, 1360, 200, "Repli", [
-            "Ollama gpt-oss:20b (direct, si gateway echoue)",
-            "puis hermes3 (sans raisonnement natif)",
+            "Ollama gpt-oss:20b direct",
+            "(si gateway echoue), puis",
+            "hermes3 (sans raisonnement natif)",
         ]),
     ]
     for x0, y0, x1, y1, title, lines in boxes:
