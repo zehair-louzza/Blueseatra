@@ -122,17 +122,21 @@ services:
         sync: false
 
       # --- File durable (opt-in) : voir backend/extraction_worker.py. ---
-      # PAS de cle REDIS_URL ici pour l'instant (retiree le 2026-08-23,
-      # en meme temps que le service worker ci-dessous) : le code de mise
-      # en file (server.py _enqueue_extraction) existe deja et tombe sans
+      # PAS de cle REDIS_URL ici pour l'instant (retiree le 2026-08-23, en
+      # meme temps que le service worker ci-dessous) : le code de mise en
+      # file (server.py _enqueue_extraction) existe deja et tombe sans
       # risque sur l'ancien comportement in-process tant que REDIS_URL
-      # n'existe pas comme variable -- mais la definir ICI SANS avoir
-      # egalement redeploye un service worker qui la consomme ferait rester
-      # chaque demande mise en file bloquee indefiniment sur "received",
-      # sans jamais etre traitee (echec silencieux garanti, exactement le
-      # risque identifie dans la PR #44). Ne pas rajouter cette cle avant
-      # d'avoir aussi restaure le service blueseatra-extraction-worker
-      # (voir note detaillee plus bas, a l'endroit ou il a ete retire).
+      # n'existe pas comme variable. La definir ICI SANS avoir egalement
+      # redeploye un service worker qui la consomme n'est PLUS un echec
+      # silencieux garanti : un filet de securite cote code
+      # (server.py _watchdog_reprocess_if_stuck, ajoute le 2026-08-23) fait
+      # basculer automatiquement toute demande restee sur "received" plus
+      # de 60s vers le traitement in-process de secours -- mais chaque
+      # demande passe alors par un delai d'attente inutile de 60s pour
+      # rien. Ne pas rajouter cette cle sans redeployer aussi le vrai
+      # service worker (voir note detaillee plus bas, a l'endroit ou il a
+      # ete retire) : le watchdog est un filet de secours, pas une raison
+      # de se passer du worker.
 
       # Connecteur MCP Perplexity (https://blueseatra-api.onrender.com/mcp)
       - key: MCP_API_KEY
