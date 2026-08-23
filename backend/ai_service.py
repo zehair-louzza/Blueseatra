@@ -16,67 +16,92 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
-# File d'attente légère : borne le nombre d'appels Ollama simultanés PAR process.
-# Le VPS CPU ne traite qu'1-2 inférences à la fois ; au-delà, les requêtes
-# attendent leur tour ici au lieu de saturer le CPU et de déclencher des
-# timeouts en cascade. Aligner sur OLLAMA_NUM_PARALLEL côté serveur Ollama.
-_OLLAMA_MAX_CONCURRENCY = int(os.environ.get("OLLAMA_MAX_CONCURRENCY", "2"))
+# File d'attente légère : borne le nombre d'appels Ollama simultanés PAR
+# process. Le serveur Ollama a OLLAMA_NUM_PARALLEL=1 (verifie sur le VPS le
+# 2026-08-23) : il ne traite qu'UNE seule inference a la fois, quel que soit
+# le nombre de requetes HTTP recues. Un semaphore a 2 ici (valeur precedente)
+# laissait le backend envoyer 2 requetes simultanees vers un serveur qui n'en
+# execute qu'une -- la 2e attendait de toute facon derriere la 1re au niveau
+# d'Ollama, mais SANS jamais liberer son slot de semaphore local pendant
+# cette attente, ce qui pouvait meme aggraver la contention plutot que
+# l'attenuer. Aligne desormais EXACTEMENT sur OLLAMA_NUM_PARALLEL cote
+# serveur : le backend n'envoie jamais plus d'une requete Ollama a la fois,
+# les autres appels (structuration ET cascade OCR, voir plus bas) attendent
+# ici plutot que de s'empiler cote serveur.
+_OLLAMA_MAX_CONCURRENCY = int(os.environ.get("OLLAMA_MAX_CONCURRENCY", "1"))
 _OLLAMA_SEMAPHORE = asyncio.Semaphore(_OLLAMA_MAX_CONCURRENCY)
 
 # ── Hermes AI / Ollama (OVH VPS) ────────────────────────────────────────────
 HERMES_BASE_URL = os.environ.get("HERMES_BASE_URL", "http://localhost:11434")
 HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
-# CPU-only (8 vCPU / 22 Go, pas de GPU) : petits modeles 7B par defaut.
-# Les gros modeles (gemma4:26b, qwen3.6:27b) prenaient 80s-11min/doc et
-# saturaient la RAM. Surchargeable par variable d'env si un jour un GPU arrive.
+# 2026-08-23 : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b,
+# qwen2.5:14b et Phi-4-reasoning-vision-15B ont ete supprimes du VPS a la
+# demande de l'utilisateur (63 Go liberes). Les modeles de reference
+# deviennent qwen2.5vl:7b (vision) et qwen2.5:7b (structuration texte).
+# CONSEQUENCE ASSUMEE : aucun des deux n'a de mode raisonnement natif, ce
+# qui revient sur la decision du 2026-08-18 ("raisonnement toujours actif
+# pour tout fichier importe"). La fiabilite sur les tableaux denses et les
+# mises en page ambigues sera donc moindre qu'avec Gemma+raisonnement --
+# a re-evaluer si un modele de raisonnement est reinstalle.
 HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b")
-HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen2.5:7b")
+HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b")
 HERMES_FALLBACK_MODELS = [
-    os.environ.get("HERMES_REASONING_MODEL", "qwen2.5:7b"),
+    os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b"),
     os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b"),
     "hermes3",
     "hermes-3",
 ]
 # Modeles multimodaux (texte + image) confirmes via `ollama show` sur le VPS.
-# qwen2.5:14b et hermes3/hermes-3 sont TEXTE SEUL : les appeler avec une
+# qwen2.5:7b et hermes3/hermes-3 sont TEXTE SEUL : les appeler avec une
 # image renvoie HTTP 400 "Multimodal data provided, but model does not
 # support multimodal requests" (incident du 2026-08-18). Ne jamais les inclure
-# dans le repli utilise pour l'extraction par vision.
-HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL", "qwen2.5vl:7b")
-HERMES_VISION_FALLBACK_MODELS = [
-    os.environ.get("HERMES_VISION_MODEL", "qwen2.5vl:7b"),
-]
+# dans le repli utilise pour l'extraction par vision. qwen2.5vl:7b est
+# desormais le SEUL modele vision restant sur le VPS : il n'y a donc plus
+# aucun repli vision possible si lui-meme echoue (un "fallback" identique
+# au modele principal n'est pas un vrai fallback -- laisse vide plutot que
+# de simuler une redondance qui n'existe pas).
+HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL") or os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b")
+HERMES_VISION_FALLBACK_MODELS: list[str] = []
 MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
 
 # Cascade de STRUCTURATION (texte deja extrait -> JSON final), routage
 # sequentiel via Hermes (decision du 2026-08-19). Distincte de la cascade
 # OCR ci-dessus : s'applique uniquement au texte deja lisible (sortie OCR,
 # ou fichier texte natif comme DOCX/XLSX/CSV/TXT), jamais a une image (ces
-# modeles candidats qwen3:14b/deepseek-r1:14b sont TEXTE SEUL, pas
-# multimodaux). Motif : en test isole ce jour, gemma4:26b seul a renvoye
-# une reponse VIDE a deux reprises sur un document reel (budget de
-# raisonnement epuise sans jamais fermer le bloc de reflexion), et
-# qwen3.6:27b s'est confirme trop lent (~2 tok/s, jamais termine en moins
-# de 10-23 min sur ce document dans plusieurs tentatives). Ordre : les deux
-# modeles 14B (plus petits, donc plus rapides sur ce CPU sans GPU) d'abord,
-# Gemma en 3e (deja fiable sur la majorite des documents, connu pour ce cas
-# limite precis), qwen3.6:27b en tout dernier recours seulement.
+# modeles sont TEXTE SEUL ou utilises en mode texte).
+#
+# 2026-08-23 : les 4 etages precedents (qwen3:14b, deepseek-r1:14b,
+# gemma4:26b, qwen3.6:27b) ont TOUS ete supprimes du VPS a la demande de
+# l'utilisateur. La cascade est reconstruite sur les modeles restants :
+# qwen2.5:7b (texte, principal) -> qwen2.5vl:7b (multimodal, utilise ici en
+# mode texte) -> hermes3 (dernier recours). Tous sont des 7B sans mode
+# raisonnement : plus rapides que les anciens etages (moins de parametres
+# sur ce CPU sans GPU), mais moins fiables sur les tableaux denses. Le
+# motif d'origine de cette cascade reste valable : un modele peut renvoyer
+# une reponse VIDE sans lever d'exception (observe sur gemma4:26b), donc
+# une reponse vide compte toujours comme un echec d'etage.
+#
+# IMPORTANT (corrige le 2026-08-23) : une version anterieure de ce fichier,
+# poussee directement sur main sans PR ni revue, avait fait pointer LES 4
+# etages vers le MEME modele qwen2.5:7b sous des etiquettes encore
+# nommees "Qwen3-14B"/"DeepSeek-R1-14B"/"Gemma4-26B"/"Qwen3.6-27B" -- une
+# cascade sans aucune diversite reelle (si qwen2.5:7b echoue une fois, il
+# echoue identiquement les 3 fois suivantes) avec des etiquettes mensongeres.
+# Cette version restaure 3 modeles REELLEMENT distincts.
 HERMES_STRUCTURING_MODEL_1 = os.environ.get("HERMES_STRUCTURING_MODEL_1", "qwen2.5:7b")
-HERMES_STRUCTURING_MODEL_2 = os.environ.get("HERMES_STRUCTURING_MODEL_2", "qwen2.5:7b")
-HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3", "qwen2.5:7b")
-HERMES_STRUCTURING_MODEL_4 = os.environ.get("HERMES_STRUCTURING_MODEL_4", "qwen2.5:7b")
-# Timeouts PROVISOIRES par etage (secondes) : aucun des 4 modeles n'a ete
-# mesure jusqu'a une completion reussie sur ce VPS a cette date (tests
-# interrompus par l'utilisateur avant la fin, ou reponse vide) -- valeurs
-# prudentes basees sur la taille du modele et le comportement observe, PAS
-# sur la regle 1.2x-de-l-etape-suivante utilisee pour la cascade OCR (qui
-# exige une duree reelle mesuree). A RECALIBRER avec _STRUCTURING_STAGE_MEASURED_SECONDS
-# des qu'un test complet jusqu'a completion est disponible pour chaque modele.
+HERMES_STRUCTURING_MODEL_2 = os.environ.get("HERMES_STRUCTURING_MODEL_2", "qwen2.5vl:7b")
+HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3", "hermes3")
+# Timeouts PROVISOIRES par etage (secondes) : aucun de ces 3 modeles n'a
+# ete mesure jusqu'a une completion reussie sur une structuration de devis
+# a cette date -- valeurs prudentes deduites de la taille (7B, sans
+# raisonnement, donc bien moins de tokens generes que les anciens etages a
+# raisonnement), PAS de la regle 1.2x-de-l-etape-suivante utilisee pour la
+# cascade OCR (qui exige une duree reelle mesuree). A RECALIBRER des qu'un
+# test complet jusqu'a completion est disponible pour chaque modele.
 _STRUCTURING_CASCADE_TIMEOUTS = {
-    "Qwen3-14B": 480.0,
-    "DeepSeek-R1-14B": 480.0,
-    "Gemma4-26B": 900.0,
-    "Qwen3.6-27B": 900.0,
+    "Qwen2.5-7B": 300.0,
+    "Qwen2.5-VL-7B": 300.0,
+    "Hermes-3": 240.0,
 }
 
 
@@ -85,13 +110,12 @@ def _structuring_cascade_stages() -> list[tuple[str, str, float]]:
     recalcule a chaque appel (modeles surchargeables par variable
     d'environnement en cours d'execution)."""
     order = [
-        ("Qwen3-14B", HERMES_STRUCTURING_MODEL_1),
-        ("DeepSeek-R1-14B", HERMES_STRUCTURING_MODEL_2),
-        ("Gemma4-26B", HERMES_STRUCTURING_MODEL_3),
-        ("Qwen3.6-27B", HERMES_STRUCTURING_MODEL_4),
+        ("Qwen2.5-7B", HERMES_STRUCTURING_MODEL_1),
+        ("Qwen2.5-VL-7B", HERMES_STRUCTURING_MODEL_2),
+        ("Hermes-3", HERMES_STRUCTURING_MODEL_3),
     ]
     return [
-        (label, model, _STRUCTURING_CASCADE_TIMEOUTS.get(label, 900.0))
+        (label, model, _STRUCTURING_CASCADE_TIMEOUTS.get(label, 300.0))
         for label, model in order
     ]
 
@@ -182,19 +206,23 @@ HERMES_OCR_TERTIARY_MODEL = os.environ.get("HERMES_OCR_TERTIARY_MODEL", "richard
 # longtemps que ce qu'il faudrait de toute facon pour que l'etape
 # suivante fasse le travail, avec une marge reduite a 20%.
 _OCR_STAGE_TIMEOUT_MULTIPLIER = 1.2
-# Timeout du DERNIER recours (vision directe de Gemma) : contrairement
-# aux etapes OCR ci-dessus, il n'y a pas d'"etape suivante" a mesurer
-# pour lui appliquer la regle 1.2x — plafond fixe, aligne sur le timeout
-# deja utilise ailleurs pour Gemma en mode raisonnement (voir _wants_think
-# dans _call_hermes_ollama). Nomme explicitement plutot que laisse en dur
-# dans chaque appelant, pour qu'un changement futur ne se fasse qu'ici.
-_OCR_FINAL_FALLBACK_TIMEOUT = 900.0
+# Timeout du DERNIER recours (vision directe via HERMES_VISION_MODEL) :
+# contrairement aux etapes OCR ci-dessus, il n'y a pas d'"etape suivante" a
+# mesurer pour lui appliquer la regle 1.2x -- plafond fixe. 2026-08-23 :
+# abaisse de 900s a 300s, car le secours n'est plus gemma4:26b en mode
+# raisonnement (~650s, plusieurs milliers de tokens de reflexion) mais
+# qwen2.5vl:7b, un 7B sans raisonnement mesure a ~246s/page. Nomme
+# explicitement plutot que laisse en dur dans chaque appelant.
+_OCR_FINAL_FALLBACK_TIMEOUT = 300.0
 _OCR_STAGE_MEASURED_SECONDS = {
     "PaddleOCR-VL-1.6": 110,
     "LightOnOCR-2-1B": 200,
     "Qwen2.5-VL-7B": 246,
     "olmOCR-2-7B": 587,
-    "Gemma-vision": 650,
+    # Duree du dernier recours vision, utilisee uniquement pour calculer le
+    # timeout de l'etage precedent via la regle 1.2x. 2026-08-23 : 246s
+    # (qwen2.5vl:7b mesure) au lieu de 650s (gemma4:26b, supprime du VPS).
+    "Vision-fallback": 246,
 }
 
 
@@ -208,26 +236,51 @@ def _ocr_cascade_stages() -> list[tuple[str, str, float]]:
     est calcule via la regle 1.2x (voir _OCR_STAGE_MEASURED_SECONDS) sur
     la duree mesuree de l'etape suivante. Recalcule a chaque appel (pas
     mis en cache) : les modeles restent surchargeables par variable
-    d'environnement en cours d'execution."""
+    d'environnement en cours d'execution.
+
+    2026-08-23 : le secours vision final utilise desormais HERMES_VISION_MODEL
+    = qwen2.5vl:7b, qui est AUSSI l'etage 3 de cette cascade (gemma4:26b, qui
+    remplissait ce role, a ete supprime du VPS). Les doublons sont filtres
+    ci-dessous pour ne jamais rappeler deux fois le meme modele dans une
+    meme cascade : concretement, si l'etage 3 echoue, le secours final avec
+    le meme modele echouerait de la meme facon et ne ferait que doubler
+    l'attente. Le seul repli reellement distinct restant apres l'etage 3 est
+    donc olmocr2:7b-q8 (etage 4)."""
     order = [
         ("PaddleOCR-VL-1.6", HERMES_OCR_MODEL),
         ("LightOnOCR-2-1B", HERMES_OCR_SECONDARY_MODEL),
         ("Qwen2.5-VL-7B", HERMES_OCR_ESCALATION_MODEL),
         ("olmOCR-2-7B", HERMES_OCR_TERTIARY_MODEL),
     ]
+    seen: set[str] = set()
+    deduped = []
+    for label, model in order:
+        key = (model or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append((label, model))
     stages = []
-    for i, (label, model) in enumerate(order):
-        next_label = order[i + 1][0] if i + 1 < len(order) else "Gemma-vision"
-        timeout = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * _OCR_STAGE_MEASURED_SECONDS.get(next_label, 650))
+    for i, (label, model) in enumerate(deduped):
+        next_label = deduped[i + 1][0] if i + 1 < len(deduped) else "Vision-fallback"
+        timeout = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * _OCR_STAGE_MEASURED_SECONDS.get(next_label, 300))
         stages.append((label, model, timeout))
     return stages
-# Modele d'escalade manuelle uniquement (jamais automatique) : trop lent
-# (~12,5 min/page mesure sur ce materiel) et tendance a paraphraser/resumer
-# plutot qu'a transcrire litteralement, ce qui le rend risque pour les
-# champs critiques (dates, montants, identifiants de dossier). Reserve a
-# un declenchement explicite de l'utilisateur (bouton "analyse approfondie").
+# Modele d'escalade manuelle uniquement (jamais automatique), reserve a un
+# declenchement explicite de l'utilisateur (bouton "analyse approfondie").
+#
+# 2026-08-23 : Phi-4-reasoning-vision-15B, qui remplissait ce role, a ete
+# supprime du VPS a la demande de l'utilisateur. Repointe sur olmocr2:7b-q8,
+# meilleure fidelite de structure de tableau parmi les modeles vision
+# restants (HTML rowspan/colspan correctement reconstruits, ~587s/page
+# mesure). LIMITE ASSUMEE : olmocr2 est deja le 4e etage AUTOMATIQUE de la
+# cascade OCR, donc sur un document ou la cascade est allee jusqu'au bout,
+# l'escalade manuelle ne fait que refaire le meme appel et n'apporte pas de
+# second avis reellement independant. Elle garde son interet quand la
+# cascade s'est arretee plus tot (un etage precedent a renvoye un texte
+# juge acceptable par les filtres mais insuffisant par l'utilisateur).
 HERMES_ESCALATION_VISION_MODEL = os.environ.get(
-    "HERMES_ESCALATION_VISION_MODEL", "hf.co/DevQuasar/microsoft.Phi-4-reasoning-vision-15B-GGUF:Q4_K_M"
+    "HERMES_ESCALATION_VISION_MODEL", "richardyoung/olmocr2:7b-q8"
 )
 # Shared with Caddy on ovh-ai-stack (header X-Api-Key). Empty in local dev.
 HERMES_API_KEY = os.environ.get("HERMES_API_KEY", "")
@@ -372,18 +425,25 @@ async def resolve_ai_config(
 ) -> tuple[str, str, str]:
     """Return (provider, model, api_key) for this tenant.
 
-    role=extract → qwen2.5:14b (parse rapide, texte seul). Réservé au texte
-      colle manuellement (pas un fichier importe).
-    role=file → HERMES_VISION_MODEL, gemma4:26b par defaut, raisonnement
-      toujours actif (_wants_think). Modèle PAR DEFAUT pour tout fichier
+    2026-08-23 : docstring realignee sur l'etat reel apres suppression de
+    gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b et
+    Phi-4-reasoning-vision-15B du VPS (63 Go liberes). AUCUN des modeles
+    restants n'a de mode raisonnement natif (_wants_think renvoie False
+    pour qwen2.5:7b, qwen2.5vl:7b et hermes3) : la decision du 2026-08-18
+    ("raisonnement toujours actif pour tout fichier importe") est donc
+    caduque tant qu'un modele de raisonnement n'est pas reinstalle.
+
+    role=extract → HERMES_EXTRACT_MODEL (qwen2.5:7b par defaut, texte seul).
+      Reserve au texte colle manuellement (pas un fichier importe).
+    role=file → HERMES_VISION_MODEL (qwen2.5vl:7b par defaut, seul modele
+      multimodal restant sur le VPS). Modele PAR DEFAUT pour tout fichier
       importe (PDF, DOCX, XLSX, CSV, TXT, image) — tableaux inclus — quel
-      que soit son etat de lisibilite. Decision du 2026-08-18 : Gemma+
-      raisonnement devient le moteur d'extraction par defaut des devis,
-      plus fiable sur les tableaux que qwen2.5:14b (texte seul, sans
-      raisonnement).
+      que soit son etat de lisibilite.
     role=vision → alias de role=file, conserve pour la compatibilite avec
       le code existant qui distinguait "image" de "fichier texte".
-    role=reason → gemma4:26b (décomposition matériaux / lots).
+    role=reason (tout role hors extract/vision/file) → HERMES_REASONING_MODEL
+      (qwen2.5vl:7b par defaut, comme HERMES_VISION_MODEL : aucun modele de
+      raisonnement dedie n'est plus installe sur le VPS).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
     provider = tenant_settings.get("ai_provider") or DEFAULT_PROVIDER
@@ -794,7 +854,14 @@ async def extract_request_data(
         # securite heuristique : il n'y a pas d'alternative IA-only pour ce
         # canal et un resultat partiel reste mieux qu'un blocage total.
         if from_file or image_bytes:
-            return {"_error": f"Extraction Gemma indisponible ({detail}). Aucune extraction de secours "
+            # 2026-08-23 : ce message citait "Gemma" en dur alors que ce modele
+            # a ete supprime du VPS -- reproduit et confirme dans un test
+            # reel le meme jour ("Extraction Gemma indisponible" alors que le
+            # detail entre parentheses citait deja Qwen2.5-7B/Qwen2.5-VL-7B/
+            # Hermes-3, les vrais modeles appeles). Le nom du modele reellement
+            # en cause est deja dans {detail} ; le message n'a plus besoin d'en
+            # nommer un explicitement.
+            return {"_error": f"Extraction IA indisponible ({detail}). Aucune extraction de secours "
                                 "n'est utilisee pour un fichier importe : reimportez ou reessayez.",
                     "line_items": [], "confidence": 0.0}
         try:
@@ -819,7 +886,8 @@ async def extract_request_data(
         # Meme regle : une reponse Gemma illisible sur un fichier importe ne
         # doit jamais etre remplacee par une extraction heuristique degradee.
         if from_file or image_bytes:
-            return {"_error": "Reponse de Gemma illisible (JSON invalide) sur ce fichier. "
+            # 2026-08-23 : idem ci-dessus, "Gemma" retire (modele supprime du VPS).
+            return {"_error": "Reponse de l'IA illisible (JSON invalide) sur ce fichier. "
                                 "Aucune extraction de secours n'est utilisee : reessayez.",
                     "line_items": [], "confidence": 0.0,
                     "_raw_ai_response": (raw_response or "")[:1000]}
@@ -984,8 +1052,14 @@ async def _call_ocr_model(image_bytes: bytes, model: str, timeout: float = 240.0
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, json=payload, headers=headers)
+    # 2026-08-23 : cette fonction (toute la cascade OCR) ne passait par AUCUN
+    # semaphore alors que _call_structuring_cascade et _call_hermes_ollama en
+    # ont un -- incoherence qui laissait la cascade OCR contourner entierement
+    # la limite de concurrence cote backend. Desormais alignee sur le meme
+    # _OLLAMA_SEMAPHORE que le reste du fichier.
+    async with _OLLAMA_SEMAPHORE:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=payload, headers=headers)
     if response.status_code >= 400:
         raise RuntimeError(f"{model} HTTP {response.status_code}: {(response.text or '')[:180]}")
     data = response.json()
@@ -1100,13 +1174,17 @@ async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_
     # structuration jugee incomplete malgre un texte OCR correct).
     fallback = await extract_request_data("", tenant_settings, image_bytes=image_bytes)
     if errors:
+        # 2026-08-23 : "Gemma" retire (modele supprime du VPS) -- ce champ
+        # est affiche tel quel dans le panneau "Extraction IA" du frontend
+        # (RequestDetail.js, ex._ocr_fallback_reason), donc visible par
+        # l'utilisateur final.
         fallback["_ocr_fallback_reason"] = (
-            "Etapes OCR indisponibles (" + "; ".join(errors) + ") — secours vision directe Gemma."
+            "Etapes OCR indisponibles (" + "; ".join(errors) + f") — secours vision directe {HERMES_VISION_MODEL}."
         )
     else:
         fallback["_ocr_fallback_reason"] = (
             "Extraction structuree jugee incomplete a partir des etapes OCR — "
-            "secours vision directe Gemma."
+            f"secours vision directe {HERMES_VISION_MODEL}."
         )
     if last_ocr_text:
         fallback["_ocr_text"] = last_ocr_text
@@ -1116,12 +1194,13 @@ async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_
 
 async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> dict:
     """Escalade manuelle uniquement (jamais appelee automatiquement par le
-    pipeline) : Phi-4-reasoning-vision-15B, reserve aux cas ou Gemma et
-    PaddleOCR-VL-1.6 echouent tous les deux ou restent insuffisants selon
-    l'utilisateur. Tres lent (~12,5 min/page mesure) et a tendance a
-    paraphraser/resumer plutot qu'a transcrire litteralement — le resultat
-    doit etre presente comme un complement a comparer, jamais comme un
-    remplacement silencieux de l'extraction Gemma/PaddleOCR existante."""
+    pipeline), reservee aux cas ou l'extraction automatique reste
+    insuffisante selon l'utilisateur. Depuis le 2026-08-23 utilise
+    olmocr2:7b-q8 (voir HERMES_ESCALATION_VISION_MODEL) : lent
+    (~587s/page mesure) mais meilleure fidelite de tableau parmi les
+    modeles vision restants. Le resultat doit etre presente comme un
+    complement a comparer, jamais comme un remplacement silencieux de
+    l'extraction automatique existante."""
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     payload = {
         "model": HERMES_ESCALATION_VISION_MODEL,
@@ -1140,8 +1219,13 @@ async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> 
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
-    async with httpx.AsyncClient(timeout=1200.0) as client:
-        response = await client.post(url, json=payload, headers=headers)
+    # 2026-08-23 : alignee sur _OLLAMA_SEMAPHORE comme le reste du fichier
+    # (voir _call_ocr_model). Ce bouton est declenche manuellement, donc
+    # rare, mais un appel de 1200s hors semaphore pouvait quand meme
+    # contourner la limite de concurrence pendant toute sa duree.
+    async with _OLLAMA_SEMAPHORE:
+        async with httpx.AsyncClient(timeout=1200.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
     if response.status_code >= 400:
         raise RuntimeError(f"Escalade vision HTTP {response.status_code}: {(response.text or '')[:180]}")
     data = response.json()
@@ -1150,9 +1234,9 @@ async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> 
         "engine": HERMES_ESCALATION_VISION_MODEL,
         "content": content,
         "warning": (
-            "Analyse approfondie generee par un modele de raisonnement visuel lent, "
-            "a tendance a paraphraser plutot qu'a transcrire litteralement — a comparer "
-            "avec l'extraction principale, ne pas utiliser seule comme source de verite."
+            "Analyse approfondie generee par un modele vision lent, specialise dans la "
+            "fidelite des tableaux — a comparer avec l'extraction principale, ne pas "
+            "utiliser seule comme source de verite."
         ),
     }
 
@@ -1191,18 +1275,24 @@ async def extract_from_pdf_pages(pages: list[bytes], tenant_settings: dict, sess
     probleme.
 
     Pour chaque page : cascade OCR (_ocr_page_text). Si toutes les etapes
-    echouent pour cette page, secours vision directe de Gemma UNIQUEMENT
-    sur cette page (transcription litterale, pas de structuration).
+    echouent pour cette page, secours vision directe UNIQUEMENT sur cette
+    page (transcription litterale, pas de structuration) -- sauf si le
+    modele de secours fait deja partie de la cascade, cas ou il vient
+    forcement d'echouer sur cette meme page et ou le rappeler ne ferait que
+    doubler l'attente (situation depuis le 2026-08-23 : HERMES_VISION_MODEL
+    = qwen2.5vl:7b est aussi l'etage 3 de la cascade).
     Le texte de toutes les pages est ensuite concatene et structure en
-    UNE SEULE fois par Gemma (evite de payer N fois le cout de
-    structuration).
+    UNE SEULE fois via la cascade de structuration (evite de payer N fois
+    le cout de structuration).
     """
     page_texts = []
     engines_used = []
     fallback_pages = []
+    cascade_models = {(m or "").strip() for _l, m, _t in _ocr_cascade_stages()}
+    vision_fallback_is_distinct = (HERMES_VISION_MODEL or "").strip() not in cascade_models
     for i, page_bytes in enumerate(pages):
         text, engine, _error = await _ocr_page_text(page_bytes)
-        if not text:
+        if not text and vision_fallback_is_distinct:
             try:
                 text = await _call_ocr_model(page_bytes, HERMES_VISION_MODEL, timeout=_OCR_FINAL_FALLBACK_TIMEOUT)
                 engine = HERMES_VISION_MODEL
@@ -1227,7 +1317,7 @@ async def extract_from_pdf_pages(pages: list[bytes], tenant_settings: dict, sess
     if fallback_pages:
         result["_ocr_fallback_reason"] = (
             f"Page(s) {', '.join(map(str, fallback_pages))} illisible(s) par les modeles OCR specialises — "
-            "lecture visuelle directe par Gemma pour cette/ces page(s) uniquement."
+            f"lecture visuelle directe par {HERMES_VISION_MODEL} pour cette/ces page(s) uniquement."
         )
     return result
 
@@ -1302,10 +1392,19 @@ def extract_pdf_text(content: bytes) -> str:
         page.close()
     pdf.close()
     text = "\n".join(parts).strip()
-    # Ajoute les tableaux extraits de façon déterministe (structure préservée).
-    tables_md = _extract_pdf_tables_markdown(content)
-    if tables_md:
-        text = (text + "\n\n=== Tableaux détectés ===\n" + tables_md).strip()
+    # 2026-08-23 : n'ajouter les tableaux pdfplumber QUE si le calque texte
+    # natif est deja lisible. Bug reel observe en production ("Test 10",
+    # capture d'ecran fournie par l'utilisateur) : sur un PDF a police subset
+    # sans table ToUnicode (calque texte illisible, meme symptome que
+    # _looks_garbled plus bas), pdfplumber lit CE MEME calque casse et
+    # produit un tableau markdown tout aussi illisible (codes (cid:XXX)),
+    # qui polluait "Contenu source" sans le moindre benefice -- le vrai texte
+    # dans ce cas ne peut venir que de la lecture visuelle (vision_bytes),
+    # jamais de pdfplumber qui lit la meme couche de police cassee.
+    if text and not _looks_garbled(text):
+        tables_md = _extract_pdf_tables_markdown(content)
+        if tables_md and not _looks_garbled(tables_md):
+            text = (text + "\n\n=== Tableaux détectés ===\n" + tables_md).strip()
     return text
 
 
@@ -1332,6 +1431,17 @@ def _looks_garbled(text: str) -> bool:
     if letters / total < 0.35:
         return True
     if word_chars / total < 0.25:
+        return True
+    # 2026-08-23 : filet independant pour la sortie de pdfplumber. Quand un
+    # PDF a une police cassee, pdfplumber (comme le calque texte natif) ne
+    # peut pas retrouver les vrais caracteres -- mais au lieu de caracteres
+    # de controle bruts, il rend chaque glyphe non mappe sous forme TEXTUELLE
+    # "(cid:123)". Ce texte est fait de lettres/chiffres/parentheses normaux,
+    # donc les 3 ratios ci-dessus ne le detectent pas (verifie sur un cas
+    # reel : lettres/mots restent au-dessus des seuils). Un document
+    # legitime en francais/anglais n'ecrit jamais "(cid:" -- 2 occurrences
+    # suffisent a conclure de maniere fiable, sans faux positif attendu.
+    if len(re.findall(r"\(cid:\d+\)", s)) >= 2:
         return True
     return False
 

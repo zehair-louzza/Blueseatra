@@ -347,8 +347,14 @@ PROVIDER_MODELS = {
     "openai": ["gpt-5.4", "gpt-5.4-mini", "gpt-4o", "gpt-4.1"],
     "gemini": ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
-    # Noms réels sur le VPS OVH (ovh-ai-stack / ollama list)
-    "hermes": ["hermes-3", "qwen3.6:27b", "qwen2.5:14b"],
+    # Noms réels sur le VPS OVH (ovh-ai-stack / ollama list). 2026-08-23 :
+    # qwen3.6:27b et qwen2.5:14b ont ete supprimes du VPS (63 Go liberes) --
+    # un tenant qui aurait choisi l'un des deux ici verrait CHAQUE extraction
+    # echouer silencieusement (resolve_ai_config ne reecrit l'override d'un
+    # tenant que si son modele commence par "hermes", donc un nom de modele
+    # explicite comme celui-ci n'est jamais corrige automatiquement). Aligne
+    # sur les modeles reellement installes.
+    "hermes": ["hermes-3", "qwen2.5vl:7b", "qwen2.5:7b"],
 }
 
 
@@ -543,6 +549,18 @@ async def create_request(
             # navigateur), sans jamais persister le PDF ni son rendu.
             if ai_service.pdf_needs_vision_fallback(raw_text):
                 source_type = "pdf_ocr"
+                # 2026-08-23 : ne JAMAIS persister le calque texte natif quand
+                # il est illisible. Bug reel observe en production ("Test 10") :
+                # meme quand ce repli vision se declenchait correctement, le
+                # texte brut garbled (ex. codes (cid:XXX) ou caracteres de
+                # controle) restait ecrit dans raw_text et donc affiche tel
+                # quel dans le panneau "Contenu source" du frontend -- alors
+                # que la vraie extraction utilisee est celle de vision_bytes
+                # ci-dessous, jamais celle-ci. Un texte garbled ici n'a aucune
+                # valeur (ni pour l'utilisateur, ni pour aucun code aval :
+                # detect_exclusive_options ne trouve jamais de motif dans du
+                # charabia) et ne fait qu'induire en erreur.
+                raw_text = ""
                 # Chaque page est rendue et traitee INDIVIDUELLEMENT (jamais
                 # empilee en une seule image composite) : evite les echecs
                 # observes de certains modeles OCR sur des images composites
@@ -582,9 +600,65 @@ async def create_request(
     # (worker RQ séparé). Sinon comportement historique (tâche de fond in-process).
     if vision_bytes is None and _redis_sync() is not None:
         _enqueue_extraction(req_id, cu.tenant_id)
+        # 2026-08-23 : filet de securite independant de toute discipline de
+        # configuration (voir _watchdog_reprocess_if_stuck). REDIS_URL peut
+        # etre renseignee sans qu'un service worker existe reellement pour
+        # consommer la file (erreur de config, worker jamais deploye, worker
+        # tombe en panne/redemarre) -- sans ce filet, la demande resterait
+        # bloquee indefiniment sur "received", sans aucun signal a
+        # l'utilisateur. Cette tache tourne dans CE process (blueseatra-api),
+        # totalement independante du worker.
+        background.add_task(_watchdog_reprocess_if_stuck, req_id, cu.tenant_id)
     else:
         background.add_task(process_request, req_id, cu.tenant_id, vision_bytes)
     return {"id": req_id, "status": "received"}
+
+
+# 2026-08-23 : delai avant de considerer qu'un job mis en file durable (Redis)
+# n'a ete pris en charge par AUCUN worker. Un worker RQ reellement actif
+# recupere un job de la file et bascule son statut sur "processing" en
+# quelques secondes au plus (l'extraction elle-meme peut ensuite prendre
+# plusieurs minutes -- ce delai ne mesure PAS la duree de l'extraction, juste
+# le temps de "quelqu'un a commence a s'en occuper"). Marge large (5x) pour
+# absorber un cold start de service Render ou un redemarrage de worker.
+_QUEUE_WATCHDOG_DELAY_SECONDS = 60.0
+
+
+async def _watchdog_reprocess_if_stuck(request_id: str, tenant_id: str):
+    """Filet de securite pour la file durable Redis/RQ (voir _enqueue_extraction).
+    Alternative CODE (et non documentaire) au risque "REDIS_URL renseignee
+    sans worker actif = demande bloquee indefiniment sur 'received'" identifie
+    lors de la revue de la PR #44.
+
+    Attend _QUEUE_WATCHDOG_DELAY_SECONDS puis tente une PRISE ATOMIQUE de la
+    demande (update conditionne sur status == "received", jamais un simple
+    set) : si un vrai worker RQ a deja bascule le statut sur "processing"
+    entre-temps, cette mise a jour ne matche aucune ligne (matched_count == 0)
+    et la fonction s'arrete la, sans jamais retraiter une demande deja prise
+    en charge. Si en revanche la demande est toujours "received" apres ce
+    delai (aucun worker n'existe, ou il est en panne), elle bascule le statut
+    elle-meme puis appelle process_request() directement dans CE process --
+    exactement le comportement in-process historique, comme si REDIS_URL
+    n'avait jamais ete definie. La demande finit donc TOUJOURS par etre
+    traitee, meme dans le pire des cas de configuration.
+
+    Ne modifie jamais deux fois le meme etat : process_request() re-ecrit de
+    toute facon le statut sur "processing" au debut de son execution (idempotent,
+    pas un probleme de le faire une deuxieme fois ici).
+    """
+    await asyncio.sleep(_QUEUE_WATCHDOG_DELAY_SECONDS)
+    claim = await db.requests.update_one(
+        {"id": request_id, "tenant_id": tenant_id, "status": "received"},
+        {"$set": {"status": "processing"}},
+    )
+    if claim.matched_count == 0:
+        return  # deja pris en charge par un worker reel (ou deja termine/echoue autrement)
+    logger.warning(
+        "Watchdog file Redis : demande %s toujours 'received' apres %ss, "
+        "aucun worker ne semble actif -- traitement in-process de secours.",
+        request_id, _QUEUE_WATCHDOG_DELAY_SECONDS,
+    )
+    await process_request(request_id, tenant_id)
 
 
 @api.get("/requests")

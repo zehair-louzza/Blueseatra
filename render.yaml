@@ -4,9 +4,81 @@
 # ============================================================
 # IMPORTANT : Ne jamais committer les valeurs sensibles ici.
 # Les secrets (DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET,
-# APP_ENCRYPTION_KEY) doivent être renseignés dans
-# Render Dashboard > Environment > Secret Files / Env Vars.
+# APP_ENCRYPTION_KEY, HERMES_API_KEY, HERMES_GATEWAY_KEY, MCP_API_KEY,
+# REDIS_URL) doivent être renseignés dans Render Dashboard > chaque
+# service > Environment. Render interdit `sync: false` dans un
+# envVarGroup (la valeur doit venir du Dashboard PAR service) : ils sont
+# donc déclarés individuellement sur chaque service ci-dessous plutôt
+# que dans le groupe partagé, qui ne contient que des valeurs littérales.
 # ============================================================
+
+# Groupe d'env partagé (valeurs non sensibles uniquement), utilise
+# aujourd'hui par blueseatra-api. Reste nomme "shared" en prevision du
+# service worker d'extraction (voir note plus bas, retire du blueprint le
+# 2026-08-23 pour eviter un cout Render inutile tant que la file n'est
+# pas activee) : le jour ou ce worker revient, il reimportera server.py
+# et devra voir exactement la meme config modeles/IA -- source du bug du
+# 2026-08-23 ou HERMES_EXTRACT_MODEL/HERMES_REASONING_MODEL/HERMES_VISION_MODEL
+# pointaient encore vers des modeles supprimes du VPS, uniquement parce
+# qu'ils etaient dupliques en dur sans etre synchronises.
+envVarGroups:
+  - name: blueseatra-shared
+    envVars:
+      - key: SUPABASE_URL
+        value: https://xmsxlochasjauhnxarvc.supabase.co
+
+      # Clé anon (publique) — sûr de committer
+      - key: SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhtc3hsb2NoYXNqYXVobnhhcnZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNzU5MDAsImV4cCI6MjA5NzY1MTkwMH0.RCSODn4zjqsgAxAelkSN24YWSDVUrbNaQruQ6Xa22_w
+
+      # Clé publishable moderne (recommandée pour les nouveaux modules)
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_CyUMx3b07aIaDDq99VixKw_pHp7t4WU
+
+      # --- IA : Hermes / Ollama derrière Caddy (repo ovh-ai-stack) ---
+      # HTTPS uniquement. Ne jamais pointer vers :11434.
+      - key: HERMES_BASE_URL
+        value: https://ia.blueseatra.com
+
+      - key: HERMES_DEFAULT_MODEL
+        value: hermes-3
+
+      # 2026-08-23 : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b,
+      # qwen2.5:14b et Phi-4-reasoning-vision-15B ont ete supprimes du VPS
+      # (63 Go liberes). Valeurs alignees sur les defauts de ai_service.py
+      # (voir PR #44) : qwen2.5:7b (texte) / qwen2.5vl:7b (vision, seul
+      # modele multimodal restant sur le VPS).
+      - key: HERMES_EXTRACT_MODEL
+        value: qwen2.5:7b
+
+      - key: HERMES_REASONING_MODEL
+        value: qwen2.5vl:7b
+
+      # Modele utilise pour toute extraction avec image (photo, PDF au calque
+      # texte illisible rendu en image). DOIT etre un modele multimodal
+      # installe sur le VPS (verifie via `ollama show <modele>` -> Capabilities
+      # doit lister "vision"). qwen2.5:7b et hermes3/hermes-3 sont texte seul
+      # et renvoient HTTP 400 si on leur envoie une image (incident 2026-08-18).
+      - key: HERMES_VISION_MODEL
+        value: qwen2.5vl:7b
+
+      - key: HERMES_GATEWAY_URL
+        value: https://hermes.blueseatra.com
+
+      - key: HERMES_GATEWAY_MODEL
+        value: hermes-agent
+
+      # Tenant ANELEC Test — pas un secret, requis pour le MCP Perplexity
+      - key: MCP_TENANT_ID
+        value: "9171d808-f7ee-4d51-92f6-db60d93d8ecc"
+
+      # --- Schema PostgreSQL ---
+      - key: DB_SCHEMA
+        value: public
+
+      # --- Python env ---
+      - key: PYTHON_VERSION
+        value: "3.11.0"
 
 services:
 
@@ -24,31 +96,17 @@ services:
     healthCheckPath: /api/health
 
     envVars:
+      - fromGroup: blueseatra-shared
 
-      # --- Database : Supabase Transaction Pooler (port 6543) ---
+      # --- Secrets : à renseigner dans Render Dashboard > Environment ---
       # Format : postgresql+asyncpg://postgres.xmsxlochasjauhnxarvc:[MOT_DE_PASSE]@aws-0-eu-west-1.pooler.supabase.com:6543/postgres
-      # → À renseigner dans Render Dashboard > Environment (Secret)
       - key: DATABASE_URL
         sync: false
 
-      # --- Supabase API ---
-      - key: SUPABASE_URL
-        value: https://xmsxlochasjauhnxarvc.supabase.co
-
-      # Clé anon (publique) — sûr de committer
-      - key: SUPABASE_ANON_KEY
-        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhtc3hsb2NoYXNqYXVobnhhcnZjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNzU5MDAsImV4cCI6MjA5NzY1MTkwMH0.RCSODn4zjqsgAxAelkSN24YWSDVUrbNaQruQ6Xa22_w
-
-      # Clé publishable moderne (recommandée pour les nouveaux modules)
-      - key: SUPABASE_PUBLISHABLE_KEY
-        value: sb_publishable_CyUMx3b07aIaDDq99VixKw_pHp7t4WU
-
       # Service role key — ultra-sensible, JAMAIS dans le code
-      # → À renseigner dans Render Dashboard > Environment (Secret)
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
 
-      # --- App secrets ---
       # Générer : python -c "import secrets; print(secrets.token_urlsafe(48))"
       - key: JWT_SECRET
         sync: false
@@ -57,63 +115,68 @@ services:
       - key: APP_ENCRYPTION_KEY
         sync: false
 
-      # --- IA : Hermes / Ollama derrière Caddy (repo ovh-ai-stack) ---
-      # HTTPS uniquement. Ne jamais pointer vers :11434.
-      - key: HERMES_BASE_URL
-        value: https://ia.blueseatra.com
-
-      - key: HERMES_DEFAULT_MODEL
-        value: hermes-3
-
-      - key: HERMES_EXTRACT_MODEL
-        value: qwen2.5:14b
-
-      - key: HERMES_REASONING_MODEL
-        value: gemma4:26b
-
-      # Modele utilise pour toute extraction avec image (photo, PDF au calque
-      # texte illisible rendu en image). DOIT etre un modele multimodal
-      # installe sur le VPS (verifie via `ollama show <modele>` -> Capabilities
-      # doit lister "vision"). qwen2.5:14b et hermes3/hermes-3 sont texte seul
-      # et renvoient HTTP 400 si on leur envoie une image (incident 2026-08-18).
-      - key: HERMES_VISION_MODEL
-        value: gemma4:26b
-
       - key: HERMES_API_KEY
         sync: false
-
-      - key: HERMES_GATEWAY_URL
-        value: https://hermes.blueseatra.com
 
       - key: HERMES_GATEWAY_KEY
         sync: false
 
-      - key: HERMES_GATEWAY_MODEL
-        value: hermes-agent
+      # --- File durable (opt-in) : voir backend/extraction_worker.py. ---
+      # PAS de cle REDIS_URL ici pour l'instant (retiree le 2026-08-23, en
+      # meme temps que le service worker ci-dessous) : le code de mise en
+      # file (server.py _enqueue_extraction) existe deja et tombe sans
+      # risque sur l'ancien comportement in-process tant que REDIS_URL
+      # n'existe pas comme variable. La definir ICI SANS avoir egalement
+      # redeploye un service worker qui la consomme n'est PLUS un echec
+      # silencieux garanti : un filet de securite cote code
+      # (server.py _watchdog_reprocess_if_stuck, ajoute le 2026-08-23) fait
+      # basculer automatiquement toute demande restee sur "received" plus
+      # de 60s vers le traitement in-process de secours -- mais chaque
+      # demande passe alors par un delai d'attente inutile de 60s pour
+      # rien. Ne pas rajouter cette cle sans redeployer aussi le vrai
+      # service worker (voir note detaillee plus bas, a l'endroit ou il a
+      # ete retire) : le watchdog est un filet de secours, pas une raison
+      # de se passer du worker.
 
       # Connecteur MCP Perplexity (https://blueseatra-api.onrender.com/mcp)
       - key: MCP_API_KEY
         sync: false
-      # Tenant ANELEC Test — pas un secret, requis pour le MCP Perplexity
-      - key: MCP_TENANT_ID
-        value: "9171d808-f7ee-4d51-92f6-db60d93d8ecc"
 
-      # --- CORS ---
+      # --- CORS (specifique a l'API, le worker n'en a pas besoin) ---
       # Ajouter l'URL réelle du frontend une fois déployé
       - key: CORS_ORIGINS
         value: https://blueseatra.com,https://blueseatra-frontend.onrender.com
 
-      # --- Schema PostgreSQL ---
-      - key: DB_SCHEMA
-        value: public
-
-      # --- Taille max upload (15 Mo) ---
+      # --- Taille max upload (15 Mo, specifique a l'API) ---
       - key: MAX_UPLOAD_SIZE
         value: "15728640"
 
-      # --- Python env ---
-      - key: PYTHON_VERSION
-        value: "3.11.0"
+  # ----------------------------------------------------------
+  # Worker RQ — traite la file d'extraction durable (opt-in, PAS DEPLOYE)
+  # ----------------------------------------------------------
+  # 2026-08-23 : ce service a ete ecrit puis retire du blueprint avant
+  # fusion de la PR #44, a la demande explicite de l'utilisateur --
+  # Render facture les background workers des leur deploiement, meme
+  # inactifs (Starter $7/mois, verifie sur render.com/pricing.md), et
+  # REDIS_URL reste non definie sur blueseatra-api (voir plus haut), donc
+  # ce worker n'aurait actuellement RIEN a traiter. Le code qu'il
+  # executerait (backend/server.py _enqueue_extraction,
+  # backend/extraction_worker.py) existe deja et reste inutilise tant que
+  # REDIS_URL n'est definie nulle part -- create_request() retombe alors
+  # automatiquement sur l'ancien comportement in-process, sans risque.
+  #
+  # Pour reactiver la file durable plus tard :
+  # 1. Redefinir ici un service `type: worker`, meme rootDir/buildCommand,
+  #    startCommand: python extraction_worker.py, plan: starter minimum
+  #    (pas de palier gratuit pour les workers).
+  # 2. Lui donner `envVars: [{fromGroup: blueseatra-shared}]` PLUS les
+  #    memes secrets que blueseatra-api (DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+  #    JWT_SECRET, APP_ENCRYPTION_KEY, HERMES_API_KEY, HERMES_GATEWAY_KEY,
+  #    REDIS_URL) -- il importe server.py et a besoin de la config complete.
+  # 3. Ajouter REDIS_URL (sync: false) sur blueseatra-api ET ce worker, avec
+  #    la MEME valeur sur les deux (Render Key Value Starter, $10/mois --
+  #    voir render.com/pricing.md).
+  # 4. Verifier les logs Render du worker AVANT de considerer la file active.
 
   # ----------------------------------------------------------
   # Frontend (décommenter si hébergé sur Render)
