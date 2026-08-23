@@ -221,7 +221,7 @@ def story_fr():
     s.append(P("3. Fonctionnalites", "h1"))
     s.append(bullets([
         "Auth JWT, roles owner / admin / operator / viewer / billing_admin, isolation par tenant_id.",
-        "Extraction IA multilingue (PDF, image, texte). Modele leger qwen2.5:14b.",
+        "Extraction IA multilingue (PDF, image, texte). Modele leger qwen2.5:7b / qwen2.5vl:7b (vision).",
         "Decomposition materiaux (ballon ECS, accessoires, etc.) au lieu de recopier le titre.",
         "Rapprochement catalogue avec score et motif. Recalcul si le catalogue change.",
         "Lots et sous-lots TCE, heures de main-d'oeuvre, jours de deplacement, equipe.",
@@ -487,7 +487,7 @@ def story_en():
     s.append(P("3. Features", "h1"))
     s.append(bullets([
         "JWT auth, roles owner / admin / operator / viewer / billing_admin, tenant_id isolation.",
-        "Multilingual AI extraction (PDF, image, text) on qwen2.5:14b.",
+        "Multilingual AI extraction (PDF, image, text) on qwen2.5:7b / qwen2.5vl:7b (vision).",
         "Material breakdown instead of repeating the title.",
         "Catalog matching with score and reason. Rematch when the catalog changes.",
         "TCE lots and sub-lots, labor hours, travel days, crew size.",
