@@ -173,23 +173,48 @@ async def _call_structuring_cascade(system_prompt: str, user_message: str) -> tu
 # pour le detail des rejets (DeepSeek-OCR-2 : hallucine puis degenere en
 # boucle ; Phi-4 : 12,5 min/page et paraphrase au lieu de transcrire).
 HERMES_OCR_MODEL = os.environ.get("HERMES_OCR_MODEL", "AuditAid/PaddleOCR-VL-1.6-0.9B:latest")
-# Deuxieme etape OCR : LightOnOCR-2-1B, entraine avec une forte couverture
+# 2026-08-23 : deuxieme etape OCR, ajoutee apres le rejet complet de la
+# famille qwen3-vl (voir plus bas, HERMES_OCR_ESCALATION_MODEL). GLM-OCR :
+# modele OCR SPECIALISE (encodeur-decodeur GLM-V, PAS un modele de chat
+# vision generaliste comme qwen3-vl/DeepSeek-OCR-2/GLM-4.1V, qui ont tous
+# echoue ou hallucine) -- seulement 0.9 Md parametres (2.2 Go), classe
+# #1 sur OmniDocBench V1.5 (94.62), specifiquement documente pour les
+# tableaux complexes. Mesure en conditions reelles sur ce VPS : ~183s
+# (2 essais coherents, 184.0s et 182.7s), transcription fidele verifiee
+# champ par champ contre le document source (aucune invention). Plus
+# rapide ET plus petit que LightOnOCR-2-1B (~200s) : positionne avant lui
+# dans la cascade.
+# 2026-08-23 (suite) : teste egalement sur un document a tableau dense reel
+# (LOT_20_LA_SABLIERE-1.pdf, bordereau de sous-traitance avec 5 lignes
+# d'articles, colonnes Designation/F.P./Un./Quantite/P.U. HT/Total/Nota) --
+# succes HTTP 200 en 167.8s, toutes les lignes et quantites restituees
+# fidelement, y compris la distinction fine entre "X X" (deux colonnes
+# cochees) et "X" seul selon la ligne. Deux imprecisions mineures de niveau
+# caractere relevees ("T+33" lu "T*33", "qualite" lu "qualifie"), aucune
+# invention de contenu ni ligne de tableau manquee/dupliquee -- confirme le
+# point fort documente sur les tableaux complexes (OmniDocBench V1.5).
+HERMES_OCR_GLM_MODEL = os.environ.get("HERMES_OCR_GLM_MODEL", "glm-ocr:latest")
+# Troisieme etape OCR : LightOnOCR-2-1B, entraine avec une forte couverture
 # de documents FRANCAIS (pertinent pour ce cas d'usage), SOTA sur
 # OlmOCR-Bench (83.2) a seulement 596M parametres. Sortie Markdown/HTML
 # mieux structuree que PaddleOCR (tableaux avec rowspan/colspan corrects),
 # mesure a ~200s, aucun echec observe sur nos tests (contrairement a
 # Paddle qui a echoue une fois sur une image composite a 3 pages).
 HERMES_OCR_SECONDARY_MODEL = os.environ.get("HERMES_OCR_SECONDARY_MODEL", "maternion/LightOnOCR-2:1b")
-# Troisieme etape OCR avant le recours a la vision directe de Gemma :
-# modele officiel Ollama (pas de GGUF communautaire a risque), qualite
-# superieure a Paddle/LightOnOCR sur ce type de document (tableaux
-# correctement restructures), mesure a ~246s contre ~600-750s pour
-# Gemma-vision. Decision du 2026-08-18 apres comparaison de 8 modeles
-# (voir aussi les rejets : DeepSeek-OCR-2, GLM-4.1V-9B-Thinking,
-# Granite Vision 3.2-2B — tous invent(ent)/degenerent sur ce type de
-# document dense).
+# Quatrieme etape OCR avant le recours a la vision directe : modele
+# officiel Ollama (pas de GGUF communautaire a risque), qualite superieure
+# a Paddle/LightOnOCR/GLM-OCR sur ce type de document (tableaux correctement
+# restructures), mesure a ~246s. Decision du 2026-08-18 apres comparaison de
+# 8 modeles (voir aussi les rejets : DeepSeek-OCR-2, GLM-4.1V-9B-Thinking,
+# Granite Vision 3.2-2B -- tous invent(ent)/degenerent sur ce type de
+# document dense). 2026-08-23 : la famille qwen3-vl (8b/4b/2b, avec et sans
+# raisonnement) a aussi ete testee et rejetee en entier -- soit bloquee
+# plus de 10 min sans terminer (mode raisonnement), soit en echec HTTP 500
+# apres 2m39-4m40 meme sans raisonnement (2b/4b/8b Instruct), le 2B
+# generant meme 1300+ tokens (emballement de generation) avant d'echouer.
+# Ce modele qwen2.5vl:7b reste donc la meilleure option a ce gabarit.
 HERMES_OCR_ESCALATION_MODEL = os.environ.get("HERMES_OCR_ESCALATION_MODEL", "qwen2.5vl:7b")
-# Quatrieme etape OCR, la plus fiable des quatre (meilleure fidelite de
+# Cinquieme etape OCR, la plus fiable de toutes (meilleure fidelite de
 # structure de tableau observee, HTML avec rowspan/colspan correct) mais
 # la plus lente des etapes OCR specialisees (quant Q8_0 lourde), ~587s.
 # Base sur Qwen2.5-VL-7B, affine par renforcement (RLVR) specifiquement
@@ -216,6 +241,7 @@ _OCR_STAGE_TIMEOUT_MULTIPLIER = 1.2
 _OCR_FINAL_FALLBACK_TIMEOUT = 300.0
 _OCR_STAGE_MEASURED_SECONDS = {
     "PaddleOCR-VL-1.6": 110,
+    "GLM-OCR": 183,
     "LightOnOCR-2-1B": 200,
     "Qwen2.5-VL-7B": 246,
     "olmOCR-2-7B": 587,
@@ -239,15 +265,23 @@ def _ocr_cascade_stages() -> list[tuple[str, str, float]]:
     d'environnement en cours d'execution.
 
     2026-08-23 : le secours vision final utilise desormais HERMES_VISION_MODEL
-    = qwen2.5vl:7b, qui est AUSSI l'etage 3 de cette cascade (gemma4:26b, qui
+    = qwen2.5vl:7b, qui est AUSSI l'etage 4 de cette cascade (gemma4:26b, qui
     remplissait ce role, a ete supprime du VPS). Les doublons sont filtres
     ci-dessous pour ne jamais rappeler deux fois le meme modele dans une
-    meme cascade : concretement, si l'etage 3 echoue, le secours final avec
+    meme cascade : concretement, si l'etage 4 echoue, le secours final avec
     le meme modele echouerait de la meme facon et ne ferait que doubler
-    l'attente. Le seul repli reellement distinct restant apres l'etage 3 est
-    donc olmocr2:7b-q8 (etage 4)."""
+    l'attente. Le seul repli reellement distinct restant apres l'etage 4 est
+    donc olmocr2:7b-q8 (etage 5).
+
+    2026-08-23 : GLM-OCR insere en etage 2 (apres PaddleOCR, avant
+    LightOnOCR) d'apres sa vitesse mesuree (~183s, plus rapide que
+    LightOnOCR-2-1B a ~200s) -- ordre de la cascade reoptimise pour
+    favoriser la vitesse a qualite egale, comme demande par l'utilisateur
+    apres validation du modele sur un document reel (2/2 essais reussis,
+    transcription fidele verifiee champ par champ)."""
     order = [
         ("PaddleOCR-VL-1.6", HERMES_OCR_MODEL),
+        ("GLM-OCR", HERMES_OCR_GLM_MODEL),
         ("LightOnOCR-2-1B", HERMES_OCR_SECONDARY_MODEL),
         ("Qwen2.5-VL-7B", HERMES_OCR_ESCALATION_MODEL),
         ("olmOCR-2-7B", HERMES_OCR_TERTIARY_MODEL),
