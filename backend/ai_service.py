@@ -425,18 +425,25 @@ async def resolve_ai_config(
 ) -> tuple[str, str, str]:
     """Return (provider, model, api_key) for this tenant.
 
-    role=extract → qwen2.5:14b (parse rapide, texte seul). Réservé au texte
-      colle manuellement (pas un fichier importe).
-    role=file → HERMES_VISION_MODEL, gemma4:26b par defaut, raisonnement
-      toujours actif (_wants_think). Modèle PAR DEFAUT pour tout fichier
+    2026-08-23 : docstring realignee sur l'etat reel apres suppression de
+    gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b et
+    Phi-4-reasoning-vision-15B du VPS (63 Go liberes). AUCUN des modeles
+    restants n'a de mode raisonnement natif (_wants_think renvoie False
+    pour qwen2.5:7b, qwen2.5vl:7b et hermes3) : la decision du 2026-08-18
+    ("raisonnement toujours actif pour tout fichier importe") est donc
+    caduque tant qu'un modele de raisonnement n'est pas reinstalle.
+
+    role=extract → HERMES_EXTRACT_MODEL (qwen2.5:7b par defaut, texte seul).
+      Reserve au texte colle manuellement (pas un fichier importe).
+    role=file → HERMES_VISION_MODEL (qwen2.5vl:7b par defaut, seul modele
+      multimodal restant sur le VPS). Modele PAR DEFAUT pour tout fichier
       importe (PDF, DOCX, XLSX, CSV, TXT, image) — tableaux inclus — quel
-      que soit son etat de lisibilite. Decision du 2026-08-18 : Gemma+
-      raisonnement devient le moteur d'extraction par defaut des devis,
-      plus fiable sur les tableaux que qwen2.5:14b (texte seul, sans
-      raisonnement).
+      que soit son etat de lisibilite.
     role=vision → alias de role=file, conserve pour la compatibilite avec
       le code existant qui distinguait "image" de "fichier texte".
-    role=reason → gemma4:26b (décomposition matériaux / lots).
+    role=reason (tout role hors extract/vision/file) → HERMES_REASONING_MODEL
+      (qwen2.5vl:7b par defaut, comme HERMES_VISION_MODEL : aucun modele de
+      raisonnement dedie n'est plus installe sur le VPS).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
     provider = tenant_settings.get("ai_provider") or DEFAULT_PROVIDER
@@ -847,7 +854,14 @@ async def extract_request_data(
         # securite heuristique : il n'y a pas d'alternative IA-only pour ce
         # canal et un resultat partiel reste mieux qu'un blocage total.
         if from_file or image_bytes:
-            return {"_error": f"Extraction Gemma indisponible ({detail}). Aucune extraction de secours "
+            # 2026-08-23 : ce message citait "Gemma" en dur alors que ce modele
+            # a ete supprime du VPS -- reproduit et confirme dans un test
+            # reel le meme jour ("Extraction Gemma indisponible" alors que le
+            # detail entre parentheses citait deja Qwen2.5-7B/Qwen2.5-VL-7B/
+            # Hermes-3, les vrais modeles appeles). Le nom du modele reellement
+            # en cause est deja dans {detail} ; le message n'a plus besoin d'en
+            # nommer un explicitement.
+            return {"_error": f"Extraction IA indisponible ({detail}). Aucune extraction de secours "
                                 "n'est utilisee pour un fichier importe : reimportez ou reessayez.",
                     "line_items": [], "confidence": 0.0}
         try:
@@ -872,7 +886,8 @@ async def extract_request_data(
         # Meme regle : une reponse Gemma illisible sur un fichier importe ne
         # doit jamais etre remplacee par une extraction heuristique degradee.
         if from_file or image_bytes:
-            return {"_error": "Reponse de Gemma illisible (JSON invalide) sur ce fichier. "
+            # 2026-08-23 : idem ci-dessus, "Gemma" retire (modele supprime du VPS).
+            return {"_error": "Reponse de l'IA illisible (JSON invalide) sur ce fichier. "
                                 "Aucune extraction de secours n'est utilisee : reessayez.",
                     "line_items": [], "confidence": 0.0,
                     "_raw_ai_response": (raw_response or "")[:1000]}
@@ -1159,13 +1174,17 @@ async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_
     # structuration jugee incomplete malgre un texte OCR correct).
     fallback = await extract_request_data("", tenant_settings, image_bytes=image_bytes)
     if errors:
+        # 2026-08-23 : "Gemma" retire (modele supprime du VPS) -- ce champ
+        # est affiche tel quel dans le panneau "Extraction IA" du frontend
+        # (RequestDetail.js, ex._ocr_fallback_reason), donc visible par
+        # l'utilisateur final.
         fallback["_ocr_fallback_reason"] = (
-            "Etapes OCR indisponibles (" + "; ".join(errors) + ") — secours vision directe Gemma."
+            "Etapes OCR indisponibles (" + "; ".join(errors) + f") — secours vision directe {HERMES_VISION_MODEL}."
         )
     else:
         fallback["_ocr_fallback_reason"] = (
             "Extraction structuree jugee incomplete a partir des etapes OCR — "
-            "secours vision directe Gemma."
+            f"secours vision directe {HERMES_VISION_MODEL}."
         )
     if last_ocr_text:
         fallback["_ocr_text"] = last_ocr_text

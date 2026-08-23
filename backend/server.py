@@ -347,8 +347,14 @@ PROVIDER_MODELS = {
     "openai": ["gpt-5.4", "gpt-5.4-mini", "gpt-4o", "gpt-4.1"],
     "gemini": ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
-    # Noms réels sur le VPS OVH (ovh-ai-stack / ollama list)
-    "hermes": ["hermes-3", "qwen3.6:27b", "qwen2.5:14b"],
+    # Noms réels sur le VPS OVH (ovh-ai-stack / ollama list). 2026-08-23 :
+    # qwen3.6:27b et qwen2.5:14b ont ete supprimes du VPS (63 Go liberes) --
+    # un tenant qui aurait choisi l'un des deux ici verrait CHAQUE extraction
+    # echouer silencieusement (resolve_ai_config ne reecrit l'override d'un
+    # tenant que si son modele commence par "hermes", donc un nom de modele
+    # explicite comme celui-ci n'est jamais corrige automatiquement). Aligne
+    # sur les modeles reellement installes.
+    "hermes": ["hermes-3", "qwen2.5vl:7b", "qwen2.5:7b"],
 }
 
 
