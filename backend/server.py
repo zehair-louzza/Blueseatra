@@ -1753,8 +1753,19 @@ async def root():
 
 @api.get("/health")
 async def health():
-    """Lightweight liveness probe (used by Render health checks)."""
-    return {"status": "healthy"}
+    """Lightweight liveness probe (used by Render health checks).
+
+    2026-08-23 : expose aussi le SHA du commit reellement deploye, via la
+    variable d'environnement RENDER_GIT_COMMIT que Render injecte
+    automatiquement dans chaque service (doc officielle : le SHA du commit
+    pour ce service/deploiement). Permet de confirmer depuis l'exterieur
+    -- sans acces au tableau de bord Render -- que le service tourne bien
+    sur le dernier commit fusionne, plutot que de deduire un succes de
+    deploiement du seul statut HTTP 200. Absente en local (dev sans
+    Render) : renvoie alors "unknown" plutot que d'echouer.
+    """
+    commit = os.environ.get("RENDER_GIT_COMMIT", "unknown")
+    return {"status": "healthy", "commit": commit[:7] if commit != "unknown" else commit}
 
 
 app.include_router(api)
