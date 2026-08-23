@@ -261,18 +261,22 @@ def story_fr():
     s.append(table(
         [
             ["Role", "Modele", "Chemin"],
-            ["Extraction", "qwen2.5:14b", "FastAPI → Ollama /api/chat"],
-            ["Raisonnement materiaux", "gemma4:26b (hermes-agent)", "FastAPI → Hermes /v1 + Bearer"],
-            ["Repli raisonnement", "gemma4:26b puis qwen3.6:27b", "Ollama"],
+            ["Extraction", "qwen2.5:7b (texte) / qwen2.5vl:7b (fichier, vision)", "FastAPI → Ollama /api/chat"],
+            ["Raisonnement materiaux", "gpt-oss:20b, think gradue low/medium/high (defaut medium)", "FastAPI → Ollama /api/chat direct"],
+            ["Repli raisonnement", "hermes3 (sans raisonnement natif, seul repli fonctionnel restant)", "Ollama"],
             ["Prix / TVA / marge", "deterministe", "FastAPI uniquement"],
         ],
-        [48 * mm, 58 * mm, 64 * mm],
+        [48 * mm, 74 * mm, 48 * mm],
     ))
     s.append(Spacer(1, 3 * mm))
     s.append(P(
-        "Gemma 4 26B-A4B est un MoE 25,2B / 3,8B actifs, tag officiel gemma4:26b, Q4_K_M, environ 17 Go.<super>3</super> "
-        "Hermes n'a pas de slot nomme raisonnement: le modele principal est celui avec lequel l'agent pense.<super>4</super> "
-        "OLLAMA_MAX_LOADED_MODELS=1. mem_limit Ollama 18g."
+        "Mise a jour du 23 aout 2026 (63 Go liberes) : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, "
+        "qwen2.5:14b et Phi-4-reasoning-vision-15B ont ete supprimes du VPS. gpt-oss:20b (deja installe, 13 Go, "
+        "20,9B parametres, quantification MXFP4) reprend le role de raisonnement materiaux : seul modele restant avec capacite \u00abthinking\u00bb "
+        "confirmee (`ollama show gpt-oss:20b`), mais ne peut pas desactiver son raisonnement -- seulement en "
+        "regler la profondeur via HERMES_REASONING_EFFORT (low/medium/high). Sans vision : l'extraction de "
+        "fichier reste sur qwen2.5vl:7b. Hermes n'a pas de slot nomme raisonnement: le modele principal est "
+        "celui avec lequel l'agent pense.<super>4</super> OLLAMA_MAX_LOADED_MODELS=1. mem_limit Ollama 18g."
     ))
 
     s.append(P("5b. Cartographie as-is / cible v2", "h1"))
@@ -357,8 +361,9 @@ def story_fr():
             ["JWT_SECRET / APP_ENCRYPTION_KEY", "Auth et secrets au repos"],
             ["HERMES_BASE_URL", "https://ia.blueseatra.com"],
             ["HERMES_API_KEY", "X-Api-Key = OLLAMA_API_KEY VPS"],
-            ["HERMES_EXTRACT_MODEL", "qwen2.5:14b"],
-            ["HERMES_REASONING_MODEL", "gemma4:26b"],
+            ["HERMES_EXTRACT_MODEL", "qwen2.5:7b"],
+            ["HERMES_REASONING_MODEL", "gpt-oss:20b"],
+            ["HERMES_REASONING_EFFORT", "medium (low/medium/high)"],
             ["HERMES_GATEWAY_URL", "https://hermes.blueseatra.com"],
             ["HERMES_GATEWAY_KEY", "API_SERVER_KEY du VPS (Bearer)"],
             ["MCP_API_KEY / MCP_TENANT_ID", "Connecteur lecture seule"],
@@ -367,7 +372,7 @@ def story_fr():
         [62 * mm, 108 * mm],
     ))
     s.append(Spacer(1, 2 * mm))
-    s.append(P("VPS ovh-ai-stack: OLLAMA_API_KEY, API_SERVER_KEY, HERMES_MODEL=gemma4:26b. Ne jamais coller les cles dans le chat."))
+    s.append(P("VPS ovh-ai-stack: OLLAMA_API_KEY, API_SERVER_KEY, HERMES_MODEL=gpt-oss:20b. Ne jamais coller les cles dans le chat."))
 
     s.append(P("8. Securite", "h1"))
     s.append(bullets([
@@ -434,6 +439,9 @@ def story_fr():
             ["17 aout", "PR 22: extract 14B / reason Gemma via gateway"],
             ["17 aout", "Test devis BS-2026-0017 (ballon ECS)"],
             ["17 aout", "Logo + landing (PR 24, 25, 26)"],
+            ["23 aout", "Suppression de 6 modeles VPS (63 Go), repointage extract/vision"],
+            ["23 aout", "PR 47: X-Hermes-Session-Id (ADR-005 ovh-ai-stack)"],
+            ["23 aout", "PR 48: gpt-oss:20b modele de raisonnement ; PR 49: niveau gradue"],
         ],
         [36 * mm, 134 * mm],
     ))
@@ -519,16 +527,20 @@ def story_en():
     s.append(table(
         [
             ["Role", "Model", "Path"],
-            ["Extraction", "qwen2.5:14b", "FastAPI → Ollama /api/chat"],
-            ["Materials reasoning", "gemma4:26b (hermes-agent)", "FastAPI → Hermes /v1 + Bearer"],
-            ["Reasoning fallback", "gemma4:26b then qwen3.6:27b", "Ollama"],
+            ["Extraction", "qwen2.5:7b (text) / qwen2.5vl:7b (file, vision)", "FastAPI → Ollama /api/chat"],
+            ["Materials reasoning", "gpt-oss:20b, graduated think low/medium/high (default medium)", "FastAPI → Ollama /api/chat direct"],
+            ["Reasoning fallback", "hermes3 (no native reasoning, only remaining functional fallback)", "Ollama"],
             ["Price / VAT / margin", "deterministic", "FastAPI only"],
         ],
-        [48 * mm, 58 * mm, 64 * mm],
+        [48 * mm, 74 * mm, 48 * mm],
     ))
     s.append(Spacer(1, 3 * mm))
     s.append(P(
-        "Gemma 4 26B-A4B is a 25.2B / 3.8B-active MoE, official tag gemma4:26b, Q4_K_M, about 17 GB.<super>3</super> "
+        "Updated 23 August 2026 (63 GB freed): gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b "
+        "and Phi-4-reasoning-vision-15B were removed from the VPS. gpt-oss:20b (already installed, 13 GB, 20.9B "
+        "parameters, MXFP4 quantization) took over materials reasoning: the only remaining model with confirmed "
+        "thinking capability (`ollama show gpt-oss:20b`), but it cannot disable reasoning -- only tune its depth "
+        "via HERMES_REASONING_EFFORT (low/medium/high). No vision: file extraction stays on qwen2.5vl:7b. "
         "Hermes has no named reasoning slot: the main model is what the agent thinks with.<super>4</super> "
         "OLLAMA_MAX_LOADED_MODELS=1. Ollama mem_limit 18g."
     ))
@@ -614,8 +626,9 @@ def story_en():
             ["JWT_SECRET / APP_ENCRYPTION_KEY", "Auth and secrets at rest"],
             ["HERMES_BASE_URL", "https://ia.blueseatra.com"],
             ["HERMES_API_KEY", "X-Api-Key = VPS OLLAMA_API_KEY"],
-            ["HERMES_EXTRACT_MODEL", "qwen2.5:14b"],
-            ["HERMES_REASONING_MODEL", "gemma4:26b"],
+            ["HERMES_EXTRACT_MODEL", "qwen2.5:7b"],
+            ["HERMES_REASONING_MODEL", "gpt-oss:20b"],
+            ["HERMES_REASONING_EFFORT", "medium (low/medium/high)"],
             ["HERMES_GATEWAY_URL", "https://hermes.blueseatra.com"],
             ["HERMES_GATEWAY_KEY", "VPS API_SERVER_KEY (Bearer)"],
             ["MCP_API_KEY / MCP_TENANT_ID", "Read-only connector"],
@@ -624,7 +637,7 @@ def story_en():
         [62 * mm, 108 * mm],
     ))
     s.append(Spacer(1, 2 * mm))
-    s.append(P("VPS ovh-ai-stack: OLLAMA_API_KEY, API_SERVER_KEY, HERMES_MODEL=gemma4:26b. Never paste keys in chat."))
+    s.append(P("VPS ovh-ai-stack: OLLAMA_API_KEY, API_SERVER_KEY, HERMES_MODEL=gpt-oss:20b. Never paste keys in chat."))
 
     s.append(P("8. Security", "h1"))
     s.append(bullets([
@@ -691,6 +704,9 @@ def story_en():
             ["17 Aug", "PR 22: extract 14B / reason Gemma via gateway"],
             ["17 Aug", "Quote test BS-2026-0017 (DHW cylinder)"],
             ["17 Aug", "Logo + landing (PRs 24, 25, 26)"],
+            ["23 Aug", "Removed 6 VPS models (63 GB), repointed extract/vision"],
+            ["23 Aug", "PR 47: X-Hermes-Session-Id (ADR-005 ovh-ai-stack)"],
+            ["23 Aug", "PR 48: gpt-oss:20b reasoning model; PR 49: graduated level"],
         ],
         [36 * mm, 134 * mm],
     ))
