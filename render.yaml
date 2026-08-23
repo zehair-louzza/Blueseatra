@@ -12,10 +12,13 @@
 # que dans le groupe partagé, qui ne contient que des valeurs littérales.
 # ============================================================
 
-# Groupe d'env partagé (valeurs non sensibles uniquement) entre l'API et
-# le worker d'extraction : les deux processus importent server.py et
-# doivent donc voir la même config modèles/IA. Source du bug du
-# 2026-08-23 : HERMES_EXTRACT_MODEL/HERMES_REASONING_MODEL/HERMES_VISION_MODEL
+# Groupe d'env partagé (valeurs non sensibles uniquement), utilise
+# aujourd'hui par blueseatra-api. Reste nomme "shared" en prevision du
+# service worker d'extraction (voir note plus bas, retire du blueprint le
+# 2026-08-23 pour eviter un cout Render inutile tant que la file n'est
+# pas activee) : le jour ou ce worker revient, il reimportera server.py
+# et devra voir exactement la meme config modeles/IA -- source du bug du
+# 2026-08-23 ou HERMES_EXTRACT_MODEL/HERMES_REASONING_MODEL/HERMES_VISION_MODEL
 # pointaient encore vers des modeles supprimes du VPS, uniquement parce
 # qu'ils etaient dupliques en dur sans etre synchronises.
 envVarGroups:
@@ -119,15 +122,17 @@ services:
         sync: false
 
       # --- File durable (opt-in) : voir backend/extraction_worker.py. ---
-      # Laisser VIDE (ne pas renseigner) tant que le service worker
-      # ci-dessous n'a pas ete verifie actif (logs Render du service
-      # blueseatra-extraction-worker) : sans REDIS_URL, create_request()
-      # retombe automatiquement sur l'ancien comportement in-process, donc
-      # aucun risque a la laisser non definie. La renseigner ici active
-      # aussi la file cote worker (meme valeur requise sur les deux
-      # services -- voir plus bas).
-      - key: REDIS_URL
-        sync: false
+      # PAS de cle REDIS_URL ici pour l'instant (retiree le 2026-08-23,
+      # en meme temps que le service worker ci-dessous) : le code de mise
+      # en file (server.py _enqueue_extraction) existe deja et tombe sans
+      # risque sur l'ancien comportement in-process tant que REDIS_URL
+      # n'existe pas comme variable -- mais la definir ICI SANS avoir
+      # egalement redeploye un service worker qui la consomme ferait rester
+      # chaque demande mise en file bloquee indefiniment sur "received",
+      # sans jamais etre traitee (echec silencieux garanti, exactement le
+      # risque identifie dans la PR #44). Ne pas rajouter cette cle avant
+      # d'avoir aussi restaure le service blueseatra-extraction-worker
+      # (voir note detaillee plus bas, a l'endroit ou il a ete retire).
 
       # Connecteur MCP Perplexity (https://blueseatra-api.onrender.com/mcp)
       - key: MCP_API_KEY
@@ -143,56 +148,31 @@ services:
         value: "15728640"
 
   # ----------------------------------------------------------
-  # Worker RQ — traite la file d'extraction durable (opt-in)
+  # Worker RQ — traite la file d'extraction durable (opt-in, PAS DEPLOYE)
   # ----------------------------------------------------------
-  # Ajoute le 2026-08-23 : le code de mise en file (backend/server.py
-  # _enqueue_extraction, backend/extraction_worker.py) existait deja mais
-  # n'avait AUCUN service pour l'executer -- si REDIS_URL avait ete
-  # renseignee sans ce worker, les demandes mises en file seraient restees
-  # bloquees indefiniment sur "received", sans jamais etre traitees.
+  # 2026-08-23 : ce service a ete ecrit puis retire du blueprint avant
+  # fusion de la PR #44, a la demande explicite de l'utilisateur --
+  # Render facture les background workers des leur deploiement, meme
+  # inactifs (Starter $7/mois, verifie sur render.com/pricing.md), et
+  # REDIS_URL reste non definie sur blueseatra-api (voir plus haut), donc
+  # ce worker n'aurait actuellement RIEN a traiter. Le code qu'il
+  # executerait (backend/server.py _enqueue_extraction,
+  # backend/extraction_worker.py) existe deja et reste inutilise tant que
+  # REDIS_URL n'est definie nulle part -- create_request() retombe alors
+  # automatiquement sur l'ancien comportement in-process, sans risque.
   #
-  # Ce service reste inoffensif tant que REDIS_URL (ci-dessous) n'est pas
-  # renseignee : create_request() retombe alors sur l'ancien comportement
-  # in-process et ce worker n'a simplement rien a traiter. Necessite un
-  # plan Render supportant les Background Workers (pas disponible sur le
-  # plan gratuit).
-  - type: worker
-    name: blueseatra-extraction-worker
-    runtime: python
-    region: frankfurt
-    plan: starter
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: python extraction_worker.py
-
-    envVars:
-      - fromGroup: blueseatra-shared
-
-      # Memes secrets que blueseatra-api ci-dessus : extraction_worker.py
-      # importe server.py, qui a besoin de la meme config complete pour
-      # relire la demande en base et lancer le pipeline d'extraction.
-      - key: DATABASE_URL
-        sync: false
-
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-
-      - key: JWT_SECRET
-        sync: false
-
-      - key: APP_ENCRYPTION_KEY
-        sync: false
-
-      - key: HERMES_API_KEY
-        sync: false
-
-      - key: HERMES_GATEWAY_KEY
-        sync: false
-
-      # DOIT etre la meme valeur Redis que blueseatra-api : c'est le worker
-      # qui consomme la file que l'API remplit.
-      - key: REDIS_URL
-        sync: false
+  # Pour reactiver la file durable plus tard :
+  # 1. Redefinir ici un service `type: worker`, meme rootDir/buildCommand,
+  #    startCommand: python extraction_worker.py, plan: starter minimum
+  #    (pas de palier gratuit pour les workers).
+  # 2. Lui donner `envVars: [{fromGroup: blueseatra-shared}]` PLUS les
+  #    memes secrets que blueseatra-api (DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+  #    JWT_SECRET, APP_ENCRYPTION_KEY, HERMES_API_KEY, HERMES_GATEWAY_KEY,
+  #    REDIS_URL) -- il importe server.py et a besoin de la config complete.
+  # 3. Ajouter REDIS_URL (sync: false) sur blueseatra-api ET ce worker, avec
+  #    la MEME valeur sur les deux (Render Key Value Starter, $10/mois --
+  #    voir render.com/pricing.md).
+  # 4. Verifier les logs Render du worker AVANT de considerer la file active.
 
   # ----------------------------------------------------------
   # Frontend (décommenter si hébergé sur Render)
