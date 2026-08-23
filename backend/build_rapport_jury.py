@@ -253,7 +253,7 @@ def story():
     s.append(bullets([
         "Produit : SaaS B2B multi-tenant. Catalogue du tenant = seule source de prix.",
         "Site : landing + console (demandes, catalogues, editeur, PDF, audit, membres).",
-        "IA : extraction qwen2.5:14b via Ollama ; raisonnement via Hermes (gemma4:26b).",
+        "IA : extraction qwen2.5:7b/qwen2.5vl:7b via Ollama ; raisonnement gpt-oss:20b, niveau gradue.",
         "Regle non negociable : FastAPI calcule HT, TVA, marge, heures et deplacement.",
         "Cible v2 : n8n devient le hub d'entree ; objet canonique unique par canal.",
         "Etat honnete : le cœur devis existe ; l'intake omnicanal et la facturation non.",
@@ -318,6 +318,7 @@ def story():
             ["16 aout", "Cartographie v2", "n8n, objet canonique, 3 roles IA"],
             ["16-17 aout", "Hermes gateway", "API chat, PR 22, Gemma 4 26B-A4B"],
             ["17 aout", "Produit visible", "Logo, landing, picker, devis test BS-2026-0017"],
+            ["23 aout", "Nettoyage modeles VPS", "6 modeles supprimes (63 Go), gpt-oss:20b raisonneur gradue"],
         ],
         [32 * mm, 52 * mm, 86 * mm],
     ))
@@ -425,19 +426,22 @@ def story():
     s.append(table(
         [
             ["Role Blueseatra", "Modele", "Chemin"],
-            ["Extraction / classement", "qwen2.5:14b", "FastAPI → Ollama /api/chat"],
-            ["Raisonnement materiaux", "gemma4:26b via hermes-agent", "FastAPI → Hermes /v1 + Bearer"],
-            ["Repli raisonnement", "gemma4:26b puis qwen3.6:27b", "Ollama direct"],
-            ["Vision (si image)", "gemma4:26b", "auxiliary.vision, pas de VL dedie"],
+            ["Extraction / classement", "qwen2.5:7b", "FastAPI → Ollama /api/chat"],
+            ["Raisonnement materiaux", "gpt-oss:20b, think gradue low/medium/high", "FastAPI → Ollama /api/chat direct"],
+            ["Repli raisonnement", "hermes3 (sans raisonnement natif)", "Ollama direct"],
+            ["Vision (si image)", "qwen2.5vl:7b", "HERMES_VISION_MODEL, seul modele multimodal restant"],
             ["Prix / TVA / marge", "aucun LLM", "FastAPI uniquement"],
         ],
         [52 * mm, 58 * mm, 60 * mm],
     ))
     s.append(Spacer(1, 3 * mm))
     s.append(P(
-        "Gemma 4 26B-A4B est un MoE 25,2B parametres / 3,8B actifs, tag officiel "
-        "gemma4:26b, quantification Q4_K_M, environ 17 Go.<super>1</super> "
-        "Il tient dans 24 Go a condition qu'aucun second gros modele ne soit charge. "
+        "Mise a jour du 23 aout 2026 : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b et "
+        "Phi-4-reasoning-vision-15B ont ete supprimes du VPS pour liberer 63 Go. gpt-oss:20b (20,9B "
+        "parametres, MXFP4, deja installe pour le gateway Hermes) reprend le raisonnement materiaux : seul "
+        "modele restant avec capacite thinking confirmee (`ollama show gpt-oss:20b`), mais il ne peut pas la "
+        "desactiver -- seulement en regler la profondeur via HERMES_REASONING_EFFORT (low/medium/high). Sans "
+        "vision : l'extraction de fichier reste sur qwen2.5vl:7b. "
         "provider: auto est interdit : la decouverte auxiliaire Hermes irait vers "
         "OpenRouter ou Nous Portal, donc hors UE."
     ))
@@ -554,7 +558,7 @@ def story():
             ["Vague", "Livrable", "Statut"],
             ["P1", "Hub + webhook site + Gmail / Outlook / Zoho / IMAP", "JSON livres, inactifs"],
             ["P1", "Drive / OneDrive dossier demandes", "Specifie, non construit"],
-            ["Fait", "Slots Hermes 14B / Gemma / repli 27B", "Branche, a mesurer en prod"],
+            ["Fait", "Slots Hermes qwen2.5:7b / gpt-oss:20b / repli hermes3", "Branche, a mesurer en prod"],
             ["P2", "HubSpot, Zoho CRM, Pipedrive", "Backlog"],
             ["P3", "WhatsApp Business Cloud", "Backlog terrain"],
             ["P4", "ERP (Odoo / ERPNext) apres devis valide", "Interdit tant que le devis n'est pas stable"],
