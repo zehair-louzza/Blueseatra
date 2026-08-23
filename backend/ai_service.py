@@ -1413,6 +1413,17 @@ def _looks_garbled(text: str) -> bool:
         return True
     if word_chars / total < 0.25:
         return True
+    # 2026-08-23 : filet independant pour la sortie de pdfplumber. Quand un
+    # PDF a une police cassee, pdfplumber (comme le calque texte natif) ne
+    # peut pas retrouver les vrais caracteres -- mais au lieu de caracteres
+    # de controle bruts, il rend chaque glyphe non mappe sous forme TEXTUELLE
+    # "(cid:123)". Ce texte est fait de lettres/chiffres/parentheses normaux,
+    # donc les 3 ratios ci-dessus ne le detectent pas (verifie sur un cas
+    # reel : lettres/mots restent au-dessus des seuils). Un document
+    # legitime en francais/anglais n'ecrit jamais "(cid:" -- 2 occurrences
+    # suffisent a conclure de maniere fiable, sans faux positif attendu.
+    if len(re.findall(r"\(cid:\d+\)", s)) >= 2:
+        return True
     return False
 
 
