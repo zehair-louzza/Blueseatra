@@ -287,7 +287,20 @@ _OCR_STAGE_MEASURED_SECONDS = {
 }
 
 
-def _ocr_cascade_stages() -> list[tuple[str, str, float]]:
+# Cles stables (surface publique cote reglages tenant, voir
+# server.OCR_MODEL_CHOICES / IntegrationSettings.ocr_model_preference) ->
+# label interne utilise par _OCR_STAGE_MEASURED_SECONDS/_ocr_cascade_stages.
+# "auto" (ou toute cle absente/inconnue) laisse l'ordre par defaut inchange.
+OCR_MODEL_PREFERENCE_LABELS = {
+    "paddleocr": "PaddleOCR-VL-1.6",
+    "glm-ocr": "GLM-OCR",
+    "lightonocr": "LightOnOCR-2-1B",
+    "qwen25vl": "Qwen2.5-VL-7B",
+    "olmocr2": "olmOCR-2-7B",
+}
+
+
+def _ocr_cascade_stages(preferred: str | None = None) -> list[tuple[str, str, float]]:
     """Etages de la cascade OCR (label, modele, timeout en secondes),
     du plus rapide/fiable-suffisant au plus lent, classes par fiabilite
     ET vitesse (decision du 2026-08-19 apres comparaison de 9 modeles) :
@@ -313,7 +326,14 @@ def _ocr_cascade_stages() -> list[tuple[str, str, float]]:
     LightOnOCR-2-1B a ~200s) -- ordre de la cascade reoptimise pour
     favoriser la vitesse a qualite egale, comme demande par l'utilisateur
     apres validation du modele sur un document reel (2/2 essais reussis,
-    transcription fidele verifiee champ par champ)."""
+    transcription fidele verifiee champ par champ).
+
+    2026-08-24 : `preferred` (cle de OCR_MODEL_PREFERENCE_LABELS, reglage
+    tenant facultatif -- voir server.py) fait passer l'etage correspondant
+    en premier, SANS retirer les autres : c'est une reorganisation de
+    priorite, pas un remplacement de la cascade de secours. Une cle
+    absente, vide ou non reconnue ("auto" compris) laisse l'ordre par
+    defaut totalement inchange."""
     order = [
         ("PaddleOCR-VL-1.6", HERMES_OCR_MODEL),
         ("GLM-OCR", HERMES_OCR_GLM_MODEL),
@@ -321,6 +341,9 @@ def _ocr_cascade_stages() -> list[tuple[str, str, float]]:
         ("Qwen2.5-VL-7B", HERMES_OCR_ESCALATION_MODEL),
         ("olmOCR-2-7B", HERMES_OCR_TERTIARY_MODEL),
     ]
+    preferred_label = OCR_MODEL_PREFERENCE_LABELS.get((preferred or "").strip())
+    if preferred_label:
+        order = sorted(order, key=lambda pair: 0 if pair[0] == preferred_label else 1)
     seen: set[str] = set()
     deduped = []
     for label, model in order:
@@ -1306,7 +1329,7 @@ async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_
     """
     last_ocr_text = None
     errors = []
-    for label, model, timeout in _ocr_cascade_stages():
+    for label, model, timeout in _ocr_cascade_stages(preferred=(tenant_settings or {}).get("ocr_model_preference")):
         result, ocr_text, error = await _try_ocr_stage(image_bytes, model, tenant_settings, timeout=timeout)
         if ocr_text is not None:
             last_ocr_text = ocr_text
@@ -1389,17 +1412,20 @@ async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> 
     }
 
 
-async def _ocr_page_text(image_bytes: bytes) -> tuple[str | None, str | None, str | None]:
-    """Tente l'OCR d'UNE page via la cascade a 4 etages
-    (_ocr_cascade_stages : PaddleOCR-VL-1.6 -> LightOnOCR-2-1B ->
+async def _ocr_page_text(image_bytes: bytes, tenant_settings: dict | None = None) -> tuple[str | None, str | None, str | None]:
+    """Tente l'OCR d'UNE page via la cascade a 5 etages
+    (_ocr_cascade_stages : PaddleOCR-VL-1.6 -> GLM-OCR -> LightOnOCR-2-1B ->
     Qwen2.5-VL-7B -> olmOCR-2-7B), transcription litterale seule, pas de
     structuration JSON — celle-ci se fait une seule fois sur le texte
     combine de toutes les pages, voir extract_from_pdf_pages. Chaque
-    etape a son propre timeout selon la regle 1.2x. Renvoie
+    etape a son propre timeout selon la regle 1.2x. `tenant_settings`
+    permet de faire passer un modele prefere en premier (reglage tenant
+    ocr_model_preference), sans jamais retirer les autres etages. Renvoie
     (texte, moteur, erreur) ; texte est None si toutes les etapes ont
     echoue ou produit un texte inutilisable pour cette page precise."""
     errors = []
-    for label, model, timeout in _ocr_cascade_stages():
+    preferred = (tenant_settings or {}).get("ocr_model_preference")
+    for label, model, timeout in _ocr_cascade_stages(preferred=preferred):
         try:
             text = await _call_ocr_model(image_bytes, model, timeout=timeout)
         except Exception as e:
@@ -1436,10 +1462,11 @@ async def extract_from_pdf_pages(pages: list[bytes], tenant_settings: dict, sess
     page_texts = []
     engines_used = []
     fallback_pages = []
-    cascade_models = {(m or "").strip() for _l, m, _t in _ocr_cascade_stages()}
+    ocr_preference = (tenant_settings or {}).get("ocr_model_preference")
+    cascade_models = {(m or "").strip() for _l, m, _t in _ocr_cascade_stages(preferred=ocr_preference)}
     vision_fallback_is_distinct = (HERMES_VISION_MODEL or "").strip() not in cascade_models
     for i, page_bytes in enumerate(pages):
-        text, engine, _error = await _ocr_page_text(page_bytes)
+        text, engine, _error = await _ocr_page_text(page_bytes, tenant_settings)
         if not text and vision_fallback_is_distinct:
             try:
                 text = await _call_ocr_model(page_bytes, HERMES_VISION_MODEL, timeout=_OCR_FINAL_FALLBACK_TIMEOUT)

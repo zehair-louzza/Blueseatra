@@ -16,6 +16,7 @@ import { Save, Loader2, KeyRound, CheckCircle2, Building2, Sparkles } from 'luci
 function AiSettings({ canManage }) {
   const { t } = useTranslation();
   const [providerModels, setProviderModels] = useState({});
+  const [ocrModelChoices, setOcrModelChoices] = useState({});
   const [form, setForm] = useState(null);
   const [keySet, setKeySet] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -24,7 +25,11 @@ function AiSettings({ canManage }) {
     api.get('/settings/integrations').then((r) => {
       const s = r.data.settings;
       setProviderModels(r.data.provider_models);
-      setForm({ ai_provider: s.ai_provider || 'hermes', ai_model: s.ai_model || '', ai_key: '', n8n_webhook_url: s.n8n_webhook_url || '' });
+      setOcrModelChoices(r.data.ocr_model_choices || {});
+      setForm({
+        ai_provider: s.ai_provider || 'hermes', ai_model: s.ai_model || '', ai_key: '',
+        n8n_webhook_url: s.n8n_webhook_url || '', ocr_model_preference: s.ocr_model_preference || 'auto',
+      });
       setKeySet(!!s.ai_key_set);
     });
   }, []);
@@ -65,6 +70,14 @@ function AiSettings({ canManage }) {
           <Label>{t('settings.n8n')}</Label>
           <Input className="font-mono text-xs" placeholder="https://automation.example.com/webhook/..." value={form.n8n_webhook_url || ''} onChange={(e) => setForm({ ...form, n8n_webhook_url: e.target.value })} disabled={!canManage} data-testid="n8n-url-input" />
           <p className="text-xs text-muted-foreground">{t('settings.n8n_hint')}</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t('settings.ocr_model_preference')}</Label>
+          <Select value={form.ocr_model_preference} onValueChange={(v) => setForm({ ...form, ocr_model_preference: v })} disabled={!canManage}>
+            <SelectTrigger data-testid="ocr-model-preference-select"><SelectValue /></SelectTrigger>
+            <SelectContent>{Object.entries(ocrModelChoices).map(([key, label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">{t('settings.ocr_model_preference_hint')}</p>
         </div>
         {canManage && <Button onClick={save} disabled={busy} className="gap-2" data-testid="save-settings-button">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{t('settings.save')}</Button>}
       </div>

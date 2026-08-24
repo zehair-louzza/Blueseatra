@@ -340,6 +340,24 @@ class IntegrationSettings(BaseModel):
     ai_model: Optional[str] = None
     ai_key: Optional[str] = None
     n8n_webhook_url: Optional[str] = None
+    ocr_model_preference: Optional[str] = None
+
+
+# Cles valides pour ocr_model_preference (reglage tenant facultatif,
+# 2026-08-24) -- doivent rester alignees avec
+# ai_service.OCR_MODEL_PREFERENCE_LABELS. "auto" == pas de preference,
+# ordre par defaut de la cascade OCR (voir ai_service._ocr_cascade_stages).
+# N'affecte QUE l'ordre de priorite d'un PDF/image importé AU MOMENT de son
+# traitement initial -- ne s'applique jamais retroactivement (un PDF n'est
+# jamais conserve, voir create_request).
+OCR_MODEL_CHOICES = {
+    "auto": "Automatique (ordre par défaut, priorité vitesse)",
+    "paddleocr": "PaddleOCR-VL-1.6 (le plus rapide, ~110s/page)",
+    "glm-ocr": "GLM-OCR (~183s/page)",
+    "lightonocr": "LightOnOCR-2-1B (français, ~200s/page)",
+    "qwen25vl": "Qwen2.5-VL-7B (~246s/page)",
+    "olmocr2": "olmOCR-2-7B (meilleurs tableaux, le plus lent, ~587s/page)",
+}
 
 
 PROVIDER_MODELS = {
@@ -363,23 +381,28 @@ async def get_settings(cu: CurrentUser = Depends(get_current)):
     s = await db.settings_integrations.find_one({"tenant_id": cu.tenant_id}, {"_id": 0})
     if not s:
         s = {"tenant_id": cu.tenant_id, "ai_provider": "hermes", "ai_model": "hermes-3",
-             "n8n_webhook_url": None}
+             "n8n_webhook_url": None, "ocr_model_preference": "auto"}
     s = dict(s)
     s["ai_key_set"] = bool(s.get("ai_key"))
     s.pop("ai_key", None)
-    return {"settings": s, "provider_models": PROVIDER_MODELS}
+    s.setdefault("ocr_model_preference", "auto")
+    return {"settings": s, "provider_models": PROVIDER_MODELS, "ocr_model_choices": OCR_MODEL_CHOICES}
 
 
 @api.put("/settings/integrations")
 async def update_settings(body: IntegrationSettings,
                           cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    ocr_pref = (body.ocr_model_preference or "auto").strip()
+    if ocr_pref not in OCR_MODEL_CHOICES:
+        raise HTTPException(400, f"ocr_model_preference invalide. Valeurs acceptees : {', '.join(OCR_MODEL_CHOICES)}")
     doc = {"tenant_id": cu.tenant_id, "ai_provider": body.ai_provider,
-           "ai_model": body.ai_model, "n8n_webhook_url": body.n8n_webhook_url, "updated_at": now_iso()}
+           "ai_model": body.ai_model, "n8n_webhook_url": body.n8n_webhook_url,
+           "ocr_model_preference": ocr_pref, "updated_at": now_iso()}
     if body.ai_key:
         doc["ai_key"] = encrypt_secret(body.ai_key)
     await db.settings_integrations.update_one({"tenant_id": cu.tenant_id}, {"$set": doc}, upsert=True)
     await audit(cu.tenant_id, cu.email, "settings.update", None,
-                {"ai_provider": body.ai_provider, "ai_model": body.ai_model})
+                {"ai_provider": body.ai_provider, "ai_model": body.ai_model, "ocr_model_preference": ocr_pref})
     return {"ok": True}
 
 
@@ -735,8 +758,11 @@ async def _run_deep_vision(request_id: str, tenant_id: str, image_bytes: bytes):
 @api.post("/requests/{request_id}/deep-vision")
 async def deep_vision_escalation(request_id: str, background: BackgroundTasks,
                                  cu: CurrentUser = Depends(get_current)):
-    """Escalade manuelle explicite vers Phi-4-reasoning-vision-15B (jamais
-    automatique dans process_request — voir ai_service.escalate_to_deep_vision).
+    """Escalade manuelle explicite vers HERMES_ESCALATION_VISION_MODEL (jamais
+    automatique dans process_request — voir ai_service.escalate_to_deep_vision ;
+    olmocr2:7b-q8 par defaut depuis le 2026-08-23, PAS Phi-4-reasoning-vision-15B
+    comme le disait cette docstring avant correction du 2026-08-24 — Phi-4 a ete
+    supprime du VPS ce jour-la).
     Uniquement disponible pour les photos (source_type == "image") : ce sont
     les seuls fichiers dont l'octet original reste en base (file_b64). Les
     PDF ne sont jamais persistes (voir create_request), donc aucune image
