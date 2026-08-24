@@ -1075,7 +1075,7 @@ def _is_restatement(extracted: dict) -> bool:
 
 EXPAND_SYSTEM = """Tu es métreur TCE. On te donne une demande de travaux.
 Raisonne, puis sors UNIQUEMENT un JSON :
-{"line_items":[{"description":"article concret","quantity":1,"unit":"u","category":"plomberie sanitaire"}]}
+{"line_items":[{"description":"article concret","quantity":1,"unit":"u","category":"plomberie sanitaire","line_type_hint":"main_work","included_items":[],"notes":null}]}
 
 Règles:
 - Décompose en fournitures / accessoires nécessaires à l'exécution.
@@ -1083,6 +1083,11 @@ Règles:
 - Aucun prix, aucun €, aucun tarif.
 - Quantités minimales réalistes.
 - Si une liste d'articles catalogue (libellés seulement) est fournie, préfère ces libellés.
+- Ne jamais limiter une prestation à la seule main-d'œuvre ou au seul matériau principal : vérifie aussi fixations, étanchéité, consommables, petit matériel et finitions nécessaires à une exécution complète.
+- Regroupe le petit matériel/consommables mineurs dans UNE ligne explicite (ex. « Fournitures de pose et consommables : visserie, chevilles, colles, bandes — forfait »), jamais un intitulé vague comme « divers fournitures ». Ne jamais y masquer un matériau principal coûteux : celui-ci garde toujours sa propre ligne.
+- `line_type_hint` optionnel parmi : main_work, installation_supplies, consumable, finish, protection, waste_removal, testing.
+- `included_items` optionnel : liste des accessoires couverts par une ligne groupée.
+- `notes` optionnel : réserve ou hypothèse si une donnée est incertaine (ne jamais inventer une marque, référence ou quantité absente des données fournies).
 """
 
 

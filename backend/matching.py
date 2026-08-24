@@ -12,6 +12,15 @@ UNIT_COMPAT = {
 }
 SCORE_THRESHOLD = 45
 
+# Classement optionnel propose par l'IA (role=reason, EXPAND_SYSTEM) pour une
+# ligne -- jamais utilise pour fixer un prix, seulement pour la presentation
+# (voir skill detail-materiaux-petit-materiel). Toute valeur hors de cette
+# liste retombe sur "material" (comportement historique).
+_ALLOWED_LINE_TYPE_HINTS = {
+    "main_work", "installation_supplies", "consumable", "finish",
+    "protection", "waste_removal", "testing",
+}
+
 # Phrases d'action a retirer avant le rapprochement catalogue : on ne matche
 # jamais une phrase entiere, seulement l'article/la designation (voir skill
 # rapprochement-catalogue-sans-prix). Ex. "le remplacement total de la pompe
@@ -174,6 +183,26 @@ def _empty_rubric(line_type: str, description: str, qty, unit: str, reasons: lis
     }
 
 
+def _line_type_hint(li: dict) -> str:
+    """Whitelisted line_type from AI's proposal, never price-related.
+    Falls back to "material" -- the historical default -- for anything
+    outside the allowed set (including missing/garbled input)."""
+    hint = li.get("line_type_hint")
+    return hint if hint in _ALLOWED_LINE_TYPE_HINTS else "material"
+
+
+def _presentation_extras(li: dict) -> dict:
+    """Non-pricing metadata carried through from the AI's proposed line
+    (see skill detail-materiaux-petit-materiel). Never touches quantity,
+    unit price, VAT or totals -- those stay exclusively catalog-derived."""
+    included = li.get("included_items")
+    notes = li.get("notes")
+    return {
+        "included_items": [str(x) for x in included if x] if isinstance(included, list) else [],
+        "notes": str(notes).strip() if notes else None,
+    }
+
+
 def build_quote_lines(extracted: dict, catalog: list):
     lines = []
     total_ht = 0.0
@@ -200,7 +229,7 @@ def build_quote_lines(extracted: dict, catalog: list):
             line_vat = 0.0
             total_ht += line_ht or 0
             lines.append({
-                "line_type": "material",
+                "line_type": _line_type_hint(li),
                 "request_label": li.get("label"),
                 "description": desc,
                 "category": item.get("category") or li.get("category"),
@@ -215,13 +244,14 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "status": m["status"],
                 "score": m["score"],
                 "reasons": m["reasons"],
+                **_presentation_extras(li),
             })
         else:
             # Regle catalogue : sans correspondance sure, AUCUN prix n'est applique.
             # Un match flou (status "proposed") reste une suggestion humaine.
             suggestion = m["item"] if (m and m.get("item") and m.get("status") == "proposed") else None
             lines.append({
-                "line_type": "material",
+                "line_type": _line_type_hint(li),
                 "request_label": li.get("label"),
                 "description": desc,
                 "category": li.get("category") or extracted.get("work_type"),
@@ -237,6 +267,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "status": "to_confirm",
                 "score": m["score"] if m else 0,
                 "reasons": (m["reasons"] if m else []) + (["suggestion_" + suggestion.get("item_code", "")] if suggestion else ["hors_catalogue"]),
+                **_presentation_extras(li),
             })
     extra, extra_ht, extra_vat = _auto_labor_and_travel(extracted, catalog, lines)
     # Ordre ANELEC / Tolteck : déplacement, main-d'œuvre, puis fournitures
