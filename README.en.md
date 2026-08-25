@@ -322,88 +322,106 @@ See `backend/SUPABASE_MIGRATION.md` for the full MongoDB migration guide.
 
 ## 11. API reference
 
-All routes are prefixed with `/api`. The backend exposes interactive documentation at:
-- **Swagger UI**: `http://localhost:8001/api/docs`
-- **ReDoc**: `http://localhost:8001/api/redoc`
+All routes are prefixed with `/api` (`APIRouter(prefix="/api")` in `backend/server.py`). Table generated from the routes actually declared — keep in sync whenever a route is added/removed (`grep -n "^@api\." backend/server.py` to check).
 
 ### Authentication
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `POST` | `/api/auth/register` | Create account |
+| `POST` | `/api/auth/signup` | Create account + tenant |
 | `POST` | `/api/auth/login` | Login — returns a JWT |
-| `GET` | `/api/auth/me` | Authenticated user profile |
+| `GET` | `/api/auth/me` | Authenticated user profile + tenants |
+| `POST` | `/api/auth/switch-tenant/{tenant_id}` | Switch the active tenant |
 
-### Tenants & users
+### Members (roles: owner / admin / operator / viewer / billing_admin)
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/api/tenants` | List user's tenants |
-| `POST` | `/api/tenants` | Create a tenant |
-| `GET` | `/api/tenants/{id}/users` | Tenant members |
-| `POST` | `/api/tenants/{id}/invite` | Invite a user |
+| `GET` | `/api/members` | List tenant members |
+| `POST` | `/api/members` | Add a member (owner/admin) |
+| `PATCH` | `/api/members/{user_id}` | Update role and/or name (owner/admin); the `password` field is restricted to **owner** (403 otherwise) |
+| `DELETE` | `/api/members/{user_id}` | Remove a member (owner/admin) — refuses to remove the last owner or yourself |
 
 ### Requests
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/api/requests` | List tenant requests |
-| `POST` | `/api/requests` | Create a request (file upload) |
-| `GET` | `/api/requests/{id}` | Request detail |
-| `POST` | `/api/requests/{id}/extract` | Trigger AI extraction |
+| `POST` | `/api/requests` | Create a request (pasted text or file) — pushed onto the sequential extraction queue, initial status `queued` |
+| `GET` | `/api/requests` | List tenant requests, with `queue_position` for `queued` ones |
+| `GET` | `/api/requests/{id}` | Request detail (with `queue_position` if `queued`) |
+| `GET` | `/api/requests/{id}/file` | Original file (images only — PDFs are never persisted) |
+| `POST` | `/api/requests/{id}/process` | Reprocess (re-queued) |
+| `POST` | `/api/requests/{id}/deep-vision` | Escalate to a slower vision model (imported photos only) |
+| `PATCH` | `/api/requests/{id}` | Update title / source text |
 | `DELETE` | `/api/requests/{id}` | Delete a request |
 
-### Quotes
-
-| Method | Route | Description |
-|--------|-------|-------------|
-| `GET` | `/api/quotes` | List tenant quotes |
-| `POST` | `/api/quotes` | Create a quote |
-| `GET` | `/api/quotes/{id}` | Quote detail |
-| `PUT` | `/api/quotes/{id}` | Update a quote |
-| `POST` | `/api/quotes/{id}/pdf` | Generate Pro Forma PDF |
-| `DELETE` | `/api/quotes/{id}` | Delete a quote |
+> AI extraction is **sequential** (one extraction at a time — see `_extraction_worker_loop` in `backend/server.py`): the inference VPS has no GPU, so running several extractions in parallel makes them slow each other down or stall. Details: [`docs/decisions/ADR-FILE-EXTRACTION-SEQUENTIELLE.md`](./docs/decisions/ADR-FILE-EXTRACTION-SEQUENTIELLE.md).
 
 ### Catalogs
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/api/catalogs` | List catalogs |
-| `POST` | `/api/catalogs` | Create a catalog |
-| `POST` | `/api/catalogs/{id}/import` | Import a CSV |
-| `GET` | `/api/catalogs/{id}/items` | Active catalog items |
-| `PUT` | `/api/catalogs/{id}/versions/{vid}/activate` | Activate a version |
+| `GET` | `/api/catalogs` | List tenant catalogs |
+| `GET` | `/api/catalogs/{id}/items` | Items of a catalog |
+| `GET` | `/api/catalog-template.csv` | Downloadable CSV template |
+| `POST` | `/api/catalogs/import/preview` | Preview an import before validation |
+| `POST` | `/api/catalogs/import` | Import a CSV (new version) |
+| `GET` | `/api/import-jobs/{job_id}/errors` | Detailed import errors |
+| `POST` | `/api/catalogs/{id}/activate/{version_id}` | Activate a version (only one active at a time) |
+| `PATCH` | `/api/catalogs/{id}` | Update the catalog (e.g. client code) |
+| `POST` | `/api/catalogs/{id}/deactivate` | Deactivate the active catalog |
+| `DELETE` | `/api/catalogs/{id}` | Permanently delete a catalog and its versions |
+| `GET` | `/api/catalog/active` | Full active catalog (short cache) |
+| `GET` | `/api/catalog/search` | Search items (used by the quote editor) |
 
-### Settings & integrations
+### Quotes
 
 | Method | Route | Description |
 |--------|-------|-------------|
-| `GET` | `/api/settings/integrations` | Tenant AI/n8n settings |
-| `PUT` | `/api/settings/integrations` | Update settings |
-| `GET` | `/api/settings/company` | Company profile |
-| `PUT` | `/api/settings/company` | Update company profile |
+| `POST` | `/api/quotes/draft` | Create one or more draft quotes from a request (exclusive options → separate quotes) |
+| `GET` | `/api/quotes` | List tenant quotes |
+| `GET` | `/api/quotes/{id}` | Quote detail |
+| `PATCH` | `/api/quotes/{id}` | Update a draft quote |
+| `POST` | `/api/quotes/{id}/validate` | Validate — freezes prices (`pricing_snapshot`) |
+| `POST` | `/api/quotes/{id}/send` | Mark as sent |
+| `POST` | `/api/quotes/{id}/reopen` | Reopen a validated/sent quote as draft |
+| `POST` | `/api/quotes/{id}/duplicate` | Duplicate a quote |
+| `POST` | `/api/quotes/{id}/rematch` | Recompute catalog matching for the lines |
+| `DELETE` | `/api/quotes/{id}` | Delete a quote |
+| `GET` | `/api/quotes/{id}/pdf` | Generate and download the Pro Forma PDF |
+
+### Settings, dashboard & audit
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `GET` / `PUT` | `/api/settings/integrations` | Tenant AI settings / n8n webhook |
+| `GET` / `PUT` | `/api/company-profile` | Company profile (PDF header/footer) |
+| `GET` | `/api/dashboard` | Tenant metrics |
+| `GET` | `/api/audit` | Tenant audit log |
+| `GET` | `/api/health` | Health status (`{"status": "healthy", "commit": "..."}`) — used as Render's `healthCheckPath` |
 
 ---
 
 ## 12. Frontend (routes & pages)
 
+Actual routes (`frontend/src/App.js`):
+
 | Route | Page / Component | Description |
 |-------|-----------------|-------------|
 | `/` | `Landing` | Public home page |
-| `/login` | `Auth/Login` | Login |
-| `/register` | `Auth/Register` | Sign up |
-| `/dashboard` | `Dashboard` | Tenant overview |
-| `/requests` | `Requests/List` | Request list |
-| `/requests/new` | `Requests/New` | New request (upload) |
-| `/requests/:id` | `Requests/Detail` | Detail + AI extraction result |
-| `/quotes` | `Quotes/List` | Quote list |
-| `/quotes/:id` | `QuoteEditor` | Full quote editor |
-| `/catalogs` | `Catalogs/List` | Catalog management |
-| `/catalogs/:id` | `Catalogs/Detail` | Detail + CSV import |
-| `/settings` | `Settings` | Tenant settings |
-| `/settings/integrations` | `Settings/Integrations` | AI config (Hermes/OpenAI...) + n8n |
-| `/settings/company` | `Settings/Company` | Company profile (PDF) |
-| `/settings/users` | `Settings/Users` | Member management |
+| `/login` | `LoginPage` | Login |
+| `/signup` | `SignupPage` | Sign up |
+| `/app` | `Dashboard` | Tenant overview |
+| `/app/requests` | `Requests` | Request list (new request, status, queue position) |
+| `/app/requests/:id` | `RequestDetail` | Detail + AI extraction result + deep vision escalation |
+| `/app/catalogs` | `Catalogs` | Catalog management |
+| `/app/catalogs/import` | `CatalogImport` | CSV import (preview → mapping → validation) |
+| `/app/quotes` | `Quotes` | Quote list |
+| `/app/quotes/:id` | `QuoteEditor` | Full quote editor (lines, margin, PDF) |
+| `/app/members` | `Members` | Members: role, rename, remove, change password (owner only) |
+| `/app/audit` | `Audit` | Tenant audit log |
+| `/app/settings` | `Settings` | AI/n8n integrations + company profile |
+| `/app/billing` | `Billing` | Billing (Stripe — later phase) |
 
 ---
 
@@ -462,6 +480,8 @@ CORS_ORIGINS=https://<your-frontend-domain>
 ---
 
 ## 15. Changelog (steps completed)
+
+> Major milestones below. PR-by-PR detail since August 2026 (AI roles, member management, sequential extraction queue, fixes…): see **[`CHANGELOG.md`](./CHANGELOG.md)**.
 
 ### 🔄 July 2026 — Migration to Hermes AI / Ollama / OVH VPS
 
