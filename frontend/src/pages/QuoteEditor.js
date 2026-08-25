@@ -399,6 +399,11 @@ export default function QuoteEditor() {
                           {l.line_type === 'material' && <span className="mr-1 inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Mat.</span>}
                           {isDraft ? <Input value={l.description || ''} onChange={(e) => updateLine(i, 'description', e.target.value)} className="h-8" data-testid="line-description-input" /> : (l.description || l.request_label)}
                           {(l.matched_item_code || l.supplier) && <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{l.matched_item_code}{l.supplier ? ` \u00b7 ${l.supplier}` : ''}</div>}
+                          {!l.matched_item_code && l.suggested_item_code && (
+                            <div className="mt-0.5 text-[10px] text-amber-700" data-testid="line-catalog-suggestion">
+                              {t('quote.catalog_suggestion', { label: l.suggested_label, code: l.suggested_item_code })}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>{isDraft ? <Input type="number" step="any" value={l.qty ?? ''} onChange={(e) => updateLine(i, 'qty', e.target.value)} className={`h-8 w-full min-w-0 px-2 ${NOSPIN}`} data-testid="line-qty-input" /> : (l.qty ?? '\u2014')}</TableCell>
                         <TableCell>
