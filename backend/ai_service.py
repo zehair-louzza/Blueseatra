@@ -45,12 +45,21 @@ HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
 # qu'un modele de raisonnement multimodal n'est pas reinstalle).
 #
 # role=reason (decomposition materiaux/lots, EXPAND_SYSTEM) repointe le
-# meme jour sur gpt-oss:20b (deja installe, seul modele avec raisonnement
-# natif confirme -- voir _wants_think). Configure sur Render, pas ici : le
-# defaut ci-dessous reste qwen2.5vl:7b pour ne rien changer par surprise
-# sur un environnement qui n'aurait pas explicitement pose la variable.
+# 2026-08-25 sur glm-4.7-flash:Q3_K_M (option PRINCIPALE, demande explicite
+# de l'utilisateur) -- teste en reel sur ce VPS avant ce repointage :
+# `ollama show` confirme completion+tools+thinking natif, ~7-8.4 tok/s
+# (MoE 29.9B total / ~3B actifs par token, largement plus rapide que
+# gpt-oss:20b dense sur ce CPU sans GPU), think=true/false booleen accepte
+# proprement (champ message.thinking distinct de content, contrairement a
+# GLM-4.1V-9B-Thinking rejete le 23/08 qui melangeait tout dans content).
+# gpt-oss:20b (seul autre modele avec raisonnement natif confirme) reste
+# installe et devient le 1er repli de ce role (voir HERMES_FALLBACK_MODELS)
+# plutot que d'etre retire -- rien ne l'a disqualifie, il est seulement
+# supplante comme choix principal. Le defaut ci-dessous est desormais
+# aligne sur la valeur Render (plus de decalage volontaire comme avant :
+# l'ecart passe qwen2.5vl:7b/gpt-oss:20b avait deja cause de la confusion).
 HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b")
-HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b")
+HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "glm-4.7-flash:Q3_K_M")
 
 # gpt-oss ne peut PAS desactiver son raisonnement ("think": false/None est
 # ignore par Ollama pour ce modele) mais accepte un niveau gradue --
@@ -76,12 +85,21 @@ _GRADUATED_THINK_PREFIXES = ("gpt-oss",)
 
 def _has_graduated_think(model: str) -> bool:
     """True si ce modele accepte think="low"/"medium"/"high" (pas juste
-    booleen). Seul gpt-oss est confirme en reel sur ce VPS (23/08)."""
+    booleen). Seul gpt-oss est confirme en reel sur ce VPS (23/08). Testee
+    en reel le 25/08, glm-4.7-flash n'est PAS gradue -- seul think=true/false
+    booleen a ete essaye (Ollama l'accepte proprement), jamais de chaine
+    "low"/"medium"/"high" -- reste donc hors de ce tuple."""
     return (model or "").lower().startswith(_GRADUATED_THINK_PREFIXES)
 
 
 HERMES_FALLBACK_MODELS = [
-    os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b"),
+    os.environ.get("HERMES_REASONING_MODEL", "glm-4.7-flash:Q3_K_M"),
+    # gpt-oss:20b : ex-principal du role=reason, demote au rang de repli le
+    # 2026-08-25 (glm-4.7-flash devient principal) mais garde ici car son
+    # raisonnement natif reste confirme en reel -- un repli identique a un
+    # modele sans raisonnement degraderait silencieusement la qualite si
+    # glm-4.7-flash echoue (OOM, timeout).
+    "gpt-oss:20b",
     os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b"),
     "hermes3",
     "hermes-3",
@@ -505,7 +523,7 @@ async def _web_context_sans_prix(raw_text: str) -> str:
 def _wants_think(model: str) -> bool:
     """True for models with native reasoning/thinking mode on this VPS.
 
-    2026-08-23 : ajout de "gpt-oss" -- seul modele installe aujourd'hui
+    2026-08-23 : ajout de "gpt-oss" -- seul modele installe ce jour-la
     avec capacite "thinking" confirmee (`ollama show gpt-oss:20b` ->
     completion, tools, thinking ; teste en reel via /api/chat avec
     think=true (booleen) : Ollama accepte, renvoie un champ
@@ -513,6 +531,14 @@ def _wants_think(model: str) -> bool:
     ont ete supprimes du VPS le meme jour -- conserves ici seulement pour
     ne pas casser un futur tenant qui aurait un override ai_model vers un
     modele reinstalle plus tard.
+
+    2026-08-25 : ajout de "glm-4.7-flash" -- `ollama show glm-4.7-flash:Q3_K_M`
+    confirme completion, tools, thinking ; teste en reel via /api/chat avec
+    think=true ET think=false (booleen dans les deux cas) : Ollama accepte
+    proprement, message.thinking rempli uniquement quand think=true (JSON
+    valide obtenu dans les deux modes sur un test de decomposition
+    materiaux reel). Devient le modele PRINCIPAL du role=reason (voir
+    HERMES_REASONING_MODEL) ; gpt-oss:20b reste installe en repli.
     """
     name = (model or "").lower()
     return (
@@ -520,6 +546,7 @@ def _wants_think(model: str) -> bool:
         or name.startswith("gemma4")
         or name.startswith("deepseek-r1")
         or name.startswith("gpt-oss")
+        or name.startswith("glm-4.7-flash")
     )
 
 
@@ -529,14 +556,16 @@ async def resolve_ai_config(
 ) -> tuple[str, str, str]:
     """Return (provider, model, api_key) for this tenant.
 
-    2026-08-23 : docstring realignee sur l'etat reel apres suppression de
-    gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b, qwen2.5:14b et
-    Phi-4-reasoning-vision-15B du VPS (63 Go liberes), PUIS apres avoir
-    repointe HERMES_REASONING_MODEL sur gpt-oss:20b (seul modele installe
-    avec capacite "thinking" confirmee -- voir _wants_think). qwen2.5:7b,
-    qwen2.5vl:7b et hermes3 restent sans raisonnement natif ; gpt-oss:20b
-    n'a pas la vision (role=file/vision continue donc sur HERMES_VISION_MODEL,
-    pas sur le modele de raisonnement).
+    2026-08-25 : docstring realignee apres avoir repointe HERMES_REASONING_MODEL
+    sur glm-4.7-flash:Q3_K_M (option PRINCIPALE du role=reason, demande
+    explicite de l'utilisateur -- teste en reel avant deploiement : MoE
+    29.9B/~3B actifs, completion+tools+thinking natif confirmes via
+    `ollama show`, ~7-8.4 tok/s, think=true/false booleen propre). gpt-oss:20b
+    (ex-principal depuis le 23/08) reste installe et devient le 1er repli de
+    ce role (voir HERMES_FALLBACK_MODELS), rien ne l'a disqualifie. qwen2.5:7b,
+    qwen2.5vl:7b et hermes3 restent sans raisonnement natif ; ni gpt-oss:20b
+    ni glm-4.7-flash n'ont la vision (role=file/vision continue donc sur
+    HERMES_VISION_MODEL, pas sur le modele de raisonnement).
 
     role=extract → HERMES_EXTRACT_MODEL (qwen2.5:7b par defaut, texte seul).
       Reserve au texte colle manuellement (pas un fichier importe).
@@ -547,10 +576,9 @@ async def resolve_ai_config(
     role=vision → alias de role=file, conserve pour la compatibilite avec
       le code existant qui distinguait "image" de "fichier texte".
     role=reason (tout role hors extract/vision/file) → HERMES_REASONING_MODEL
-      (gpt-oss:20b, seul modele avec raisonnement natif reellement installe --
-      decomposition materiaux/lots, EXPAND_SYSTEM). Timeout 900s (voir
-      _wants_think) car Ollama force le raisonnement sur gpt-oss quoi qu'il
-      arrive ("think": false/None est ignore pour ce modele).
+      (glm-4.7-flash:Q3_K_M, option principale -- decomposition materiaux/lots,
+      EXPAND_SYSTEM). Timeout 900s (voir _wants_think). Repli sur gpt-oss:20b
+      puis qwen2.5:7b/hermes3 en cas d'echec (voir HERMES_FALLBACK_MODELS).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
     provider = tenant_settings.get("ai_provider") or DEFAULT_PROVIDER
