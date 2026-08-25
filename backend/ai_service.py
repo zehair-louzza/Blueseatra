@@ -8,12 +8,15 @@ import json
 import re
 import base64
 import uuid
+import logging
 import httpx
 import quote_scenarios
 import matching as match_engine
 import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger("blueseatra.ai")
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -616,6 +619,7 @@ async def resolve_ai_config(
             else:
                 model = HERMES_REASONING_MODEL
 
+    logger.info("ai_role_resolved role=%s provider=%s model=%s", role, provider, model)
     return provider, model, api_key
 
 
@@ -762,6 +766,10 @@ async def _call_hermes_ollama(
         # et le message d'erreur distingue ce cas pour que "IA indisponible"
         # pointe vers un probleme reseau/DNS plutot qu'un faux echec de modele.
         current_timeout = 900.0 if _wants_think(current) else 180.0
+        logger.info(
+            "ai_call_attempt role=%s model=%s think=%s timeout=%.0f",
+            role, current, payload.get("think"), current_timeout,
+        )
         # Un raisonnement lent-mais-reussi n'est PAS le meme probleme qu'un
         # routage DNS parasite (reponse HTML instantanee, voir
         # _looks_like_wrong_server) : retenter le MEME modele apres un vrai
@@ -790,12 +798,14 @@ async def _call_hermes_ollama(
                 msg = data.get("message") or {}
                 content = (msg.get("content") or "").strip()
                 if content:
+                    logger.info("ai_call_success role=%s model=%s", role, current)
                     return content
                 last_err = f"reponse vide ({current})"
                 break
             except Exception as exc:
                 last_err = f"{type(exc).__name__} ({current}): {exc or repr(exc)}"
                 break  # pas de retry sur le meme modele : voir commentaire ci-dessus
+    logger.warning("ai_call_failed role=%s tried=%s last_err=%s", role, models, last_err)
     raise RuntimeError(last_err or "aucun modele Ollama n'a repondu")
 
 
@@ -885,7 +895,7 @@ async def _call_reason(
             return await _call_hermes_gateway(system_prompt, user_message)
         except Exception:
             pass
-    return await _call_hermes_ollama(model, system_prompt, user_message, reasoning_effort=reasoning_effort)
+    return await _call_hermes_ollama(model, system_prompt, user_message, reasoning_effort=reasoning_effort, role="reason")
 
 
 async def _call_openai(
@@ -1053,6 +1063,7 @@ async def extract_request_data(
                 system_prompt=EXTRACTION_SYSTEM,
                 user_message=user_message,
                 image_b64=image_b64,
+                role=role,
             )
         elif provider == "openai":
             raw_response = await _call_openai(
@@ -1069,6 +1080,7 @@ async def extract_request_data(
                 system_prompt=EXTRACTION_SYSTEM,
                 user_message=user_message,
                 image_b64=image_b64,
+                role=role,
             )
     except Exception as e:
         detail = f"{type(e).__name__}: {e or repr(e)}"
