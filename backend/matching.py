@@ -502,8 +502,14 @@ def _auto_labor_and_travel(extracted: dict, catalog: list, existing: list):
     return extra, extra_ht, extra_vat
 
 
-def build_works_description(extracted: dict, chantier: dict | None = None) -> str:
-    """Descriptif client : périmètre, phases, logique MO et déplacement."""
+def _narrative_inputs(extracted: dict, chantier: dict | None = None) -> dict:
+    """Faits bruts (titre, fournitures, site, exclusions, heures/jours/equipe)
+    partages entre le descriptif 100% deterministe (build_works_description)
+    et la version enrichie par IA (ai_service.build_works_description_ai).
+    AUCUN calcul ici -- lecture seule d'états deja calcules par estimate_chantier
+    / le moteur de prix. Ne jamais faire deriver un prix, une quantite ou une
+    heure a partir de ce dict cote appelant.
+    """
     desc = short_title(extracted.get("description") or extracted.get("option_label") or "", 280)
     site = clean_text(
         extracted.get("intervention_address")
@@ -521,15 +527,53 @@ def build_works_description(extracted: dict, chantier: dict | None = None) -> st
     idx = extracted.get("quote_option_index")
     cnt = extracted.get("quote_option_count") or 1
     title = extracted.get("option_label") or desc or "Travaux selon demande"
-    head = f"Option {idx}/{cnt} — {title}." if cnt and int(cnt) > 1 else (title if title.endswith(".") else f"{title}.")
-    fourn = ("Fournitures / pièces de cette option : " + ", ".join(labels) + ".") if labels else ""
-    site_bit = f" Intervention prévue à {site_one}." if site_one else ""
     est = chantier or estimate_chantier(extracted, [])
-    hours = est.get("labor_hours") or extracted.get("labor_hours") or 2
-    days = est.get("travel_days") or extracted.get("travel_days") or 1
-    crew = est.get("crew") or extracted.get("crew_size") or 1
-    excl = clean_text(extracted.get("option_excludes") or "")
-    hors = f" Hors périmètre de cette option : {excl}." if excl else ""
+    return {
+        "idx": idx,
+        "cnt": cnt,
+        "title": title,
+        "labels": labels,
+        "site_one": site_one,
+        "hours": est.get("labor_hours") or extracted.get("labor_hours") or 2,
+        "days": est.get("travel_days") or extracted.get("travel_days") or 1,
+        "crew": est.get("crew") or extracted.get("crew_size") or 1,
+        "excl": clean_text(extracted.get("option_excludes") or ""),
+    }
+
+
+def deplacement_mo_text(extracted: dict, chantier: dict | None = None) -> str:
+    """Bloc Deplacement + Main-d'oeuvre : 100% deterministe, jamais ecrit par
+    une IA. Reutilise par build_works_description ET par la version IA
+    (ai_service.build_works_description_ai) pour garantir que ces chiffres
+    ne divergent jamais entre les deux chemins.
+    """
+    n = _narrative_inputs(extracted, chantier)
+    hours, days, crew = n["hours"], n["days"], n["crew"]
+    return (
+        f"Déplacement : {days:g} jour(s) de présence sur site = {days:g} forfait(s) déplacement. "
+        "Un jour de travaux = un déplacement, sauf consigne contraire.\n\n"
+        f"Main-d'œuvre : {hours:g} heure(s)-homme, {crew:g} personne(s), "
+        "plafond 7 h/personne/jour. "
+        "Les heures couvrent pose, essais et repli. Estimation si le métré n'est pas mesuré.\n\n"
+        "Toute contrainte non visible au métré pourra faire l'objet d'une adaptation après accord."
+    )
+
+
+def build_works_description(extracted: dict, chantier: dict | None = None) -> str:
+    """Descriptif client 100% deterministe : perimetre, phases (texte fixe),
+    logique MO et deplacement. Utilise en secours si l'enrichissement IA
+    (ai_service.build_works_description_ai) est indisponible ou echoue --
+    doit donc rester correct et complet par lui-meme, sans dependre d'IA.
+    """
+    n = _narrative_inputs(extracted, chantier)
+    head = (
+        f"Option {n['idx']}/{n['cnt']} — {n['title']}."
+        if n["cnt"] and int(n["cnt"]) > 1
+        else (n["title"] if n["title"].endswith(".") else f"{n['title']}.")
+    )
+    fourn = ("Fournitures / pièces de cette option : " + ", ".join(n["labels"]) + ".") if n["labels"] else ""
+    site_bit = f" Intervention prévue à {n['site_one']}." if n["site_one"] else ""
+    hors = f" Hors périmètre de cette option : {n['excl']}." if n["excl"] else ""
     return (
         f"{head} {fourn}{site_bit}{hors}\n\n"
         "Déroulement :\n"
@@ -537,12 +581,7 @@ def build_works_description(extracted: dict, chantier: dict | None = None) -> st
         "2. Installation, sécurisation de la zone, dépose si nécessaire.\n"
         "3. Fourniture et pose des articles de cette option uniquement.\n"
         "4. Essais, nettoyage et repli de chantier.\n\n"
-        f"Déplacement : {days:g} jour(s) de présence sur site = {days:g} forfait(s) déplacement. "
-        "Un jour de travaux = un déplacement, sauf consigne contraire.\n\n"
-        f"Main-d'œuvre : {hours:g} heure(s)-homme, {crew:g} personne(s), "
-        "plafond 7 h/personne/jour. "
-        "Les heures couvrent pose, essais et repli. Estimation si le métré n'est pas mesuré.\n\n"
-        "Toute contrainte non visible au métré pourra faire l'objet d'une adaptation après accord."
+        + deplacement_mo_text(extracted, chantier)
     )
 
 

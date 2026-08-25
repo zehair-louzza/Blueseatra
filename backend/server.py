@@ -1329,7 +1329,11 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
             except Exception:
                 logger.warning("expand_work_into_materials skipped for request %s", request_id)
         lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
-        works_description = match_engine.build_works_description(extracted)
+        # role=describe (redaction uniquement) : glm-4.7-flash enrichit
+        # description + etapes, jamais les quantites/prix de ce devis --
+        # repli automatique et transparent sur le gabarit deterministe en
+        # cas d'echec/timeout (voir ai_service.build_works_description_ai).
+        works_description = await ai_service.build_works_description_ai(extracted, settings)
         quote_id = new_id()
         opt_label = extracted.get("option_label") or extracted.get("description") or ""
         obj_src = f"Option {i}/{n_opt} — {opt_label}" if n_opt > 1 else (ex.get("description") or opt_label)
@@ -1546,7 +1550,9 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     if old_mat > 0 and new_mat <= 0:
         raise HTTPException(400, "Aucun article catalogue correspondant. Les prix du brouillon sont conservés.")
     meta = dict(q.get("meta") or {})
-    meta["works_description"] = match_engine.build_works_description(extracted)
+    # role=describe (redaction uniquement), meme repli deterministe qu'en
+    # creation -- voir ai_service.build_works_description_ai.
+    meta["works_description"] = await ai_service.build_works_description_ai(extracted, settings)
     if extracted.get("di_number"):
         meta["di_number"] = extracted.get("di_number")
     update = {
