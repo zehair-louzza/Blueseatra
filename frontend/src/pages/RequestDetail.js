@@ -193,7 +193,7 @@ export default function RequestDetail() {
           {ex?._ocr_text ? (
             <Textarea rows={10} value={ex._ocr_text} readOnly className="font-mono text-xs" data-testid="ai-ocr-text" />
           ) : ['image', 'pdf_ocr'].includes(req.source_type) ? (
-            <p className="text-sm text-muted-foreground" data-testid="ai-ocr-fallback-note">{t('req.ocr_fallback_note')}</p>
+            <p className="text-sm text-muted-foreground" data-testid="ai-ocr-fallback-note">{t('req.ocr_fallback_note', { engine: ex?._ocr_engine || t('req.ocr_engine_generic') })}</p>
           ) : (
             <div>
               <Textarea rows={10} value={rawText} onChange={(e) => setRawText(e.target.value)} className="font-mono text-xs" data-testid="request-raw-edit" />
