@@ -31,7 +31,7 @@ export default function RequestDetail() {
   });
   useEffect(() => { load(); }, [id]);
   useEffect(() => {
-    if (!req || !['received', 'processing'].includes(req.status)) return;
+    if (!req || !['received', 'queued', 'processing'].includes(req.status)) return;
     const x = setInterval(load, 3000); return () => clearInterval(x);
   }, [req]);
   useEffect(() => {
@@ -87,7 +87,7 @@ export default function RequestDetail() {
         <div>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} className="h-10 max-w-xl font-display text-xl font-semibold" data-testid="request-title-edit" />
           <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-            <StatusBadge status={req.status} />
+            <StatusBadge status={req.status} queuePosition={req.queue_position} />
             <span className="uppercase">{req.language || ''}</span>
             {req.confidence != null && <span>· {t('req.confidence')}: {Math.round(req.confidence * 100)}%</span>}
           </div>
@@ -130,7 +130,7 @@ export default function RequestDetail() {
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="card-shadow border-0 p-5">
           <h2 className="mb-3 font-display text-base font-semibold">{t('req.extracted')}</h2>
-          {!ex ? <Spinner label={t('req.processing')} /> : (
+          {!ex ? <Spinner label={req.status === 'queued' ? t('status.queued_position', { n: req.queue_position || 1 }) : t('req.processing')} /> : (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <Field label={t('req.donneur')} value={ex.donneur_d_ordre || ex.client_name} />
