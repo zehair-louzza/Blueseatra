@@ -12,7 +12,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/Spinner';
 import { toast } from 'sonner';
-import { Plus, Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, Check, X, KeyRound } from 'lucide-react';
 
 const ROLES = ['owner', 'admin', 'operator', 'viewer', 'billing_admin'];
 
@@ -25,7 +25,11 @@ export default function Members() {
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [nameDraft, setNameDraft] = useState('');
+  const [pwTarget, setPwTarget] = useState(null);
+  const [pwDraft, setPwDraft] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
   const canManage = ['owner', 'admin'].includes(tenant?.role);
+  const isOwner = tenant?.role === 'owner';
   const { user } = useAuth();
 
   const load = () => api.get('/members').then((r) => setRows(r.data));
@@ -48,6 +52,16 @@ export default function Members() {
   const removeMember = async (uid) => {
     try { await api.delete(`/members/${uid}`); toast.success(t('members.removed')); load(); }
     catch (err) { toast.error(apiError(err, 'Failed')); }
+  };
+
+  const changePassword = async (e) => {
+    e.preventDefault(); setPwBusy(true);
+    try {
+      await api.patch(`/members/${pwTarget.user_id}`, { password: pwDraft });
+      toast.success(t('members.password_updated'));
+      setPwTarget(null); setPwDraft('');
+    } catch (err) { toast.error(apiError(err, 'Failed')); }
+    finally { setPwBusy(false); }
   };
 
   return (
@@ -114,6 +128,9 @@ export default function Members() {
                           {editingId !== m.user_id && (
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEditName(m)} data-testid="member-edit-button"><Pencil className="h-4 w-4" /></Button>
                           )}
+                          {isOwner && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" title={t('members.change_password')} onClick={() => { setPwTarget(m); setPwDraft(''); }} data-testid="member-password-button"><KeyRound className="h-4 w-4" /></Button>
+                          )}
                           {m.user_id !== user?.id && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
@@ -141,6 +158,19 @@ export default function Members() {
           </Card>
         )}
       </div>
+      <Dialog open={!!pwTarget} onOpenChange={(v) => { if (!v) { setPwTarget(null); setPwDraft(''); } }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{t('members.change_password_title')}</DialogTitle></DialogHeader>
+          <form onSubmit={changePassword} className="space-y-3">
+            <p className="text-sm text-muted-foreground">{pwTarget?.name} — {t('members.change_password_desc')}</p>
+            <div className="space-y-1.5">
+              <Label>{t('members.new_password')}</Label>
+              <Input type="text" required minLength={6} value={pwDraft} onChange={(e) => setPwDraft(e.target.value)} data-testid="member-new-password-input" autoFocus />
+            </div>
+            <DialogFooter><Button type="submit" className="w-full" disabled={pwBusy} data-testid="member-password-submit">{pwBusy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('members.change_password')}</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
