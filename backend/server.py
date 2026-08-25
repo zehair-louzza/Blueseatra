@@ -316,19 +316,50 @@ async def add_member(body: InviteIn, cu: CurrentUser = Depends(require_role("own
 
 
 class RoleUpdate(BaseModel):
-    role: str
+    role: Optional[str] = None
+    name: Optional[str] = None
 
 
 @api.patch("/members/{user_id}")
 async def update_member(user_id: str, body: RoleUpdate,
                         cu: CurrentUser = Depends(require_role("owner", "admin"))):
-    if body.role not in ROLES:
-        raise HTTPException(400, "Invalid role")
-    res = await db.tenant_users.update_one(
-        {"tenant_id": cu.tenant_id, "user_id": user_id}, {"$set": {"role": body.role}})
-    if res.matched_count == 0:
+    tu = await db.tenant_users.find_one({"tenant_id": cu.tenant_id, "user_id": user_id})
+    if not tu:
         raise HTTPException(404, "Member not found")
-    await audit(cu.tenant_id, cu.email, "member.role_update", user_id, {"role": body.role})
+    if body.role is not None:
+        if body.role not in ROLES:
+            raise HTTPException(400, "Invalid role")
+        if tu["role"] == "owner" and body.role != "owner":
+            remaining = await db.tenant_users.count_documents(
+                {"tenant_id": cu.tenant_id, "role": "owner", "user_id": {"$ne": user_id}})
+            if remaining == 0:
+                raise HTTPException(400, "Impossible de retirer le dernier owner du tenant")
+        await db.tenant_users.update_one(
+            {"tenant_id": cu.tenant_id, "user_id": user_id}, {"$set": {"role": body.role}})
+        await audit(cu.tenant_id, cu.email, "member.role_update", user_id, {"role": body.role})
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "Name cannot be empty")
+        await db.users.update_one({"id": user_id}, {"$set": {"name": name}})
+        await audit(cu.tenant_id, cu.email, "member.name_update", user_id, {"name": name})
+    return {"ok": True}
+
+
+@api.delete("/members/{user_id}")
+async def remove_member(user_id: str, cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    tu = await db.tenant_users.find_one({"tenant_id": cu.tenant_id, "user_id": user_id})
+    if not tu:
+        raise HTTPException(404, "Member not found")
+    if tu["role"] == "owner":
+        remaining = await db.tenant_users.count_documents(
+            {"tenant_id": cu.tenant_id, "role": "owner", "user_id": {"$ne": user_id}})
+        if remaining == 0:
+            raise HTTPException(400, "Impossible de supprimer le dernier owner du tenant")
+    if user_id == cu.user_id:
+        raise HTTPException(400, "Vous ne pouvez pas vous retirer vous-m\u00eame")
+    await db.tenant_users.delete_one({"tenant_id": cu.tenant_id, "user_id": user_id})
+    await audit(cu.tenant_id, cu.email, "member.remove", user_id)
     return {"ok": True}
 
 
