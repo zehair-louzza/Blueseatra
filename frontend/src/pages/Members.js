@@ -8,10 +8,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner } from '@/components/Spinner';
 import { toast } from 'sonner';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, Pencil, Trash2, Check, X } from 'lucide-react';
 
 const ROLES = ['owner', 'admin', 'operator', 'viewer', 'billing_admin'];
 
@@ -22,7 +23,10 @@ export default function Members() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'operator' });
   const [busy, setBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [nameDraft, setNameDraft] = useState('');
   const canManage = ['owner', 'admin'].includes(tenant?.role);
+  const { user } = useAuth();
 
   const load = () => api.get('/members').then((r) => setRows(r.data));
   useEffect(() => { load(); }, []);
@@ -35,6 +39,16 @@ export default function Members() {
   };
 
   const changeRole = async (uid, role) => { await api.patch(`/members/${uid}`, { role }); toast.success('OK'); load(); };
+
+  const startEditName = (m) => { setEditingId(m.user_id); setNameDraft(m.name); };
+  const saveName = async (uid) => {
+    try { await api.patch(`/members/${uid}`, { name: nameDraft }); toast.success(t('members.name_updated')); setEditingId(null); load(); }
+    catch (err) { toast.error(apiError(err, 'Failed')); }
+  };
+  const removeMember = async (uid) => {
+    try { await api.delete(`/members/${uid}`); toast.success(t('members.removed')); load(); }
+    catch (err) { toast.error(apiError(err, 'Failed')); }
+  };
 
   return (
     <div>
@@ -65,11 +79,26 @@ export default function Members() {
         {!rows ? <Spinner /> : (
           <Card className="card-shadow overflow-hidden border-0">
             <Table data-testid="members-table">
-              <TableHeader><TableRow><TableHead>{t('members.name')}</TableHead><TableHead>{t('members.email')}</TableHead><TableHead>{t('members.role')}</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>{t('members.name')}</TableHead><TableHead>{t('members.email')}</TableHead><TableHead>{t('members.role')}</TableHead>{canManage && <TableHead>{t('members.actions')}</TableHead>}</TableRow></TableHeader>
               <TableBody>
                 {rows.map((m) => (
-                  <TableRow key={m.user_id}>
-                    <TableCell className="font-medium">{m.name}</TableCell>
+                  <TableRow key={m.user_id} data-testid="member-row">
+                    <TableCell className="font-medium">
+                      {editingId === m.user_id ? (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            value={nameDraft}
+                            onChange={(e) => setNameDraft(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveName(m.user_id); if (e.key === 'Escape') setEditingId(null); }}
+                            className="h-7 w-40"
+                            autoFocus
+                            data-testid="member-name-input-edit"
+                          />
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600 hover:text-emerald-700" onClick={() => saveName(m.user_id)} data-testid="member-name-save"><Check className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingId(null)} data-testid="member-name-cancel"><X className="h-4 w-4" /></Button>
+                        </div>
+                      ) : m.name}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">{m.email}</TableCell>
                     <TableCell>
                       {canManage ? (
@@ -79,6 +108,32 @@ export default function Members() {
                         </Select>
                       ) : <span className="text-sm">{m.role}</span>}
                     </TableCell>
+                    {canManage && (
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          {editingId !== m.user_id && (
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEditName(m)} data-testid="member-edit-button"><Pencil className="h-4 w-4" /></Button>
+                          )}
+                          {m.user_id !== user?.id && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" data-testid="member-delete-button"><Trash2 className="h-4 w-4" /></Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>{t('members.delete_title')}</AlertDialogTitle>
+                                  <AlertDialogDescription>{m.name} — {t('members.delete_desc')}</AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel data-testid="member-delete-cancel">{t('common.cancel')}</AlertDialogCancel>
+                                  <AlertDialogAction onClick={() => removeMember(m.user_id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" data-testid="member-delete-confirm">{t('members.delete')}</AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
