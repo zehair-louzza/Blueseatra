@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-08-25/26 — Gestion des membres, affichage suggestion catalogue, file d'extraction séquentielle
+
+PR #60 à #64 sur `main`.
+
+### Documentation (PR #60)
+- README/CHANGELOG mis à jour avec les rôles IA par clé dédiée (voir entrée précédente) et le correctif Gemma frontend.
+
+### Correctif affichage suggestion catalogue (PR #61)
+- Bug réel signalé par l'utilisateur : une ligne à correspondance ambiguë (`status="to_confirm"`, score 45-89) ne recevait volontairement aucun prix automatique (comportement voulu de `matching.py` — jamais de prix sur une correspondance incertaine), mais le frontend n'affichait alors **rien du tout**, laissant croire que l'IA n'avait pas cherché dans le catalogue alors que l'article y était bien présent.
+- `QuoteEditor.js` affiche désormais l'indice de suggestion (`suggested_item_code` / `suggested_label`, déjà calculé par le backend mais jamais rendu) sur chaque ligne `to_confirm`, avec un texte explicite invitant à confirmer via « Ajouter depuis le catalogue ».
+
+### Gestion des membres (PR #62, #63)
+- `DELETE /api/members/{user_id}` : retire un membre du tenant. Refuse de retirer le dernier `owner` ou de se retirer soi-même.
+- `PATCH /api/members/{user_id}` étendu : accepte désormais `name` (renommer un membre) et `password` — ce dernier **réservé au rôle owner** (403 pour un admin), pour que le changement de mot de passe d'un membre ne soit possible que depuis le compte owner.
+- Page Membres (`Members.js`) : édition inline du nom (crayon), bouton Supprimer avec confirmation, bouton «clé» (changement de mot de passe) visible uniquement pour le rôle owner.
+
+### File d'extraction séquentielle (PR #64)
+- Bug de production confirmé le 25/08 : 5 demandes créées à ~2 min d'intervalle sont restées bloquées sur `processing` pendant 80+ minutes ; le VPS était en réalité inactif (0 % CPU) au moment du contrôle — contention CPU entre extractions concurrentes, puis perte des tâches en mémoire lors d'un redéploiement Render.
+- Nouvelle file FIFO in-process (`asyncio.Queue` + une tâche de fond persistante) : une seule extraction IA à la fois, dans l'ordre d'arrivée. Nouveau statut `queued` avec position réelle exposée par l'API et affichée clairement dans le SaaS (« En file d'attente (position N) »).
+- Filet de sécurité au démarrage (`_requeue_stuck_on_startup`) : toute demande encore `queued`/`processing` au redémarrage du service est remise en file automatiquement — a réparé seul les 5 demandes bloquées en production.
+- Détail complet et alternatives écartées : [`docs/decisions/ADR-FILE-EXTRACTION-SEQUENTIELLE.md`](./docs/decisions/ADR-FILE-EXTRACTION-SEQUENTIELLE.md).
+
 ## 2026-08-25 — Rôles IA isolés (describe) + garde-fous hallucination + correctif Gemma frontend
 
 PR #55 à #59 sur `main`.

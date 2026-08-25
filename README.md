@@ -4,24 +4,7 @@
 
 ---
 
-## 🛠 Journal des changements — Optimisation IA locale VPS OVH (juin 2026)
-
-> Traçabilité des changements apportés pour faire tourner l'IA locale efficacement sur le VPS OVH (CPU seul) et durcir le SaaS. Détail complet + backlog : **[`HANDOFF.md`](./HANDOFF.md)**. Livrables infra : **[`ovh-ai-stack-corrige/`](./ovh-ai-stack-corrige/)**.
-
-**Cause racine corrigée** : des modèles de 17-18 Go en raisonnement tournaient sur un VPS CPU 22 Go (80 s-11 min/doc, OOM). Bascule vers de petits modèles rapides + parsing déterministe des tableaux + traitement asynchrone.
-
-**Changements de code (`backend/`)**
-- `ai_service.py` : défauts modèles → `qwen2.5:7b` / `qwen2.5vl:7b` (fini `gemma4:26b`, `qwen3.6:27b`, `Phi-4-15B`) ; `extract_pdf_text` extrait désormais les **tableaux via pdfplumber** avant le LLM ; ajout d'un limiteur de concurrence Ollama (`OLLAMA_MAX_CONCURRENCY`).
-- `server.py` : **invalidation du cache catalogue** sur import/activate/deactivate/delete/patch (corrige des prix périmés 45 s) ; **un seul catalogue actif** par tenant ; **cache catalogue Redis opt-in** (`REDIS_URL`, invalidation inter-workers) ; **file d'attente RQ opt-in** dans `create_request`.
-- `database.py` : SSL non requis pour PostgreSQL `localhost` (Supabase inchangé en prod).
-- `extraction_worker.py` (nouveau) : worker RQ de la file d'extraction.
-- `requirements.txt` : `redis`, `rq`.
-
-**Livré séparément** (`ovh-ai-stack-corrige/`) : audit chiffré, compose/Caddyfile/hermes corrigés, service d'extraction, file durable (RQ / Supabase SKIP LOCKED / n8n), chiffrage GPU OVH, scripts de pull/benchmark et de **test e2e réel** contre `ia.blueseatra.com`.
-
-**Statut** : flux métier + fix cache validés par testing_agent (jusqu'à 56/56). *À valider par le prochain agent* : single-active / cache Redis / file RQ (vérifiés manuellement, testing_agent non relancé) ; extraction IA réelle (à tester depuis Render→VPS). Voir `HANDOFF.md` §5.
-
-**Compatibilité** : toutes les nouveautés Redis sont **opt-in** — sans `REDIS_URL`, le comportement est identique à l'existant (cache in-memory + `BackgroundTasks`).
+> 📋 **Journal des changements** : voir **[`CHANGELOG.md`](./CHANGELOG.md)** pour l'historique détaillé PR par PR. Contexte infra IA locale (VPS OVH) et backlog : **[`HANDOFF.md`](./HANDOFF.md)**. Livrables infra dédiés : **[`ovh-ai-stack-corrige/`](./ovh-ai-stack-corrige/)**.
 
 ---
 
@@ -331,88 +314,106 @@ Consultez `backend/SUPABASE_MIGRATION.md` pour le guide complet de migration dep
 
 ## 11. Référence API
 
-Toutes les routes sont préfixées par `/api`. Le backend expose une documentation interactive à :
-- **Swagger UI** : `http://localhost:8001/api/docs`
-- **ReDoc** : `http://localhost:8001/api/redoc`
+Toutes les routes sont préfixées par `/api` (routeur `APIRouter(prefix="/api")` dans `backend/server.py`). Table générée à partir des routes réellement déclarées — à tenir à jour à chaque route ajoutée/retirée (`grep -n "^@api\." backend/server.py` pour vérifier).
 
 ### Authentification
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| `POST` | `/api/auth/register` | Création de compte |
+| `POST` | `/api/auth/signup` | Création de compte + tenant |
 | `POST` | `/api/auth/login` | Connexion — retourne un JWT |
-| `GET` | `/api/auth/me` | Profil de l'utilisateur connecté |
+| `GET` | `/api/auth/me` | Profil de l'utilisateur connecté + tenants |
+| `POST` | `/api/auth/switch-tenant/{tenant_id}` | Basculer le tenant actif |
 
-### Tenants & utilisateurs
+### Membres (rôles owner / admin / operator / viewer / billing_admin)
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| `GET` | `/api/tenants` | Liste des tenants de l'utilisateur |
-| `POST` | `/api/tenants` | Créer un tenant |
-| `GET` | `/api/tenants/{id}/users` | Membres du tenant |
-| `POST` | `/api/tenants/{id}/invite` | Inviter un utilisateur |
+| `GET` | `/api/members` | Liste des membres du tenant |
+| `POST` | `/api/members` | Ajouter un membre (owner/admin) |
+| `PATCH` | `/api/members/{user_id}` | Modifier rôle et/ou nom (owner/admin) ; le champ `password` est réservé au **owner** (403 sinon) |
+| `DELETE` | `/api/members/{user_id}` | Retirer un membre (owner/admin) — refuse de retirer le dernier owner ou soi-même |
 
 ### Demandes (Requests)
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| `GET` | `/api/requests` | Liste des demandes du tenant |
-| `POST` | `/api/requests` | Créer une demande (upload fichier) |
-| `GET` | `/api/requests/{id}` | Détail d'une demande |
-| `POST` | `/api/requests/{id}/extract` | Lancer l'extraction IA |
+| `POST` | `/api/requests` | Créer une demande (texte collé ou fichier) — mise en file d'extraction séquentielle, statut initial `queued` |
+| `GET` | `/api/requests` | Liste des demandes du tenant, avec `queue_position` pour les demandes `queued` |
+| `GET` | `/api/requests/{id}` | Détail d'une demande (avec `queue_position` si `queued`) |
+| `GET` | `/api/requests/{id}/file` | Fichier original (images uniquement — les PDF ne sont jamais persistés) |
+| `POST` | `/api/requests/{id}/process` | Retraiter (remise en file) |
+| `POST` | `/api/requests/{id}/deep-vision` | Escalade vers un modèle de vision plus lent (photos importées uniquement) |
+| `PATCH` | `/api/requests/{id}` | Modifier le titre / texte source |
 | `DELETE` | `/api/requests/{id}` | Supprimer une demande |
 
-### Devis (Quotes)
-
-| Méthode | Route | Description |
-|---------|-------|-------------|
-| `GET` | `/api/quotes` | Liste des devis du tenant |
-| `POST` | `/api/quotes` | Créer un devis |
-| `GET` | `/api/quotes/{id}` | Détail d'un devis |
-| `PUT` | `/api/quotes/{id}` | Mettre à jour un devis |
-| `POST` | `/api/quotes/{id}/pdf` | Générer le PDF Pro Forma |
-| `DELETE` | `/api/quotes/{id}` | Supprimer un devis |
+> Traitement IA **séquentiel** (une seule extraction à la fois, voir `_extraction_worker_loop` dans `backend/server.py`) : le VPS d'inférence n'a pas de GPU, traiter plusieurs demandes en parallèle les fait ralentir/bloquer mutuellement. Détail : [`docs/decisions/ADR-FILE-EXTRACTION-SEQUENTIELLE.md`](./docs/decisions/ADR-FILE-EXTRACTION-SEQUENTIELLE.md).
 
 ### Catalogues
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| `GET` | `/api/catalogs` | Liste des catalogues |
-| `POST` | `/api/catalogs` | Créer un catalogue |
-| `POST` | `/api/catalogs/{id}/import` | Importer un CSV |
-| `GET` | `/api/catalogs/{id}/items` | Articles du catalogue actif |
-| `PUT` | `/api/catalogs/{id}/versions/{vid}/activate` | Activer une version |
+| `GET` | `/api/catalogs` | Liste des catalogues du tenant |
+| `GET` | `/api/catalogs/{id}/items` | Articles d'un catalogue |
+| `GET` | `/api/catalog-template.csv` | Modèle CSV à télécharger |
+| `POST` | `/api/catalogs/import/preview` | Aperçu d'un import avant validation |
+| `POST` | `/api/catalogs/import` | Importer un CSV (nouvelle version) |
+| `GET` | `/api/import-jobs/{job_id}/errors` | Erreurs détaillées d'un import |
+| `POST` | `/api/catalogs/{id}/activate/{version_id}` | Activer une version (une seule version active à la fois) |
+| `PATCH` | `/api/catalogs/{id}` | Modifier le catalogue (ex. code client) |
+| `POST` | `/api/catalogs/{id}/deactivate` | Désactiver le catalogue actif |
+| `DELETE` | `/api/catalogs/{id}` | Supprimer définitivement un catalogue et ses versions |
+| `GET` | `/api/catalog/active` | Catalogue actif complet (cache court) |
+| `GET` | `/api/catalog/search` | Recherche d'articles (utilisée par l'éditeur de devis) |
 
-### Paramètres & intégrations
+### Devis (Quotes)
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| `GET` | `/api/settings/integrations` | Réglages IA / n8n du tenant |
-| `PUT` | `/api/settings/integrations` | Mettre à jour les réglages |
-| `GET` | `/api/settings/company` | Profil entreprise |
-| `PUT` | `/api/settings/company` | Mettre à jour le profil entreprise |
+| `POST` | `/api/quotes/draft` | Créer un ou plusieurs brouillons de devis depuis une demande (options exclusives → devis distincts) |
+| `GET` | `/api/quotes` | Liste des devis du tenant |
+| `GET` | `/api/quotes/{id}` | Détail d'un devis |
+| `PATCH` | `/api/quotes/{id}` | Mettre à jour un devis (brouillon) |
+| `POST` | `/api/quotes/{id}/validate` | Valider — gèle les prix (`pricing_snapshot`) |
+| `POST` | `/api/quotes/{id}/send` | Marquer comme envoyé |
+| `POST` | `/api/quotes/{id}/reopen` | Rouvrir un devis validé/envoyé en brouillon |
+| `POST` | `/api/quotes/{id}/duplicate` | Dupliquer un devis |
+| `POST` | `/api/quotes/{id}/rematch` | Recalculer le rapprochement catalogue des lignes |
+| `DELETE` | `/api/quotes/{id}` | Supprimer un devis |
+| `GET` | `/api/quotes/{id}/pdf` | Générer et télécharger le PDF Pro Forma |
+
+### Paramètres, tableau de bord & audit
+
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| `GET` / `PUT` | `/api/settings/integrations` | Réglages IA / webhook n8n du tenant |
+| `GET` / `PUT` | `/api/company-profile` | Profil entreprise (en-tête/pied de page des PDF) |
+| `GET` | `/api/dashboard` | Indicateurs du tenant |
+| `GET` | `/api/audit` | Journal d'audit du tenant |
+| `GET` | `/api/health` | Statut de santé (`{"status": "healthy", "commit": "..."}`) — utilisé comme `healthCheckPath` Render |
 
 ---
 
 ## 12. Frontend (routes & pages)
 
+Routes réelles (`frontend/src/App.js`) :
+
 | Route | Page / Composant | Description |
 |-------|-----------------|-------------|
 | `/` | `Landing` | Page d'accueil publique |
-| `/login` | `Auth/Login` | Connexion |
-| `/register` | `Auth/Register` | Inscription |
-| `/dashboard` | `Dashboard` | Vue d'ensemble du tenant |
-| `/requests` | `Requests/List` | Liste des demandes |
-| `/requests/new` | `Requests/New` | Nouvelle demande (upload) |
-| `/requests/:id` | `Requests/Detail` | Détail + résultat extraction IA |
-| `/quotes` | `Quotes/List` | Liste des devis |
-| `/quotes/:id` | `QuoteEditor` | Éditeur de devis complet |
-| `/catalogs` | `Catalogs/List` | Gestion des catalogues |
-| `/catalogs/:id` | `Catalogs/Detail` | Détail + import CSV |
-| `/settings` | `Settings` | Paramètres du tenant |
-| `/settings/integrations` | `Settings/Integrations` | Config IA (Hermes/OpenAI…) + n8n |
-| `/settings/company` | `Settings/Company` | Profil entreprise (PDF) |
-| `/settings/users` | `Settings/Users` | Gestion des membres |
+| `/login` | `LoginPage` | Connexion |
+| `/signup` | `SignupPage` | Inscription |
+| `/app` | `Dashboard` | Vue d'ensemble du tenant |
+| `/app/requests` | `Requests` | Liste des demandes (nouvelle demande, statut, position en file) |
+| `/app/requests/:id` | `RequestDetail` | Détail + résultat extraction IA + escalade vision approfondie |
+| `/app/catalogs` | `Catalogs` | Gestion des catalogues |
+| `/app/catalogs/import` | `CatalogImport` | Import CSV (aperçu → mapping → validation) |
+| `/app/quotes` | `Quotes` | Liste des devis |
+| `/app/quotes/:id` | `QuoteEditor` | Éditeur de devis complet (lignes, marge, PDF) |
+| `/app/members` | `Members` | Membres : rôle, modifier le nom, supprimer, changer le mot de passe (owner uniquement) |
+| `/app/audit` | `Audit` | Journal d'audit du tenant |
+| `/app/settings` | `Settings` | Intégrations IA/n8n + profil entreprise |
+| `/app/billing` | `Billing` | Facturation (Stripe — phase ultérieure) |
 
 ---
 
@@ -471,6 +472,8 @@ CORS_ORIGINS=https://<votre-domaine-frontend>
 ---
 
 ## 15. Historique des étapes réalisées (changelog)
+
+> Grands jalons ci-dessous. Détail PR par PR depuis août 2026 (rôles IA, gestion des membres, file d'extraction séquentielle, correctifs…) : voir **[`CHANGELOG.md`](./CHANGELOG.md)**.
 
 ### 🔄 Juillet 2026 — Migration Hermes AI / Ollama / OVH VPS
 
