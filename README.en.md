@@ -170,8 +170,12 @@ Draft quote  -->  Quote editor  -->  Validated quote  -->  Pro Forma PDF
 | `JWT_SECRET` | JWT signing secret — **must be strong** (≥ 32 chars, non-default) |
 | `APP_ENCRYPTION_KEY` | Fernet key (base64) to encrypt tenant AI secrets at rest |
 | `HERMES_BASE_URL` | OVH Caddy URL (prod) or `http://localhost:11434` (dev) |
-| `HERMES_DEFAULT_MODEL` | Ollama model (default: `hermes-3`) |
+| `HERMES_DEFAULT_MODEL` | Final-resort Ollama model (default: `hermes-3`) |
 | `HERMES_API_KEY` | `X-Api-Key` (same as `OLLAMA_API_KEY` on the VPS) |
+| `HERMES_REASONING_MODEL` | Model for the `reason` role (extraction, reasoning, quote expansion) — default: `gpt-oss:20b` |
+| `HERMES_EXTRACT_MODEL` | Model for the `extract` role (manually pasted text, no vision) — default: `qwen2.5:7b` |
+| `HERMES_VISION_MODEL` | Vision model for imported files (unreadable PDF/image) — default: `qwen2.5vl:7b`. ⚠️ if empty, falls back to `HERMES_REASONING_MODEL` (see `ai_service.py`) — always set it explicitly so it never silently inherits a model with no vision capability. |
+| `HERMES_DESCRIPTION_MODEL` | Model for the `describe` role — **only** the Works description + Steps fields, never pricing/calculation — default: `glm-4.7-flash:Q3_K_M` (see the matching ADR in the `ovh-ai-stack` repo's `docs/decisions/`) |
 | `MAX_UPLOAD_SIZE` | (optional) Max upload size in bytes (default 15 MB) |
 | `CORS_ORIGINS` | (optional) Allowed origins, comma-separated |
 | `MONGO_URL`, `DB_NAME` | Kept for the migration script (MongoDB source) |
