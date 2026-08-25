@@ -180,8 +180,12 @@ Brouillon de devis ──► Éditeur de devis ──► Devis validé ──►
 | `JWT_SECRET` | Secret de signature JWT — **doit être fort** (≥ 32 car., non par défaut) |
 | `APP_ENCRYPTION_KEY` | Clé Fernet (base64) pour chiffrer les secrets IA des tenants au repos |
 | `HERMES_BASE_URL` | URL Caddy OVH (prod) ou `http://localhost:11434` (dev) |
-| `HERMES_DEFAULT_MODEL` | Modèle Ollama (défaut : `hermes-3`) |
+| `HERMES_DEFAULT_MODEL` | Modèle Ollama de secours final (défaut : `hermes-3`) |
 | `HERMES_API_KEY` | Clé `X-Api-Key` (identique à `OLLAMA_API_KEY` du VPS) |
+| `HERMES_REASONING_MODEL` | Modèle pour le rôle `reason` (extraction, raisonnement, expansion de devis) — défaut : `gpt-oss:20b` |
+| `HERMES_EXTRACT_MODEL` | Modèle pour le rôle `extract` (texte collé manuellement, sans vision) — défaut : `qwen2.5:7b` |
+| `HERMES_VISION_MODEL` | Modèle vision pour fichiers importés (PDF/image illisibles) — défaut : `qwen2.5vl:7b`. ⚠️ si vide, retombe sur `HERMES_REASONING_MODEL` (voir `ai_service.py`) — toujours le définir explicitement pour ne jamais hériter d'un modèle sans capacité vision. |
+| `HERMES_DESCRIPTION_MODEL` | Modèle pour le rôle `describe` — **uniquement** les champs Description des travaux + Étapes à suivre, jamais le calcul/chiffrage — défaut : `glm-4.7-flash:Q3_K_M` (voir ADR correspondant dans `docs/decisions/` du dépôt `ovh-ai-stack`) |
 | `MAX_UPLOAD_SIZE` | (optionnel) Taille max d'upload en octets (défaut 15 Mo) |
 | `CORS_ORIGINS` | (optionnel) Origines autorisées séparées par virgule |
 | `MONGO_URL`, `DB_NAME` | Conservés pour le script de migration (source MongoDB) |
