@@ -92,6 +92,50 @@ class TestPriceSafetyFilter:
         assert len(result["etapes"]) == 3
 
 
+class TestHallucinationGuards:
+    def test_rejects_depose_step_on_explicit_new_install(self, monkeypatch):
+        # Real failure observed 2026-08-25: model added "Retrait des spots
+        # existants" even though the title says "installation neuve".
+        async def fake_call(model, system_prompt, user_message):
+            return (
+                '{"description": "Installation neuve de spots.", '
+                '"etapes": ["Retrait des spots existants.", "Pose des nouveaux spots."]}'
+            )
+
+        monkeypatch.setattr(ai_service, "_call_describe", fake_call)
+        extracted = {"description": "Installation neuve de 3 spots LED", "line_items": [{"label": "Spot LED"}]}
+        result = _run(ai_service.generate_ai_works_narrative(extracted, {"ai_provider": "hermes", "ai_model": "hermes-3"}))
+        assert result is None
+
+    def test_rejects_invented_exclusion_when_none_given(self, monkeypatch):
+        # Real failure observed 2026-08-25: model invented "Exclusion :
+        # travaux de plomberie ou peinture" though no exclusion was provided.
+        async def fake_call(model, system_prompt, user_message):
+            return (
+                '{"description": "Travaux de pose. Exclusion : peinture non comprise.", '
+                '"etapes": ["Arrivee sur site.", "Pose."]}'
+            )
+
+        monkeypatch.setattr(ai_service, "_call_describe", fake_call)
+        extracted = {"description": "Pose de spots", "line_items": [{"label": "Spot LED"}]}
+        result = _run(ai_service.generate_ai_works_narrative(extracted, {"ai_provider": "hermes", "ai_model": "hermes-3"}))
+        assert result is None
+
+    def test_accepts_depose_step_on_replacement_title(self, monkeypatch):
+        # A genuine replacement DOES need a depose step -- the guard must
+        # only fire for an explicit "installation neuve" title, not always.
+        async def fake_call(model, system_prompt, user_message):
+            return (
+                '{"description": "Remplacement du ballon existant.", '
+                '"etapes": ["Depose du ballon existant.", "Pose du nouveau ballon."]}'
+            )
+
+        monkeypatch.setattr(ai_service, "_call_describe", fake_call)
+        extracted = {"description": "Remplacement du ballon eau chaude", "line_items": [{"label": "Ballon ECS"}]}
+        result = _run(ai_service.generate_ai_works_narrative(extracted, {"ai_provider": "hermes", "ai_model": "hermes-3"}))
+        assert result is not None
+
+
 class TestModelUsageLogging:
     def test_resolve_ai_config_logs_role_and_model(self, caplog):
         settings = {"ai_provider": "hermes", "ai_model": "hermes-3"}
