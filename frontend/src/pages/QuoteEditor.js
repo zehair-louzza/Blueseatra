@@ -43,6 +43,7 @@ export default function QuoteEditor() {
   const [search, setSearch] = useState('');
   const [family, setFamily] = useState('__all__');
   const [supplierBy, setSupplierBy] = useState({});
+  const [applyingIdx, setApplyingIdx] = useState(null);
 
   const load = () => api.get(`/quotes/${id}`).then((r) => setQ(r.data)).catch((err) => {
     toast.error(apiError(err, 'Failed'));
@@ -114,6 +115,35 @@ export default function QuoteEditor() {
     }
     return ht;
   };
+  const applySuggestion = async (idx) => {
+    const l = q.lines[idx];
+    if (!l || !l.suggested_item_code) return;
+    setApplyingIdx(idx);
+    try {
+      const { data } = await api.get('/catalog/search', { params: { q: l.suggested_item_code, limit: 80 } });
+      const item = (data.items || []).find((it) => it.item_code === l.suggested_item_code);
+      if (!item) { toast.error(t('quote.catalog_suggestion_not_found')); return; }
+      const lines = [...q.lines];
+      lines[idx] = {
+        ...l,
+        description: item.item_label || l.description,
+        category: item.category || l.category || '',
+        matched_item_code: item.item_code || '',
+        matched_label: item.item_label || '',
+        brand: item.brand || l.brand || '',
+        supplier: item.supplier_main || (item.suppliers || [])[0] || l.supplier || '',
+        unit: item.unit || l.unit,
+        unit_price_ht: item.unit_price_ht || 0,
+        margin: item.margin || 0,
+        status: 'confirmed', score: 100, reasons: ['suggestion_confirmed'],
+        suggested_item_code: null, suggested_label: null,
+      };
+      setLines(lines);
+      toast.success(item.item_label || item.item_code || t('quote.suggestion_applied'));
+    } catch (err) { toast.error(apiError(err, 'Failed')); }
+    finally { setApplyingIdx(null); }
+  };
+
   const addFromCatalog = (item, supplier) => {
     append({
       line_type: 'material', description: item.item_label || item.item_code || 'Article',
@@ -400,8 +430,20 @@ export default function QuoteEditor() {
                           {isDraft ? <Input value={l.description || ''} onChange={(e) => updateLine(i, 'description', e.target.value)} className="h-8" data-testid="line-description-input" /> : (l.description || l.request_label)}
                           {(l.matched_item_code || l.supplier) && <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{l.matched_item_code}{l.supplier ? ` \u00b7 ${l.supplier}` : ''}</div>}
                           {!l.matched_item_code && l.suggested_item_code && (
-                            <div className="mt-0.5 text-[10px] text-amber-700" data-testid="line-catalog-suggestion">
-                              {t('quote.catalog_suggestion', { label: l.suggested_label, code: l.suggested_item_code })}
+                            <div className="mt-0.5 flex items-start gap-1.5 text-[10px] text-amber-700" data-testid="line-catalog-suggestion">
+                              <span>{t('quote.catalog_suggestion', { label: l.suggested_label, code: l.suggested_item_code })}</span>
+                              {isDraft && (
+                                <Button
+                                  variant="outline" size="sm"
+                                  className="h-5 shrink-0 gap-1 px-1.5 text-[10px] text-amber-800 hover:text-amber-900"
+                                  disabled={applyingIdx === i}
+                                  onClick={() => applySuggestion(i)}
+                                  data-testid="apply-suggestion-button"
+                                >
+                                  {applyingIdx === i ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                                  {t('quote.apply_suggestion')}
+                                </Button>
+                              )}
                             </div>
                           )}
                         </TableCell>
