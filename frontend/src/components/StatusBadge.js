@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 
 const MAP = {
   received: 'bg-slate-100 text-slate-700 ring-slate-200',
+  queued: 'bg-slate-100 text-slate-700 ring-slate-200',
   processing: 'bg-sky-50 text-sky-700 ring-sky-200',
   needs_review: 'bg-amber-50 text-amber-800 ring-amber-200',
   done: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
@@ -17,13 +18,16 @@ const MAP = {
   confirmed: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
 };
 
-export const StatusBadge = ({ status, className }) => {
+export const StatusBadge = ({ status, queuePosition, className }) => {
   const { t } = useTranslation();
   const cls = MAP[status] || 'bg-slate-100 text-slate-700 ring-slate-200';
+  const label = status === 'queued' && queuePosition
+    ? t('status.queued_position', { n: queuePosition })
+    : t(`status.${status}`, status);
   return (
     <span data-testid={`status-badge-${status}`}
       className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset', cls, className)}>
-      {t(`status.${status}`, status)}
+      {label}
     </span>
   );
 };

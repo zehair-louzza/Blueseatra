@@ -32,7 +32,7 @@ export default function Requests() {
   // poll while anything is processing
   useEffect(() => {
     if (!rows) return;
-    const pending = rows.some((r) => ['received', 'processing'].includes(r.status));
+    const pending = rows.some((r) => ['received', 'queued', 'processing'].includes(r.status));
     if (!pending) return;
     const id = setInterval(load, 3000);
     return () => clearInterval(id);
@@ -126,7 +126,7 @@ export default function Requests() {
                     <TableCell className="font-medium"><span className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" />{r.title}</span></TableCell>
                     <TableCell className="uppercase">{r.language || '\u2014'}</TableCell>
                     <TableCell>{r.extracted?.line_items?.length ?? '\u2014'}</TableCell>
-                    <TableCell><StatusBadge status={r.status} /></TableCell>
+                    <TableCell><StatusBadge status={r.status} queuePosition={r.queue_position} /></TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/app/requests/${r.id}`)}>{t('common.open')}</Button>

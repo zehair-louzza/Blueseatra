@@ -522,6 +522,65 @@ async def company_profile_put(body: CompanyProfile,
 # ===========================================================================
 # REQUESTS
 # ===========================================================================
+# File d'extraction sequentielle in-process (2026-08-26) : le VPS d'inference
+# n'a pas de GPU (~8.8 tokens/s mesures) -- si plusieurs demandes arrivent
+# presque en meme temps, les traiter en parallele (comportement historique :
+# une tache asyncio en arriere-plan par demande, sans aucune coordination)
+# fait chuter chaque extraction individuelle en contention CPU, jusqu'au
+# blocage observe en usage reel. Cette file garantit qu'UNE SEULE extraction
+# tourne a la fois, dans l'ordre d'arrivee (FIFO), la suivante ne demarrant
+# que lorsque process_request() de la precedente est totalement termine
+# (succes ou echec). Alternative volontairement in-process (pas Redis/RQ) :
+# le worker RQ durable existe deja (voir _enqueue_extraction /
+# extraction_worker.py) mais reste desactive en production pour eviter un
+# cout Render recurrent (decision du 2026-08-23, voir render.yaml) -- cette
+# file couvre le meme besoin de serialisation sans aucune infra payante
+# supplementaire, au prix de ne pas survivre a un redemarrage du service
+# (une demande "queued" au moment d'un redeploy reste filet par le meme
+# mecanisme que le watchdog Redis : voir _requeue_stuck_on_startup).
+_extraction_queue: "asyncio.Queue" = asyncio.Queue()
+_extraction_worker_task = None
+
+
+async def _extraction_worker_loop():
+    while True:
+        request_id, tenant_id, vision_pages = await _extraction_queue.get()
+        try:
+            await process_request(request_id, tenant_id, vision_pages)
+        except Exception:
+            logger.exception("_extraction_worker_loop: process_request a leve une exception non interceptee")
+        finally:
+            _extraction_queue.task_done()
+
+
+async def _requeue_stuck_on_startup():
+    """Filet de securite au demarrage : une demande encore 'queued' ou
+    'processing' au moment d'un redeploy (tres frequent sur ce projet --
+    chaque merge redeploie Render) perdrait sinon sa place dans la file en
+    memoire et resterait bloquee indefiniment, sans aucun signal. Remise en
+    file immediate au demarrage ; process_request() gere deja proprement
+    l'absence de vision_pages pour un pdf_ocr (ValueError dediee, statut
+    'failed' avec message clair) si le rendu de pages a ete perdu.
+
+    Ne s'applique QUE quand la file durable Redis/RQ est inactive : si elle
+    est active, ce sont _enqueue_extraction / _watchdog_reprocess_if_stuck
+    qui gerent ce cas, dans un processus RQ separe non affecte par un
+    redemarrage de blueseatra-api."""
+    if _redis_sync() is not None:
+        return
+    try:
+        stuck = await db.requests.find(
+            {"status": {"$in": ["queued", "processing"]}}, {"_id": 0, "id": 1, "tenant_id": 1}
+        ).to_list(200)
+        for r in stuck:
+            await db.requests.update_one({"id": r["id"]}, {"$set": {"status": "queued"}})
+            await _extraction_queue.put((r["id"], r["tenant_id"], None))
+        if stuck:
+            logger.warning("Filet de securite demarrage : %d demande(s) remises en file apres redemarrage.", len(stuck))
+    except Exception:
+        logger.exception("_requeue_stuck_on_startup failed")
+
+
 async def process_request(request_id: str, tenant_id: str, vision_pages: list | None = None):
     """vision_pages : liste d'images (une par page rendue, jamais empilees
     — voir ai_service.extract_from_pdf_pages) transmise directement en
@@ -659,7 +718,7 @@ async def create_request(
     await audit(cu.tenant_id, cu.email, "request.create", req_id, {"source": source_type})
     # File durable opt-in : si REDIS_URL est défini ET pas d'octets vision en
     # mémoire (RGPD : ils ne transitent pas par Redis), on met le job en file
-    # (worker RQ séparé). Sinon comportement historique (tâche de fond in-process).
+    # (worker RQ séparé, deja sequentiel par construction cote worker).
     if vision_bytes is None and _redis_sync() is not None:
         _enqueue_extraction(req_id, cu.tenant_id)
         # 2026-08-23 : filet de securite independant de toute discipline de
@@ -672,7 +731,14 @@ async def create_request(
         # totalement independante du worker.
         background.add_task(_watchdog_reprocess_if_stuck, req_id, cu.tenant_id)
     else:
-        background.add_task(process_request, req_id, cu.tenant_id, vision_bytes)
+        # 2026-08-26 : file d'extraction sequentielle in-process (voir
+        # _extraction_worker_loop plus haut) -- couvre aussi bien le cas
+        # "pas de Redis" que le cas "vision_bytes en memoire" (qui ne doit
+        # jamais transiter par Redis, RGPD). Statut "queued" distinct de
+        # "received" pour que le frontend affiche clairement la position
+        # dans la file plutot qu'un simple "reçu" muet.
+        await db.requests.update_one({"id": req_id}, {"$set": {"status": "queued"}})
+        await _extraction_queue.put((req_id, cu.tenant_id, vision_bytes))
     return {"id": req_id, "status": "received"}
 
 
@@ -723,10 +789,22 @@ async def _watchdog_reprocess_if_stuck(request_id: str, tenant_id: str):
     await process_request(request_id, tenant_id)
 
 
+def _attach_queue_positions(rows: list) -> list:
+    """Numerote clairement la position FIFO de chaque demande 'queued' (voir
+    _extraction_queue) parmi les autres demandes en file du meme tenant --
+    l'ordre reel de traitement suit l'ordre de creation, jamais un ordre
+    d'affichage arbitraire."""
+    queued = sorted((r for r in rows if r.get("status") == "queued"), key=lambda r: r["created_at"])
+    for i, r in enumerate(queued):
+        r["queue_position"] = i + 1
+    return rows
+
+
 @api.get("/requests")
 async def list_requests(cu: CurrentUser = Depends(get_current)):
-    return await db.requests.find({"tenant_id": cu.tenant_id}, {"_id": 0, "file_b64": 0}) \
+    rows = await db.requests.find({"tenant_id": cu.tenant_id}, {"_id": 0, "file_b64": 0}) \
         .sort("created_at", -1).to_list(500)
+    return _attach_queue_positions(rows)
 
 
 @api.get("/requests/{request_id}")
@@ -734,6 +812,10 @@ async def get_request(request_id: str, cu: CurrentUser = Depends(get_current)):
     r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "file_b64": 0})
     if not r:
         raise HTTPException(404, "Request not found")
+    if r.get("status") == "queued":
+        earlier = await db.requests.count_documents(
+            {"tenant_id": cu.tenant_id, "status": "queued", "created_at": {"$lt": r["created_at"]}})
+        r["queue_position"] = earlier + 1
     return r
 
 
@@ -770,8 +852,16 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id})
     if not r:
         raise HTTPException(404, "Request not found")
-    background.add_task(process_request, request_id, cu.tenant_id)
-    return {"ok": True, "status": "processing"}
+    if _redis_sync() is not None:
+        _enqueue_extraction(request_id, cu.tenant_id)
+        background.add_task(_watchdog_reprocess_if_stuck, request_id, cu.tenant_id)
+    else:
+        # Meme file sequentielle in-process que create_request (voir
+        # _extraction_worker_loop) : un retraitement manuel ne doit pas non
+        # plus tourner en parallele d'une autre extraction en cours.
+        await db.requests.update_one({"id": request_id}, {"$set": {"status": "queued"}})
+        await _extraction_queue.put((request_id, cu.tenant_id, None))
+    return {"ok": True, "status": "queued"}
 
 
 async def _run_deep_vision(request_id: str, tenant_id: str, image_bytes: bytes):
@@ -1864,9 +1954,15 @@ async def startup():
             await db[col].create_index("tenant_id")
     except Exception as e:
         logger.warning(f"index creation: {e}")
+    global _extraction_worker_task
+    if _extraction_worker_task is None:
+        _extraction_worker_task = asyncio.create_task(_extraction_worker_loop())
+    await _requeue_stuck_on_startup()
     logger.info("Blueseatra API started")
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    if _extraction_worker_task is not None:
+        _extraction_worker_task.cancel()
     await db.dispose()
