@@ -92,6 +92,29 @@ class TestPriceSafetyFilter:
         assert len(result["etapes"]) == 3
 
 
+class TestModelUsageLogging:
+    def test_resolve_ai_config_logs_role_and_model(self, caplog):
+        settings = {"ai_provider": "hermes", "ai_model": "hermes-3"}
+        with caplog.at_level("INFO", logger="blueseatra.ai"):
+            _run(ai_service.resolve_ai_config(settings, role="describe"))
+            _run(ai_service.resolve_ai_config(settings, role="reason"))
+        messages = [r.message for r in caplog.records]
+        assert any("role=describe" in m and "glm-4.7-flash" in m for m in messages)
+        assert any("role=reason" in m and "gpt-oss" in m for m in messages)
+
+    def test_ai_call_attempt_is_logged_with_role_and_model(self, monkeypatch, caplog):
+        async def fake_call(model, system_prompt, user_message):
+            return '{"description": "Test.", "etapes": ["Une.", "Deux."]}'
+
+        monkeypatch.setattr(ai_service, "_call_describe", fake_call)
+        extracted = {"description": "Test", "line_items": [{"label": "Article"}]}
+        settings = {"ai_provider": "hermes", "ai_model": "hermes-3"}
+        with caplog.at_level("INFO", logger="blueseatra.ai"):
+            _run(ai_service.generate_ai_works_narrative(extracted, settings))
+        messages = [r.message for r in caplog.records]
+        assert any("ai_role_resolved role=describe" in m for m in messages)
+
+
 class TestDeterministicNumbersNeverFromAi:
     def test_deplacement_mo_text_matches_between_ai_path_and_template_path(self, monkeypatch):
         # The numeric tail (Deplacement/Main-d'oeuvre) must be byte-identical
