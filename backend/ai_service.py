@@ -10,6 +10,7 @@ import base64
 import uuid
 import httpx
 import quote_scenarios
+import matching as match_engine
 import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
@@ -44,22 +45,29 @@ HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
 # toujours actif pour tout fichier importe", caduque pour ce role tant
 # qu'un modele de raisonnement multimodal n'est pas reinstalle).
 #
-# role=reason (decomposition materiaux/lots, EXPAND_SYSTEM) repointe le
-# 2026-08-25 sur glm-4.7-flash:Q3_K_M (option PRINCIPALE, demande explicite
-# de l'utilisateur) -- teste en reel sur ce VPS avant ce repointage :
-# `ollama show` confirme completion+tools+thinking natif, ~7-8.4 tok/s
-# (MoE 29.9B total / ~3B actifs par token, largement plus rapide que
-# gpt-oss:20b dense sur ce CPU sans GPU), think=true/false booleen accepte
-# proprement (champ message.thinking distinct de content, contrairement a
-# GLM-4.1V-9B-Thinking rejete le 23/08 qui melangeait tout dans content).
-# gpt-oss:20b (seul autre modele avec raisonnement natif confirme) reste
-# installe et devient le 1er repli de ce role (voir HERMES_FALLBACK_MODELS)
-# plutot que d'etre retire -- rien ne l'a disqualifie, il est seulement
-# supplante comme choix principal. Le defaut ci-dessous est desormais
-# aligne sur la valeur Render (plus de decalage volontaire comme avant :
-# l'ecart passe qwen2.5vl:7b/gpt-oss:20b avait deja cause de la confusion).
+# role=reason (decomposition materiaux/lots, EXPAND_SYSTEM) -- IMPACTE LE
+# CALCUL (les line_items qui en sortent sont ensuite matches/chiffres par
+# FastAPI). 2026-08-25 : glm-4.7-flash:Q3_K_M avait ete essaye ici PUIS
+# retire le meme jour a la demande explicite de l'utilisateur ("qu'il ne
+# touche jamais les autres cotes de calcul") -- glm-4.7-flash est desormais
+# confine au seul role=describe (voir HERMES_DESCRIPTION_MODEL plus bas),
+# jamais a role=reason. Retour a gpt-oss:20b (seul modele avec raisonnement
+# natif confirme installe, cf. _wants_think, deja valide en reel).
 HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b")
-HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "glm-4.7-flash:Q3_K_M")
+HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "gpt-oss:20b")
+
+# role=describe (redaction UNIQUEMENT : Description des travaux + Etapes a
+# suivre/Deroulement -- voir DESCRIPTION_SYSTEM et build_works_description_ai).
+# Perimetre volontairement etroit et demande explicitement par l'utilisateur
+# le 25/08 : ce modele ne voit JAMAIS les quantites, prix, articles catalogue
+# ou heures/jours calcules -- ceux-ci restent ecrits par matching.py
+# (deplacement_mo_text, 100% deterministe, jamais passe au modele). glm-4.7-flash
+# est un bon choix ICI precisement parce que role=describe envoie un system
+# prompt COURT (pas les ~15000 tokens de l'agent Hermes complet qui avaient
+# fait echouer son usage comme principal de l'agent, voir ovh-ai-stack#24) --
+# similaire au test reel qui avait reussi en 46-294s sur role=reason avant
+# son retrait de ce role precis.
+HERMES_DESCRIPTION_MODEL = os.environ.get("HERMES_DESCRIPTION_MODEL", "glm-4.7-flash:Q3_K_M")
 
 # gpt-oss ne peut PAS desactiver son raisonnement ("think": false/None est
 # ignore par Ollama pour ce modele) mais accepte un niveau gradue --
@@ -93,14 +101,18 @@ def _has_graduated_think(model: str) -> bool:
 
 
 HERMES_FALLBACK_MODELS = [
-    os.environ.get("HERMES_REASONING_MODEL", "glm-4.7-flash:Q3_K_M"),
-    # gpt-oss:20b : ex-principal du role=reason, demote au rang de repli le
-    # 2026-08-25 (glm-4.7-flash devient principal) mais garde ici car son
-    # raisonnement natif reste confirme en reel -- un repli identique a un
-    # modele sans raisonnement degraderait silencieusement la qualite si
-    # glm-4.7-flash echoue (OOM, timeout).
-    "gpt-oss:20b",
+    os.environ.get("HERMES_REASONING_MODEL", "gpt-oss:20b"),
     os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b"),
+    "hermes3",
+    "hermes-3",
+]
+# role=describe uniquement (voir HERMES_DESCRIPTION_MODEL) : repli sur
+# gpt-oss:20b (raisonnement natif confirme) puis hermes3 si glm-4.7-flash
+# echoue -- jamais sur un modele SANS raisonnement pour ce role, meme
+# raisonnement inutile ici en pratique (prompt court, pas de calcul).
+HERMES_DESCRIPTION_FALLBACK_MODELS = [
+    os.environ.get("HERMES_DESCRIPTION_MODEL", "glm-4.7-flash:Q3_K_M"),
+    "gpt-oss:20b",
     "hermes3",
     "hermes-3",
 ]
@@ -556,16 +568,15 @@ async def resolve_ai_config(
 ) -> tuple[str, str, str]:
     """Return (provider, model, api_key) for this tenant.
 
-    2026-08-25 : docstring realignee apres avoir repointe HERMES_REASONING_MODEL
-    sur glm-4.7-flash:Q3_K_M (option PRINCIPALE du role=reason, demande
-    explicite de l'utilisateur -- teste en reel avant deploiement : MoE
-    29.9B/~3B actifs, completion+tools+thinking natif confirmes via
-    `ollama show`, ~7-8.4 tok/s, think=true/false booleen propre). gpt-oss:20b
-    (ex-principal depuis le 23/08) reste installe et devient le 1er repli de
-    ce role (voir HERMES_FALLBACK_MODELS), rien ne l'a disqualifie. qwen2.5:7b,
-    qwen2.5vl:7b et hermes3 restent sans raisonnement natif ; ni gpt-oss:20b
-    ni glm-4.7-flash n'ont la vision (role=file/vision continue donc sur
-    HERMES_VISION_MODEL, pas sur le modele de raisonnement).
+    2026-08-25 : docstring realignee apres un aller-retour sur glm-4.7-flash.
+    Essaye brievement comme HERMES_REASONING_MODEL (role=reason), PUIS retire
+    de ce role le meme jour a la demande explicite de l'utilisateur ("qu'il ne
+    touche jamais les autres cotes de calcul") -- role=reason (EXPAND_SYSTEM,
+    decomposition materiaux/lots) est redevenu gpt-oss:20b. glm-4.7-flash est
+    desormais confine au nouveau role=describe (redaction UNIQUEMENT :
+    Description des travaux + Etapes a suivre, voir build_works_description_ai
+    dans matching.py) -- perimetre etroit voulu par l'utilisateur, ce modele
+    ne voit jamais quantites/prix/articles catalogue.
 
     role=extract → HERMES_EXTRACT_MODEL (qwen2.5:7b par defaut, texte seul).
       Reserve au texte colle manuellement (pas un fichier importe).
@@ -575,10 +586,14 @@ async def resolve_ai_config(
       que soit son etat de lisibilite. Ne raisonne pas nativement.
     role=vision → alias de role=file, conserve pour la compatibilite avec
       le code existant qui distinguait "image" de "fichier texte".
-    role=reason (tout role hors extract/vision/file) → HERMES_REASONING_MODEL
-      (glm-4.7-flash:Q3_K_M, option principale -- decomposition materiaux/lots,
-      EXPAND_SYSTEM). Timeout 900s (voir _wants_think). Repli sur gpt-oss:20b
-      puis qwen2.5:7b/hermes3 en cas d'echec (voir HERMES_FALLBACK_MODELS).
+    role=describe → HERMES_DESCRIPTION_MODEL (glm-4.7-flash:Q3_K_M par defaut).
+      Rediaction du texte client UNIQUEMENT (description + deroulement) --
+      JAMAIS de calcul, quantite, prix ou article catalogue. Voir
+      HERMES_DESCRIPTION_FALLBACK_MODELS pour le repli.
+    role=reason (tout autre role, y compris le defaut) → HERMES_REASONING_MODEL
+      (gpt-oss:20b -- decomposition materiaux/lots, EXPAND_SYSTEM, IMPACTE le
+      calcul en aval). Timeout 900s (voir _wants_think). Repli sur
+      qwen2.5:7b/hermes3 en cas d'echec (voir HERMES_FALLBACK_MODELS).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
     provider = tenant_settings.get("ai_provider") or DEFAULT_PROVIDER
@@ -596,6 +611,8 @@ async def resolve_ai_config(
                 model = HERMES_VISION_MODEL
             elif role == "extract":
                 model = HERMES_EXTRACT_MODEL
+            elif role == "describe":
+                model = HERMES_DESCRIPTION_MODEL
             else:
                 model = HERMES_REASONING_MODEL
 
@@ -623,14 +640,27 @@ async def _call_hermes_ollama(
     user_message: str,
     image_b64: str | None = None,
     reasoning_effort: str | None = None,
+    role: str | None = None,
+    force_think: bool | None = None,
 ) -> str:
     """Call Hermes AI via Ollama REST API on OVH VPS.
 
-    reasoning_effort ("low"/"medium"/"high") ne s'applique qu'aux modeles a
-    raisonnement gradue (_has_graduated_think -- gpt-oss aujourd'hui).
-    Ignore silencieusement pour un modele booleen-only (qwen3/gemma4/
-    deepseek-r1) ou un modele sans raisonnement : retombe sur
-    HERMES_REASONING_EFFORT si omis ou invalide.
+    reasoning_effort applies only to graduated-thinking models (gpt-oss
+    today). Silently ignored for boolean-only or non-thinking models,
+    falls back to HERMES_REASONING_EFFORT if omitted/invalid.
+
+    role=describe (2026-08-25) selects the HERMES_DESCRIPTION_FALLBACK_MODELS
+    pool instead of HERMES_FALLBACK_MODELS -- prevents a glm-4.7-flash
+    failure on redaction from silently falling back into the role=reason
+    pool. Ignored when image_b64 is set (vision pool always wins).
+
+    force_think overrides the auto-detected boolean think value for
+    boolean-only thinking models (glm-4.7-flash today) -- role=describe
+    passes force_think=False because a real test on 2026-08-25 measured
+    think=true taking over 200s on a short redaction prompt (too slow for
+    a request the UI may be waiting on) while think=false finished in
+    about 28s with equally on-topic content. Has no effect on graduated
+    models (gpt-oss cannot disable thinking regardless).
     """
     graduated = _has_graduated_think(model)
     effective_system_prompt = system_prompt
@@ -677,7 +707,7 @@ async def _call_hermes_ollama(
         effort = reasoning_effort if reasoning_effort in _VALID_REASONING_EFFORTS else HERMES_REASONING_EFFORT
         payload["think"] = effort
     elif _wants_think(model):
-        payload["think"] = True
+        payload["think"] = force_think if force_think is not None else True
 
     headers = {}
     if HERMES_API_KEY:
@@ -701,7 +731,12 @@ async def _call_hermes_ollama(
     # hermes3/hermes-3) : ils renvoient HTTP 400 "model does not support
     # multimodal requests" au lieu d'une vraie erreur reseau/timeout, ce qui
     # masque le vrai probleme et gaspille le budget de tentatives.
-    fallback_pool = HERMES_VISION_FALLBACK_MODELS if image_b64 else HERMES_FALLBACK_MODELS
+    if image_b64:
+        fallback_pool = HERMES_VISION_FALLBACK_MODELS
+    elif role == "describe":
+        fallback_pool = HERMES_DESCRIPTION_FALLBACK_MODELS
+    else:
+        fallback_pool = HERMES_FALLBACK_MODELS
     for m in [model, *fallback_pool]:
         alias = MODEL_ALIASES.get((m or "").strip(), m)
         if alias and alias not in models:
@@ -715,7 +750,7 @@ async def _call_hermes_ollama(
             effort = reasoning_effort if reasoning_effort in _VALID_REASONING_EFFORTS else HERMES_REASONING_EFFORT
             payload["think"] = effort
         elif _wants_think(current):
-            payload["think"] = True
+            payload["think"] = force_think if force_think is not None else True
         else:
             payload.pop("think", None)
         # HERMES_BASE_URL a eu un enregistrement DNS A parasite pointant vers
@@ -1140,6 +1175,139 @@ Règles:
 - `included_items` optionnel : liste des accessoires couverts par une ligne groupée.
 - `notes` optionnel : réserve ou hypothèse si une donnée est incertaine (ne jamais inventer une marque, référence ou quantité absente des données fournies).
 """
+
+
+# ---------------------------------------------------------------------------
+# role=describe : redaction UNIQUEMENT (Description des travaux + Etapes a
+# suivre). Perimetre etroit demande explicitement le 25/08 -- ce modele ne
+# voit JAMAIS quantites/prix/articles catalogue et ne les ecrit jamais.
+# glm-4.7-flash:Q3_K_M par defaut (HERMES_DESCRIPTION_MODEL) -- system
+# prompt court, contrairement a l'agent Hermes complet (~15000 tokens) qui
+# avait rendu ce meme modele inutilisable comme principal (ovh-ai-stack#24,
+# prefill trop lent). Les chiffres (deplacement/main-d'oeuvre) restent
+# ecrits uniquement par matching.deplacement_mo_text, jamais par ce chemin.
+# ---------------------------------------------------------------------------
+DESCRIPTION_SYSTEM = """Tu es redacteur technique BTP. Tu ecris UNIQUEMENT deux textes
+pour un client, a partir de faits DEJA DECIDES (ne les invente jamais, ne les modifie jamais) :
+
+1. "description" : un court paragraphe qui presente le perimetre des travaux
+   (ce qui est fourni et pose, le site, les exclusions eventuelles).
+2. "etapes" : une liste de 3 a 6 phrases, une par etape du deroulement chantier
+   (arrivee/deplacement, securisation, depose si besoin, fourniture et pose,
+   essais, nettoyage et repli). Chaque etape doit etre concrete et specifique
+   aux travaux decrits, pas un texte generique.
+
+Interdictions ABSOLUES :
+- Aucun prix, aucun euro, aucun tarif, aucun montant chiffre.
+- Aucune quantite, aucune reference d'article, aucun ajout ou retrait de fourniture
+  par rapport a la liste donnee.
+- Aucune heure, aucun jour, aucun effectif chiffre (ces informations sont deja
+  calculees ailleurs et ajoutees automatiquement apres ton texte -- ne les mentionne
+  jamais, meme approximativement).
+- N'invente aucune cause de panne, aucun diagnostic, aucune marque non fournie.
+
+Sors UNIQUEMENT ce JSON, sans markdown ni commentaire :
+{"description": "...", "etapes": ["...", "...", "..."]}
+"""
+
+
+async def _call_describe(model: str, system_prompt: str, user_message: str) -> str:
+    """Direct Ollama call for role=describe, never through the Hermes
+    gateway (unlike _call_reason) -- guarantees HERMES_DESCRIPTION_MODEL is
+    the model actually used, even if HERMES_GATEWAY_URL is set later.
+
+    force_think=False: real test on 2026-08-25 measured think=true taking
+    over 200s on this kind of short redaction prompt (timed out), while
+    think=false finished in about 28s with equally on-topic, on-scope text.
+    Speed matters more than deep reasoning for writing two short texts from
+    facts that are already decided.
+    """
+    return await _call_hermes_ollama(model, system_prompt, user_message, role="describe", force_think=False)
+
+
+async def generate_ai_works_narrative(extracted: dict, tenant_settings: dict) -> dict | None:
+    """AI-written 'description' + 'etapes' only. Returns None on any
+    failure, malformed output, or if a price-like token slips through --
+    caller must then fall back to matching.build_works_description (100%
+    deterministic). Never touches quantities/prices/catalog matching.
+    """
+    title = extracted.get("option_label") or extracted.get("description") or "Travaux selon demande"
+    items = extracted.get("line_items") or []
+    labels = []
+    for it in items:
+        lab = (it.get("label") or it.get("description") or "").strip()
+        if lab and lab not in labels:
+            labels.append(lab)
+    site = (
+        extracted.get("intervention_address")
+        or extracted.get("location")
+        or extracted.get("intervention_site")
+        or ""
+    )
+    excl = extracted.get("option_excludes") or ""
+    user = f"Titre: {title}\n"
+    if labels:
+        user += "Fournitures/pieces (liste fixe, ne pas modifier): " + ", ".join(labels[:40]) + "\n"
+    if site:
+        user += f"Site d'intervention: {site}\n"
+    if excl:
+        user += f"Hors perimetre: {excl}\n"
+    web_ctx = await _web_context_sans_prix(f"{title} {' '.join(labels[:6])}")
+    if web_ctx:
+        user += (
+            "\nContexte technique internet (ressource de redaction uniquement, "
+            "SANS aucun prix -- ne pas en deduire un tarif, une quantite ou une duree):\n"
+            + web_ctx
+        )
+    try:
+        provider, model, api_key = await resolve_ai_config(tenant_settings, role="describe")
+        if provider == "openai":
+            raw = await _call_openai(api_key or OPENAI_API_KEY, model, DESCRIPTION_SYSTEM, user)
+        else:
+            raw = await _call_describe(model, DESCRIPTION_SYSTEM, user)
+        data = _parse_json_object(_strip_think(raw))
+        desc_text = (data.get("description") or "").strip()
+        etapes = [str(s).strip() for s in (data.get("etapes") or []) if str(s).strip()]
+        if not desc_text or len(etapes) < 2:
+            return None
+        combined = desc_text + " " + " ".join(etapes)
+        if _PRICE_RE.search(combined):
+            return None  # price-like token leaked through -- reject, fall back to template
+        return {"description": desc_text, "etapes": etapes}
+    except Exception:
+        return None
+
+
+async def build_works_description_ai(
+    extracted: dict,
+    tenant_settings: dict,
+    chantier: dict | None = None,
+    timeout: float = 40.0,
+) -> str:
+    """Description client + Deroulement enrichis par IA (role=describe),
+    avec repli automatique et transparent sur le gabarit 100% deterministe
+    (matching.build_works_description) si l'IA echoue, timeout, ou produit
+    un texte invalide. Le bloc Deplacement/Main-d'oeuvre reste TOUJOURS
+    ecrit par matching.deplacement_mo_text -- jamais par ce chemin IA.
+    """
+    try:
+        narrative = await asyncio.wait_for(
+            generate_ai_works_narrative(extracted, tenant_settings), timeout=timeout
+        )
+    except Exception:
+        narrative = None
+    if not narrative:
+        return match_engine.build_works_description(extracted, chantier)
+    idx = extracted.get("quote_option_index")
+    cnt = extracted.get("quote_option_count") or 1
+    prefix = f"Option {idx}/{cnt} — " if cnt and int(cnt) > 1 else ""
+    etapes_txt = "\n".join(f"{i}. {s}" for i, s in enumerate(narrative["etapes"], 1))
+    return (
+        f"{prefix}{narrative['description']}\n\n"
+        "Déroulement :\n"
+        f"{etapes_txt}\n\n"
+        + match_engine.deplacement_mo_text(extracted, chantier)
+    )
 
 
 async def expand_work_into_materials(extracted: dict, tenant_settings: dict, catalog_labels: list | None = None) -> dict:
