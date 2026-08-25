@@ -318,6 +318,7 @@ async def add_member(body: InviteIn, cu: CurrentUser = Depends(require_role("own
 class RoleUpdate(BaseModel):
     role: Optional[str] = None
     name: Optional[str] = None
+    password: Optional[str] = None
 
 
 @api.patch("/members/{user_id}")
@@ -343,6 +344,13 @@ async def update_member(user_id: str, body: RoleUpdate,
             raise HTTPException(400, "Name cannot be empty")
         await db.users.update_one({"id": user_id}, {"$set": {"name": name}})
         await audit(cu.tenant_id, cu.email, "member.name_update", user_id, {"name": name})
+    if body.password is not None:
+        if cu.role != "owner":
+            raise HTTPException(403, "Seul un owner peut modifier le mot de passe d'un membre")
+        if len(body.password) < 6:
+            raise HTTPException(400, "Password must be at least 6 characters")
+        await db.users.update_one({"id": user_id}, {"$set": {"password_hash": hash_pw(body.password)}})
+        await audit(cu.tenant_id, cu.email, "member.password_update", user_id)
     return {"ok": True}
 
 
