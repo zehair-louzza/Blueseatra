@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-08-26 — Génération automatique du devis + confirmation directe de suggestion
+
+PR #66 (suggestion) et génération automatique de devis.
+
+### Génération automatique du brouillon de devis
+- Demande explicite : la création du brouillon de devis ne doit plus attendre un clic manuel sur «Générer un devis», mais **le devis généré doit toujours attendre une confirmation humaine** avant validation/envoi/PDF.
+- `process_request()` appelle désormais `_auto_generate_quote_if_needed()` dès qu'une demande atteint le statut `done` ou `needs_review`. Logique de création partagée avec l'endpoint manuel (`_build_quote_drafts`, refactorisé hors de `POST /quotes/draft`).
+- Ne génère jamais un deuxième brouillon pour la même demande (retraitement manuel n'empile pas) ; le bouton «Générer un devis» reste disponible pour créer volontairement un devis supplémentaire.
+- Toute erreur (catalogue absent, échec IA) est journalisée sans jamais faire échouer la demande elle-même.
+- `GET /requests` et `GET /requests/{id}` exposent désormais les devis liés (`quotes: [{id, number, status}]`) ; la page Détail de la demande affiche un badge cliquable par devis généré, sans que l'utilisateur ait besoin de le chercher.
+- **Aucune étape de confirmation humaine n'est retirée en aval** : le devis reste `status="draft"` jusqu'à validation explicite (`POST /quotes/{id}/validate`), comme avant.
+
+### Confirmation directe d'une suggestion catalogue ambiguë (PR #66)
+- Bouton «Confirmer» ajouté directement sur la ligne à correspondance ambiguë (suite à PR #61) : applique l'article suggéré en place, sans repasser par la recherche manuelle du panneau catalogue.
+
 ## 2026-08-25/26 — Gestion des membres, affichage suggestion catalogue, file d'extraction séquentielle
 
 PR #60 à #64 sur `main`.

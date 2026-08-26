@@ -296,12 +296,12 @@ Consultez `backend/SUPABASE_MIGRATION.md` pour le guide complet de migration dep
 ### Flux standard
 
 1. **Connexion** → sélection du tenant (espace entreprise)
-2. **Nouvelle demande** → déposer un PDF / image / texte
+2. **Nouvelle demande** → déposer un PDF / image / texte (mise en file d'extraction séquentielle, voir §11)
 3. L'IA (Hermes-3) extrait automatiquement : client, site, objet, lignes de travaux
-4. **Vérifier / corriger** les données extraites
-5. **Créer le devis** → l'éditeur de devis s'ouvre avec les lignes pré-remplies
-6. **Ajuster** les lignes (quantités, prix, TVA, marge), ajouter des articles du catalogue
-7. **Générer le PDF Pro Forma** → téléchargement immédiat
+4. **Brouillon de devis généré automatiquement** → dès que l'extraction aboutit (statut `done` ou `needs_review`), aucun clic manuel n'est nécessaire pour créer le brouillon (badge « Devis généré(s) automatiquement » visible sur la demande). Le devis reste néanmoins un **brouillon** : rien n'est envoyé ni finalisé sans confirmation humaine explicite (voir étape 7).
+5. **Vérifier / corriger** les données extraites et le brouillon généré
+6. **Ajuster** les lignes (quantités, prix, TVA, marge), ajouter/confirmer des articles du catalogue
+7. **Valider** le devis (confirmation humaine) puis **générer le PDF Pro Forma** → téléchargement immédiat
 8. *(Optionnel)* Déclencher le webhook n8n pour automatiser la suite (envoi email, CRM…)
 
 ### Gestion du catalogue
@@ -339,8 +339,8 @@ Toutes les routes sont préfixées par `/api` (routeur `APIRouter(prefix="/api")
 | Méthode | Route | Description |
 |---------|-------|-------------|
 | `POST` | `/api/requests` | Créer une demande (texte collé ou fichier) — mise en file d'extraction séquentielle, statut initial `queued` |
-| `GET` | `/api/requests` | Liste des demandes du tenant, avec `queue_position` pour les demandes `queued` |
-| `GET` | `/api/requests/{id}` | Détail d'une demande (avec `queue_position` si `queued`) |
+| `GET` | `/api/requests` | Liste des demandes du tenant, avec `queue_position` pour les demandes `queued` et `quotes` (devis liés, auto-générés ou manuels) |
+| `GET` | `/api/requests/{id}` | Détail d'une demande (avec `queue_position` si `queued`, et `quotes: [{id, number, status}]`) |
 | `GET` | `/api/requests/{id}/file` | Fichier original (images uniquement — les PDF ne sont jamais persistés) |
 | `POST` | `/api/requests/{id}/process` | Retraiter (remise en file) |
 | `POST` | `/api/requests/{id}/deep-vision` | Escalade vers un modèle de vision plus lent (photos importées uniquement) |

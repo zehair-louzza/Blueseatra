@@ -304,12 +304,12 @@ See `backend/SUPABASE_MIGRATION.md` for the full MongoDB migration guide.
 ### Standard flow
 
 1. **Log in** → select tenant (company workspace)
-2. **New request** → upload a PDF / image / text
+2. **New request** → upload a PDF / image / text (pushed onto the sequential extraction queue, see §11)
 3. The AI (Hermes-3) automatically extracts: client, site, object, work lines
-4. **Review / correct** the extracted data
-5. **Create the quote** → the quote editor opens with pre-filled lines
-6. **Adjust** lines (quantities, prices, VAT, margin), add catalog items
-7. **Generate the Pro Forma PDF** → immediate download
+4. **Draft quote generated automatically** → as soon as extraction succeeds (status `done` or `needs_review`), no manual click is needed to create the draft («Generated automatically» badge shown on the request). The quote still remains a **draft**: nothing is sent or finalized without explicit human confirmation (see step 7).
+5. **Review / correct** the extracted data and the generated draft
+6. **Adjust** lines (quantities, prices, VAT, margin), add/confirm catalog items
+7. **Validate** the quote (human confirmation) then **generate the Pro Forma PDF** → immediate download
 8. *(Optional)* Trigger the n8n webhook to automate the next steps (email, CRM...)
 
 ### Catalog management
@@ -347,8 +347,8 @@ All routes are prefixed with `/api` (`APIRouter(prefix="/api")` in `backend/serv
 | Method | Route | Description |
 |--------|-------|-------------|
 | `POST` | `/api/requests` | Create a request (pasted text or file) — pushed onto the sequential extraction queue, initial status `queued` |
-| `GET` | `/api/requests` | List tenant requests, with `queue_position` for `queued` ones |
-| `GET` | `/api/requests/{id}` | Request detail (with `queue_position` if `queued`) |
+| `GET` | `/api/requests` | List tenant requests, with `queue_position` for `queued` ones and `quotes` (linked draft(s), auto-generated or manual) |
+| `GET` | `/api/requests/{id}` | Request detail (with `queue_position` if `queued`, and `quotes: [{id, number, status}]`) |
 | `GET` | `/api/requests/{id}/file` | Original file (images only — PDFs are never persisted) |
 | `POST` | `/api/requests/{id}/process` | Reprocess (re-queued) |
 | `POST` | `/api/requests/{id}/deep-vision` | Escalate to a slower vision model (imported photos only) |
