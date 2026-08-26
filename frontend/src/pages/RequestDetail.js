@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api , apiError } from '@/lib/api';
@@ -30,8 +30,21 @@ export default function RequestDetail() {
     setRawText(r.data.raw_text || '');
   });
   useEffect(() => { load(); }, [id]);
+  const quoteWaitTries = useRef(0);
   useEffect(() => {
-    if (!req || !['received', 'queued', 'processing'].includes(req.status)) return;
+    if (!req) return;
+    const extracting = ['received', 'queued', 'processing'].includes(req.status);
+    // Le brouillon de devis se genere automatiquement en arriere-plan une
+    // fois l'extraction terminee (voir _auto_generate_quote_if_needed cote
+    // backend) -- continuer a interroger un peu apres le passage a
+    // done/needs_review pour l'afficher sans que l'utilisateur ait a
+    // rafraichir manuellement. Borne a 10 tentatives (~30s) : au-dela, la
+    // generation automatique a probablement echoue (ex. pas de catalogue
+    // actif) -- le bouton "Generer un devis" reste disponible dans ce cas.
+    const awaitingAutoQuote = ['done', 'needs_review'].includes(req.status)
+      && (!req.quotes || req.quotes.length === 0) && quoteWaitTries.current < 10;
+    if (!extracting && !awaitingAutoQuote) return;
+    if (awaitingAutoQuote) quoteWaitTries.current += 1;
     const x = setInterval(load, 3000); return () => clearInterval(x);
   }, [req]);
   useEffect(() => {
@@ -91,6 +104,23 @@ export default function RequestDetail() {
             <span className="uppercase">{req.language || ''}</span>
             {req.confidence != null && <span>· {t('req.confidence')}: {Math.round(req.confidence * 100)}%</span>}
           </div>
+          {req.quotes && req.quotes.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5" data-testid="linked-quotes">
+              <span className="text-xs text-muted-foreground">{t('req.quotes_generated')}</span>
+              {req.quotes.map((qq) => (
+                <button
+                  key={qq.id}
+                  type="button"
+                  onClick={() => navigate(`/app/quotes/${qq.id}`)}
+                  className="inline-flex items-center gap-1 rounded-full border border-input bg-card px-2 py-0.5 text-xs font-medium hover:bg-muted/40"
+                  data-testid="linked-quote-badge"
+                >
+                  <FileText className="h-3 w-3" />{qq.number}
+                  <StatusBadge status={qq.status} className="ml-1" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           {hasViewableFile && <Button variant="outline" size="sm" className="gap-1" onClick={viewFile} data-testid="view-file-button"><Eye className="h-4 w-4" />{t('req.view_file')}</Button>}
@@ -102,7 +132,8 @@ export default function RequestDetail() {
             } catch (err) { toast.error(apiError(err, 'Failed')); }
           }} data-testid="save-request-button"><Save className="h-4 w-4" />{t('req.save_edits')}</Button>
           <Button size="sm" className="gap-1" onClick={makeQuote} disabled={busy || !ex} data-testid="make-quote-button">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}{t('req.make_quote')}
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+            {req.quotes && req.quotes.length > 0 ? t('req.make_another_quote') : t('req.make_quote')}
           </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>

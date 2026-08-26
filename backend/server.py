@@ -631,6 +631,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         }})
         await audit(tenant_id, req.get("created_by"), "request.processed", request_id,
                     {"items": len(extracted.get("line_items", [])), "lang": extracted.get("language")})
+        await _auto_generate_quote_if_needed(request_id, tenant_id, req.get("created_by"))
     except Exception as e:
         logger.exception("process_request failed")
         await db.requests.update_one({"id": request_id}, {"$set": {"status": "failed", "error": str(e)}})
@@ -800,11 +801,34 @@ def _attach_queue_positions(rows: list) -> list:
     return rows
 
 
+async def _attach_quote_summaries(rows: list, tenant_id: str) -> list:
+    """Attache la liste des devis (brouillon(s) auto-generes ou manuels) de
+    chaque demande -- pour que le frontend puisse afficher directement un
+    lien vers le devis deja cree, sans que l'utilisateur ait besoin de
+    cliquer "Generer un devis" pour le decouvrir (voir
+    _auto_generate_quote_if_needed)."""
+    ids = [r["id"] for r in rows]
+    if not ids:
+        return rows
+    qs = await db.quotes.find(
+        {"tenant_id": tenant_id, "request_id": {"$in": ids}},
+        {"_id": 0, "id": 1, "number": 1, "status": 1, "request_id": 1},
+    ).to_list(1000)
+    by_req: dict = {}
+    for qq in qs:
+        by_req.setdefault(qq["request_id"], []).append(
+            {"id": qq["id"], "number": qq["number"], "status": qq["status"]})
+    for r in rows:
+        r["quotes"] = by_req.get(r["id"], [])
+    return rows
+
+
 @api.get("/requests")
 async def list_requests(cu: CurrentUser = Depends(get_current)):
     rows = await db.requests.find({"tenant_id": cu.tenant_id}, {"_id": 0, "file_b64": 0}) \
         .sort("created_at", -1).to_list(500)
-    return _attach_queue_positions(rows)
+    rows = _attach_queue_positions(rows)
+    return await _attach_quote_summaries(rows, cu.tenant_id)
 
 
 @api.get("/requests/{request_id}")
@@ -816,6 +840,11 @@ async def get_request(request_id: str, cu: CurrentUser = Depends(get_current)):
         earlier = await db.requests.count_documents(
             {"tenant_id": cu.tenant_id, "status": "queued", "created_at": {"$lt": r["created_at"]}})
         r["queue_position"] = earlier + 1
+    qs = await db.quotes.find(
+        {"tenant_id": cu.tenant_id, "request_id": request_id},
+        {"_id": 0, "id": 1, "number": 1, "status": 1},
+    ).to_list(50)
+    r["quotes"] = qs
     return r
 
 
@@ -1421,24 +1450,28 @@ async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80)
 # ===========================================================================
 # QUOTES
 # ===========================================================================
-@api.post("/quotes/draft")
-async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current)):
-    request_id = body.get("request_id")
-    req = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "file_b64": 0})
+async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str | None) -> list[dict]:
+    """Coeur partage de la creation de brouillon(s) de devis depuis une
+    demande deja traitee. Utilise a la fois par l'endpoint manuel
+    POST /quotes/draft et par le declenchement automatique dans
+    process_request() (voir _auto_generate_quote_if_needed) -- leve
+    ValueError pour toute precondition manquante, jamais HTTPException,
+    pour rester appelable hors contexte requete HTTP."""
+    req = await db.requests.find_one({"id": request_id, "tenant_id": tenant_id}, {"_id": 0, "file_b64": 0})
     if not req:
-        raise HTTPException(404, "Request not found")
+        raise ValueError("Request not found")
     if not req.get("extracted"):
-        raise HTTPException(400, "Request not yet processed")
-    cat, items = await get_active_catalog(cu.tenant_id)
+        raise ValueError("Request not yet processed")
+    cat, items = await get_active_catalog(tenant_id)
     if not cat:
-        raise HTTPException(400, "No active pricing catalog. Import and activate one first.")
+        raise ValueError("No active pricing catalog. Import and activate one first.")
     ver = await db.catalog_versions.find_one({"id": cat["active_version_id"]}, {"_id": 0})
 
     extracted0 = ai_service._normalize_extracted(dict(req["extracted"] or {}))
-    settings = await get_tenant_ai_settings(cu.tenant_id)
+    settings = await get_tenant_ai_settings(tenant_id)
     labels = [it.get("item_label") for it in items if it.get("item_label")]
     scenarios = quote_scenarios.split_quote_scenarios(extracted0, req.get("raw_text") or "")
-    count = await db.quotes.count_documents({"tenant_id": cu.tenant_id})
+    count = await db.quotes.count_documents({"tenant_id": tenant_id})
     ex = req["extracted"] or {}
     client_recipient = ex.get("donneur_d_ordre") or ex.get("client_final") or ex.get("client_name") or ex.get("client")
     site_val = match_engine.clean_text(
@@ -1467,7 +1500,7 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
         opt_label = extracted.get("option_label") or extracted.get("description") or ""
         obj_src = f"Option {i}/{n_opt} — {opt_label}" if n_opt > 1 else (ex.get("description") or opt_label)
         quote = {
-            "id": quote_id, "tenant_id": cu.tenant_id, "request_id": request_id,
+            "id": quote_id, "tenant_id": tenant_id, "request_id": request_id,
             "number": f"BS-{datetime.now().year}-{count + i:04d}",
             "status": "draft", "version": 1,
             "client": client_recipient, "site": site_val,
@@ -1497,16 +1530,55 @@ async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current))
                 "version_id": cat["active_version_id"],
                 "version_number": ver["version_number"] if ver else 1, "snapshot_at": now_iso(),
             },
-            "created_by": cu.email, "created_at": now_iso(),
+            "created_by": created_by, "created_at": now_iso(),
         }
         await db.quotes.insert_one(quote)
-        await audit(cu.tenant_id, cu.email, "quote.draft", quote_id,
+        await audit(tenant_id, created_by, "quote.draft", quote_id,
                     {"request_id": request_id, "option": i, "options": n_opt})
         quote.pop("_id", None)
         created.append(quote)
+    return created
+
+
+async def _auto_generate_quote_if_needed(request_id: str, tenant_id: str, created_by: str | None):
+    """Genere automatiquement un brouillon de devis des qu'une demande est
+    traitee avec succes (statut 'done' ou 'needs_review') -- decision du
+    26/08/2026 : la creation du brouillon ne doit plus attendre un clic
+    manuel sur "Generer un devis". Le devis reste malgre tout un
+    BROUILLON (status='draft') : aucune confirmation humaine n'est
+    sautee en aval (validation, envoi, PDF client) -- seule l'ETAPE DE
+    CREATION du brouillon devient automatique, pas la suite du parcours.
+
+    Ne genere jamais un deuxieme brouillon pour la meme demande (un
+    retraitement manuel n'empile pas de nouveaux brouillons a chaque
+    appel) ; le bouton "Generer un devis" reste disponible cote frontend
+    pour creer volontairement un brouillon supplementaire si besoin.
+    Toute erreur (catalogue absent, echec IA) est journalisee et
+    n'affecte jamais le statut de la demande elle-meme, deja ecrit par
+    process_request() avant cet appel."""
+    existing = await db.quotes.count_documents({"tenant_id": tenant_id, "request_id": request_id})
+    if existing > 0:
+        return
+    try:
+        await _build_quote_drafts(tenant_id, request_id, created_by)
+        logger.info("Devis genere automatiquement pour la demande %s", request_id)
+    except Exception:
+        logger.warning("Generation automatique de devis ignoree pour la demande %s", request_id, exc_info=True)
+
+
+@api.post("/quotes/draft")
+async def create_quote_draft(body: dict, cu: CurrentUser = Depends(get_current)):
+    request_id = body.get("request_id")
+    req_exists = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "id": 1})
+    if not req_exists:
+        raise HTTPException(404, "Request not found")
+    try:
+        created = await _build_quote_drafts(cu.tenant_id, request_id, cu.email)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     first = created[0]
     first["sibling_quotes"] = [{"id": q["id"], "number": q["number"], "object": q["object"]} for q in created[1:]]
-    first["option_count"] = n_opt
+    first["option_count"] = len(created)
     return first
 
 
