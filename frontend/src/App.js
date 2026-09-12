@@ -13,6 +13,7 @@ import Dashboard from '@/pages/Dashboard';
 import Requests from '@/pages/Requests';
 import RequestDetail from '@/pages/RequestDetail';
 import Catalogs from '@/pages/Catalogs';
+import SupplierSearch from '@/pages/SupplierSearch';
 import CatalogImport from '@/pages/CatalogImport';
 import Quotes from '@/pages/Quotes';
 import QuoteEditor from '@/pages/QuoteEditor';
@@ -62,6 +63,7 @@ function App() {
             <Route path="/app/requests/:id" element={<Shell><RequestDetail /></Shell>} />
             <Route path="/app/catalogs" element={<Shell><Catalogs /></Shell>} />
             <Route path="/app/catalogs/import" element={<Shell><CatalogImport /></Shell>} />
+            <Route path="/app/fournisseurs" element={<Shell><SupplierSearch /></Shell>} />
             <Route path="/app/quotes" element={<Shell><Quotes /></Shell>} />
             <Route path="/app/quotes/:id" element={<Shell><QuoteEditor /></Shell>} />
             <Route path="/app/members" element={<Shell><Members /></Shell>} />

@@ -278,3 +278,86 @@ def test_rapport_lisible(capsys):
             f"{indirects} filtres via variable | "
             f"{exceptes} exceptions verifiees"
         )
+
+
+# ---------------------------------------------------------------------------
+# SQL brut : le filtre tenant_id doit etre EXPLICITE, pas delegue a RLS
+# ---------------------------------------------------------------------------
+
+def test_sql_brut_filtre_toujours_le_tenant():
+    """Toute requete SQL ecrite a la main doit filtrer tenant_id.
+
+    POURQUOI NE PAS SE REPOSER SUR RLS SEULE
+    ----------------------------------------
+    RLS ne cloisonne que si le moteur metier tourne sous blueseatra_app
+    (NOBYPASSRLS). Or database.py prevoit un REPLI documente : sans
+    DATABASE_URL_APP, le moteur metier est `postgres`, qui a BYPASSRLS
+    et possede les tables. Dans ce mode, une requete SQL brute sans
+    filtre renvoie les lignes de TOUS les tenants.
+
+    Le repli n'est pas theorique : il a servi trois fois le 12/09/2026
+    pour restaurer la production. Une requete qui fuite en repli est
+    donc une fuite reelle.
+
+    Le reste du code filtre deja tenant_id explicitement -- 101 appels
+    verifies par l'audit d'isolation de ce fichier. Ce test etend la
+    meme exigence au SQL ecrit a la main, que cet audit ne voit pas
+    puisqu'il analyse les appels db.<table>.<methode>.
+    """
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parent.parent
+    TABLES_CLOISONNEES = (
+        "supplier_offers", "canonical_products", "suppliers", "quotes",
+        "pricing_items", "requests", "catalogs", "catalog_versions",
+        "audit_logs", "company_profiles", "import_jobs", "import_errors",
+        "quote_versions", "settings_integrations",
+    )
+
+    manquants = []
+    for fichier in sorted(backend.glob("*.py")):
+        if fichier.name.startswith("test"):
+            continue
+        txt = fichier.read_text(encoding="utf-8", errors="ignore")
+
+        # Blocs text("""...""") ou text('...') : le SQL ecrit a la main.
+        for m in re.finditer(r'text\(\s*(?:f?"""(.*?)"""|f?"(.*?)")\s*[,)]',
+                             txt, re.S):
+            sql = next((g for g in m.groups() if g), "")
+            bas = sql.lower()
+            if "select" not in bas and "update" not in bas \
+                    and "delete" not in bas and "insert" not in bas:
+                continue
+            # Vise-t-il une table cloisonnee ?
+            cibles = [t for t in TABLES_CLOISONNEES
+                      if re.search(r"\b" + t + r"\b", bas)]
+            if not cibles:
+                continue
+            # set_config et pg_stat_activity ne sont pas des lectures
+            # metier.
+            if "set_config" in bas or "pg_stat_activity" in bas:
+                continue
+            # Un vrai FILTRE, pas la simple presence du mot. Une
+            # premiere version se contentait de chercher "tenant_id"
+            # dans le SQL : la mutation retirant la clause WHERE passait
+            # inapercue, parce que le mot subsistait dans la jointure
+            # `AND f.tenant_id = o.tenant_id`. Verifie par mutation.
+            filtre = re.search(
+                r"tenant_id\s*=\s*(?::\w+|current_tenant\(\))", bas)
+            if not filtre:
+                ligne = txt[: m.start()].count("\n") + 1
+                manquants.append(
+                    f"{fichier.name}:{ligne} -> tables {', '.join(cibles)}"
+                )
+
+    assert not manquants, (
+        "Ces requetes SQL ecrites a la main visent des tables cloisonnees "
+        "SANS filtrer tenant_id :\n  - " + "\n  - ".join(manquants) + "\n\n"
+        "Se reposer sur RLS seule ne suffit pas : en mode repli (sans "
+        "DATABASE_URL_APP), le moteur metier est `postgres`, qui a "
+        "BYPASSRLS. La requete renverrait alors les lignes de tous les "
+        "tenants.\n\n"
+        "Ajouter une clause `WHERE <table>.tenant_id = :tenant_id` avec "
+        "get_current_tenant()."
+    )
