@@ -307,6 +307,17 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
                ON f.id = o.supplier_id
               AND f.tenant_id = o.tenant_id
         WHERE o.tenant_id = :tenant_id
+          -- LECTURE SIMULTANEE DE TOUS LES CATALOGUES ACTIFS.
+          -- Aucun filtre sur supplier_id ni catalog_id : les tarifs des
+          -- cinq enseignes sont interroges ENSEMBLE, ce qui reproduit
+          -- exactement un catalogue consolide sans jamais fusionner les
+          -- fichiers a la main.
+          -- is_active ecarte les versions remplacees : reimporter le
+          -- tarif Rexel ne doit pas faire apparaitre l'ancien prix a
+          -- cote du nouveau. Les anciennes lignes ne sont pas
+          -- supprimees, seulement sorties du perimetre -- l'historique
+          -- de prix reste consultable.
+          AND o.is_active = true
           AND {' AND '.join(conditions)}
         ORDER BY o.price_ht ASC NULLS LAST
     """)
@@ -396,6 +407,7 @@ async def liste_fournisseurs() -> dict:
                ON f.id = o.supplier_id
               AND f.tenant_id = o.tenant_id
         WHERE o.tenant_id = :tenant_id
+          AND o.is_active = true
         GROUP BY coalesce(f.name, 'inconnu')
         ORDER BY count(*) DESC
     """)

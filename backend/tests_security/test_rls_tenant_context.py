@@ -396,11 +396,35 @@ def test_tout_module_metier_etablit_un_contexte():
         "set_current_tenant", "tenant_context", "with_tenant",
         "system_context", "with_system_context",
     }
-    APPEL_DB = re.compile(
-        r"\bdb\.[a-z_]+\.(find|find_one|insert_one|insert_many|"
-        r"update_one|update_many|delete_one|delete_many|count_documents|"
-        r"aggregate)\b"
-    )
+    METHODES_DB = {
+        "find", "find_one", "insert_one", "insert_many", "update_one",
+        "update_many", "delete_one", "delete_many", "count_documents",
+        "aggregate",
+    }
+
+    def appels_db_reels(arbre):
+        """Compte les APPELS db.<table>.<methode>, par analyse syntaxique.
+
+        Une premiere version cherchait ce motif par expression reguliere
+        sur le texte brut. Elle comptait les mentions dans les
+        COMMENTAIRES : un commentaire expliquant que
+        "db.supplier_offers.insert_many() echouait" faisait signaler
+        models_sql.py comme module fautif, alors qu'il ne contient aucun
+        appel. Verifie en ajoutant ce commentaire.
+        """
+        total = 0
+        for noeud in ast.walk(arbre):
+            if not isinstance(noeud, ast.Call):
+                continue
+            f = noeud.func
+            if not isinstance(f, ast.Attribute) or f.attr not in METHODES_DB:
+                continue
+            interm = f.value
+            if (isinstance(interm, ast.Attribute)
+                    and isinstance(interm.value, ast.Name)
+                    and interm.value.id == "db"):
+                total += 1
+        return total
 
     def marqueurs_reels(arbre):
         """Ne retient que les usages executables, jamais la documentation."""
@@ -425,12 +449,12 @@ def test_tout_module_metier_etablit_un_contexte():
         if fichier.name.startswith("test") or fichier.name == "database.py":
             continue
         txt = fichier.read_text(encoding="utf-8", errors="ignore")
-        appels = len(APPEL_DB.findall(txt))
-        if appels == 0:
-            continue
         try:
             arbre = ast.parse(txt)
         except SyntaxError:
+            continue
+        appels = appels_db_reels(arbre)
+        if appels == 0:
             continue
         if not marqueurs_reels(arbre):
             coupables.append(f"{fichier.name} ({appels} appels DB)")

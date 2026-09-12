@@ -53,6 +53,11 @@ MODELS = {
     "audit_logs": M.AuditLog,
     "settings_integrations": M.SettingsIntegration,
     "company_profiles": M.CompanyProfile,
+    # Module Fournisseur. Sans ces entrees, pg_adapter leve
+    # AttributeError("Unknown collection") des le premier import de tarif.
+    "suppliers": M.Supplier,
+    "supplier_offers": M.SupplierOffer,
+    "canonical_products": M.CanonicalProduct,
 }
 
 # Tables du chemin d'AUTHENTIFICATION -- etape 3/3 du durcissement RLS.

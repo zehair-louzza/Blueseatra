@@ -257,3 +257,104 @@ ALL_MODELS = [
     Quote, QuoteVersion, ImportJob, ImportError, AuditLog, SettingsIntegration,
     CompanyProfile,
 ]
+
+# ===========================================================================
+# Module Fournisseur
+# ===========================================================================
+# Ces tables sont definies dans supabase/migrations/20260912020000_module_
+# fournisseur.sql. Les declarer ici est OBLIGATOIRE : pg_adapter resout
+# chaque nom de collection via MODELS et leve AttributeError sur une table
+# inconnue. Sans ces modeles, db.supplier_offers.insert_many() echouait des
+# la premiere ligne importee.
+#
+# Les colonnes reprennent exactement les noms de la migration. Un ecart
+# ferait silencieusement disparaitre la valeur : insert_many() filtre les
+# cles inconnues (`{k: v for k, v in d.items() if k in cols}`), donc une
+# faute de frappe ne leve aucune erreur -- elle perd la donnee.
+
+
+class Supplier(Base):
+    __tablename__ = "suppliers"
+    __table_args__ = (
+        Index("ix_suppliers_tenant_name", "tenant_id", "name"),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), index=True, nullable=False)
+    name = Column(String(200), nullable=False)
+    slug = Column(String(120))
+    website = Column(Text)
+    franco_ht = Column(Float)
+    shipping_cost_ht = Column(Float)
+    discount_rules = Column(JSONB)
+    default_delay = Column(String(60))
+    agencies = Column(JSONB)
+    notes = Column(Text)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(String(40))
+    updated_at = Column(String(40))
+
+
+class SupplierOffer(Base):
+    __tablename__ = "supplier_offers"
+    __table_args__ = (
+        # La recherche filtre tenant + is_active puis trie par prix : cet
+        # index couvre le chemin complet.
+        Index("ix_offers_tenant_actif_prix", "tenant_id", "is_active",
+              "price_ht"),
+        Index("ix_offers_tenant_supplier_version", "tenant_id", "supplier_id",
+              "version_id"),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), index=True, nullable=False)
+    supplier_id = Column(String(36), index=True, nullable=False)
+    catalog_id = Column(String(36), index=True)
+    version_id = Column(String(36), index=True)
+    raw_label = Column(Text, nullable=False)
+    raw_reference = Column(String(160))
+    raw_unit = Column(String(60))
+    raw_row = Column(JSONB)
+    label_norm = Column(Text)
+    brand = Column(String(120))
+    manufacturer_ref = Column(String(120))
+    ean = Column(String(20))
+    unit_canonical = Column(String(40))
+    packaging_qty = Column(Float, nullable=False, default=1)
+    min_qty = Column(Float)
+    price_ht = Column(Float)
+    price_ht_per_unit = Column(Float)
+    currency = Column(String(8), nullable=False, default="EUR")
+    vat_rate = Column(Float)
+    discount_applied = Column(Float)
+    delay = Column(String(60))
+    availability = Column(String(60))
+    product_url = Column(Text)
+    source_date = Column(String(20))
+    source_filename = Column(Text)
+    canonical_product_id = Column(String(36), index=True)
+    match_status = Column(String(20), nullable=False, default="pending")
+    match_confidence = Column(Integer)
+    match_rule_id = Column(String(36))
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(String(40))
+    updated_at = Column(String(40))
+
+
+class CanonicalProduct(Base):
+    __tablename__ = "canonical_products"
+    __table_args__ = (
+        Index("ix_canonical_tenant_norm", "tenant_id", "label_norm"),
+    )
+    id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), index=True, nullable=False)
+    label = Column(Text, nullable=False)
+    label_norm = Column(Text)
+    family = Column(String(255))
+    brand = Column(String(120))
+    manufacturer_ref = Column(String(120))
+    ean = Column(String(20))
+    unit_canonical = Column(String(40))
+    attributes = Column(JSONB)
+    notes = Column(Text)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(String(40))
+    updated_at = Column(String(40))

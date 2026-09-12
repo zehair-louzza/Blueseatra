@@ -25,6 +25,7 @@ import ai_service
 import matching as match_engine
 import quote_scenarios
 import pdf_service
+import fournisseur_import
 import fournisseur_recherche
 import mcp_bridge
 from database import set_current_tenant, with_system_context, with_tenant
@@ -2068,6 +2069,353 @@ async def fournisseurs_liste(cu: CurrentUser = Depends(get_current)):
     Prolians, La Plateforme et SFIC.
     """
     return await fournisseur_recherche.liste_fournisseurs()
+
+
+# ---------------------------------------------------------------------------
+# Import d'un tarif fournisseur -- coeur partage par l'endpoint multi-fichiers
+# ---------------------------------------------------------------------------
+
+async def _importe_un_tarif(cu, contenu: bytes, nom_fichier: str,
+                            nom_fournisseur: str,
+                            mapping_utilisateur: dict | None,
+                            onglet: str | None) -> dict:
+    """Importe UN fichier tarif pour UN fournisseur, en le versionnant.
+
+    Sépare volontairement l'activation par fournisseur : la nouvelle
+    version remplace les précédentes DE CE FOURNISSEUR uniquement. Les
+    catalogues des autres enseignes ne sont pas touchés, puisque la
+    comparaison a besoin de tous simultanément.
+    """
+    df, onglet_retenu, _ = fournisseur_import.lit_tableur(
+        contenu, nom_fichier, onglet)
+    colonnes = list(df.columns)
+
+    mapping = fournisseur_import.suggere_mapping(colonnes)
+    if mapping_utilisateur:
+        for cle, col in (mapping_utilisateur or {}).items():
+            if col in colonnes or col in (None, ""):
+                mapping[cle] = col or None
+
+    if not mapping.get("designation"):
+        raise ValueError(
+            "Aucune colonne de désignation détectée. Associez une colonne "
+            "au champ « Désignation / Libellé » : sans libellé, un article "
+            "n'est ni cherchable ni comparable.")
+
+    # --- fournisseur : retrouve ou cree -----------------------------------
+    fournisseur = await db.suppliers.find_one(
+        {"tenant_id": cu.tenant_id, "name": nom_fournisseur})
+    if fournisseur:
+        supplier_id = fournisseur["id"]
+    else:
+        supplier_id = new_id()
+        await db.suppliers.insert_one({
+            "id": supplier_id, "tenant_id": cu.tenant_id,
+            "name": nom_fournisseur,
+            "slug": match_engine.normalize(nom_fournisseur).replace(" ", "-")[:120],
+            "is_active": True, "created_at": now_iso(), "updated_at": now_iso(),
+        })
+
+    # --- catalogue propre a ce fournisseur --------------------------------
+    nom_catalogue = f"Tarif {nom_fournisseur}"
+    catalogue = await db.catalogs.find_one(
+        {"tenant_id": cu.tenant_id, "name": nom_catalogue})
+    if catalogue:
+        catalog_id = catalogue["id"]
+        precedentes = await db.catalog_versions.find(
+            {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}
+        ).sort("version_number", -1).to_list(1)
+        numero = (precedentes[0]["version_number"] + 1) if precedentes else 1
+    else:
+        catalog_id = new_id()
+        numero = 1
+        await db.catalogs.insert_one({
+            "id": catalog_id, "tenant_id": cu.tenant_id, "name": nom_catalogue,
+            "client_code": "FOURNISSEUR", "created_at": now_iso(),
+            "active_version_id": None,
+        })
+
+    version_id = new_id()
+    job_id = new_id()
+
+    # --- lignes, inserees PAR LOTS ----------------------------------------
+    # Un tarif fournisseur compte des dizaines a des centaines de
+    # milliers de lignes -- 747 771 pour le seul Rexel. Une insertion
+    # unique saturerait la memoire du service (512 Mo sur le palier
+    # gratuit Render).
+    val = fournisseur_import.valeur
+    num = fournisseur_import.nombre
+    lot, importees, erreurs = [], 0, []
+
+    for index, ligne in df.iterrows():
+        numero_ligne = int(index) + 2
+        try:
+            libelle = val(ligne, mapping, "designation")
+            if not libelle:
+                raise ValueError("Désignation vide")
+            lot.append({
+                "id": new_id(), "tenant_id": cu.tenant_id,
+                "supplier_id": supplier_id,
+                "catalog_id": catalog_id, "version_id": version_id,
+                "raw_label": libelle,
+                "raw_reference": val(ligne, mapping, "reference_fournisseur"),
+                "raw_unit": val(ligne, mapping, "unite_vente"),
+                "label_norm": match_engine.normalize(libelle),
+                "brand": val(ligne, mapping, "marque"),
+                "manufacturer_ref": val(ligne, mapping, "reference_fabricant"),
+                "ean": val(ligne, mapping, "code_ean"),
+                "packaging_qty": num(
+                    val(ligne, mapping, "quantite_conditionnement"), 1) or 1.0,
+                "min_qty": num(val(ligne, mapping, "quantite_min")),
+                "price_ht": num(val(ligne, mapping, "prix_net_ht")),
+                "currency": "EUR",
+                "discount_applied": num(val(ligne, mapping, "remise")),
+                "delay": val(ligne, mapping, "delai"),
+                "product_url": val(ligne, mapping, "url_produit"),
+                "source_filename": nom_fichier,
+                # Date du prix : si le fichier la porte, elle est reprise.
+                # Sans elle, on ne saurait pas qu'un tarif a six mois --
+                # et un prix perime fausse un devis aussi surement qu'un
+                # prix faux.
+                "source_date": val(ligne, mapping, "date_prix") or None,
+                "match_status": "pending",
+                "is_active": True,
+                "created_at": now_iso(),
+            })
+            importees += 1
+        except Exception as exc:
+            if len(erreurs) < 500:   # borne : un fichier mal mappe
+                erreurs.append({                 # en genererait des milliers
+                    "id": new_id(), "tenant_id": cu.tenant_id, "job_id": job_id,
+                    "row_number": numero_ligne, "message": str(exc),
+                    "raw": {},
+                })
+
+        if len(lot) >= fournisseur_import.TAILLE_LOT:
+            await db.supplier_offers.insert_many(lot)
+            lot = []
+
+    if lot:
+        await db.supplier_offers.insert_many(lot)
+
+    await db.catalog_versions.insert_one({
+        "id": version_id, "tenant_id": cu.tenant_id, "catalog_id": catalog_id,
+        "version_number": numero, "status": "draft",
+        "item_count": importees, "error_count": len(erreurs),
+        "columns": colonnes, "mapping": mapping,
+        "source_filename": nom_fichier, "created_at": now_iso(),
+        "activated_at": None,
+    })
+    if erreurs:
+        await db.import_errors.insert_many(erreurs)
+    await db.import_jobs.insert_one({
+        "id": job_id, "tenant_id": cu.tenant_id, "catalog_id": catalog_id,
+        "version_id": version_id, "filename": nom_fichier,
+        "total_rows": int(len(df)), "success_rows": importees,
+        "error_rows": len(erreurs), "status": "completed",
+        "created_at": now_iso(),
+    })
+
+    # --- activation, LIMITEE A CE FOURNISSEUR -----------------------------
+    # Volontairement PAS d'appel a _deactivate_other_catalogs() : les
+    # autres enseignes doivent rester actives pour que la comparaison
+    # fonctionne.
+    if importees:
+        await db.catalog_versions.update_many(
+            {"tenant_id": cu.tenant_id, "catalog_id": catalog_id,
+             "status": "active"},
+            {"$set": {"status": "archived"}})
+        await db.catalog_versions.update_one(
+            {"id": version_id},
+            {"$set": {"status": "active", "activated_at": now_iso()}})
+        await db.catalogs.update_one(
+            {"id": catalog_id}, {"$set": {"active_version_id": version_id}})
+        # Les offres des versions precedentes de CE fournisseur sortent
+        # du perimetre de recherche, sans etre supprimees : on garde
+        # l'historique de prix.
+        await db.supplier_offers.update_many(
+            {"tenant_id": cu.tenant_id, "supplier_id": supplier_id,
+             "version_id": {"$ne": version_id}},
+            {"$set": {"is_active": False}})
+
+    return {
+        "nom_fichier": nom_fichier, "ok": True,
+        "fournisseur": nom_fournisseur, "supplier_id": supplier_id,
+        "catalog_id": catalog_id, "version_id": version_id,
+        "version_numero": numero, "onglet_retenu": onglet_retenu,
+        "lignes_fichier": int(len(df)), "lignes_importees": importees,
+        "lignes_en_erreur": len(erreurs),
+    }
+
+
+@api.post("/fournisseurs/import/preview")
+async def fournisseurs_import_preview(
+    cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
+    files: List[UploadFile] = File(...),
+):
+    """Prévisualise PLUSIEURS tarifs fournisseurs en une seule fois.
+
+    Même principe que /catalogs/import/preview, avec trois différences :
+    plusieurs fichiers sont acceptés d'un coup, Excel est géré en plus du
+    CSV, et chaque fichier reçoit son propre nom de fournisseur déduit --
+    parce qu'un fichier correspond à un fournisseur, et que les
+    catalogues resteront tous actifs simultanément.
+    """
+    if not files:
+        raise HTTPException(400, "Aucun fichier reçu.")
+    if len(files) > 12:
+        raise HTTPException(
+            400, "12 fichiers au maximum par envoi. Au-delà, la "
+                 "prévisualisation devient illisible et l'analyse trop longue.")
+
+    fichiers = []
+    for f in files:
+        contenu = await f.read()
+        entree = {"nom_fichier": f.filename, "taille_octets": len(contenu)}
+        try:
+            df, onglet, onglets = fournisseur_import.lit_tableur(
+                contenu, f.filename)
+            colonnes = list(df.columns)
+            mapping = fournisseur_import.suggere_mapping(colonnes)
+            entree.update({
+                "ok": True,
+                "onglet_retenu": onglet,
+                "onglets_disponibles": onglets,
+                "colonnes": colonnes,
+                "lignes_total": int(len(df)),
+                "apercu": df.head(5).fillna("").astype(str).to_dict(
+                    orient="records"),
+                "mapping_suggere": mapping,
+                "fournisseur_suggere": fournisseur_import.devine_fournisseur(
+                    df, mapping, f.filename),
+                "champs_requis_manquants": [
+                    c["libelle"] for c in fournisseur_import.CHAMPS_FOURNISSEUR
+                    if c["requis"] and not mapping.get(c["cle"])
+                ],
+            })
+        except Exception as exc:
+            # Un fichier illisible ne doit pas faire echouer les autres :
+            # l'utilisateur en depose souvent cinq d'un coup.
+            entree.update({"ok": False, "erreur": str(exc)})
+        fichiers.append(entree)
+
+    return {
+        "fichiers": fichiers,
+        "champs_standards": [
+            {"cle": c["cle"], "libelle": c["libelle"], "requis": c["requis"]}
+            for c in fournisseur_import.CHAMPS_FOURNISSEUR
+        ],
+    }
+
+
+@api.post("/fournisseurs/import")
+async def fournisseurs_import(
+    cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
+    files: List[UploadFile] = File(...),
+    fournisseurs: str = Form(...),
+    mappings: str = Form(None),
+    onglets: str = Form(None),
+):
+    """Importe plusieurs tarifs fournisseurs, un catalogue par fournisseur.
+
+    `fournisseurs`, `mappings` et `onglets` sont des tableaux JSON alignés
+    sur l'ordre de `files`.
+
+    TOUS LES CATALOGUES RESTENT ACTIFS, et c'est le coeur du besoin.
+    L'import de l'onglet Catalogue appelle _deactivate_other_catalogs()
+    parce qu'un devis se chiffre sur UN barème. Ici c'est l'inverse : le
+    chiffreur compare cinq enseignes simultanément, donc chaque
+    fournisseur a son catalogue et la recherche les lit ensemble -- ce
+    qui reproduit un catalogue consolidé sans jamais fusionner les
+    fichiers à la main.
+
+    Conséquence pratique : remplacer le tarif Rexel ne touche pas aux
+    quatre autres. Avec un fichier consolidé unique, la moindre mise à
+    jour obligeait à tout reconstruire.
+    """
+    try:
+        noms = json.loads(fournisseurs)
+        table_mappings = json.loads(mappings) if mappings else []
+        table_onglets = json.loads(onglets) if onglets else []
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, f"Paramètres JSON illisibles : {exc}")
+
+    if len(noms) != len(files):
+        raise HTTPException(
+            400, f"{len(files)} fichier(s) mais {len(noms)} nom(s) de "
+                 f"fournisseur. Les deux listes doivent correspondre.")
+
+    rapports = []
+    for i, f in enumerate(files):
+        nom_fournisseur = (noms[i] or "").strip()
+        if not nom_fournisseur:
+            rapports.append({"nom_fichier": f.filename, "ok": False,
+                             "erreur": "Nom de fournisseur manquant."})
+            continue
+        contenu = await f.read()
+        onglet = table_onglets[i] if i < len(table_onglets) else None
+        mapping_utilisateur = (table_mappings[i]
+                               if i < len(table_mappings) else None)
+        try:
+            rapport = await _importe_un_tarif(
+                cu, contenu, f.filename, nom_fournisseur,
+                mapping_utilisateur, onglet)
+            rapports.append(rapport)
+        except Exception as exc:
+            # Chaque fichier est independant : l'echec de l'un ne doit
+            # pas annuler l'import des autres.
+            rapports.append({"nom_fichier": f.filename, "ok": False,
+                             "erreur": str(exc)})
+
+    await audit(cu.tenant_id, cu.email, "fournisseur.import", None,
+                {"fichiers": len(files),
+                 "reussis": sum(1 for r in rapports if r.get("ok")),
+                 "lignes": sum(r.get("lignes_importees", 0) for r in rapports)})
+    return {"rapports": rapports}
+
+
+@api.get("/fournisseurs/catalogues")
+async def fournisseurs_catalogues(cu: CurrentUser = Depends(get_current)):
+    """Catalogues fournisseurs du tenant, avec leurs versions.
+
+    Tous les catalogues actifs sont lus SIMULTANEMENT par la recherche.
+    Cet écran sert donc à voir quels tarifs alimentent la comparaison, et
+    à en désactiver un temporairement sans le supprimer.
+    """
+    catalogues = await db.catalogs.find(
+        {"tenant_id": cu.tenant_id, "client_code": "FOURNISSEUR"}
+    ).to_list(200)
+
+    sortie = []
+    for cat in catalogues:
+        versions = await db.catalog_versions.find(
+            {"tenant_id": cu.tenant_id, "catalog_id": cat["id"]}
+        ).sort("version_number", -1).to_list(30)
+        active = next((v for v in versions if v.get("status") == "active"), None)
+        sortie.append({
+            "catalog_id": cat["id"],
+            "nom": cat.get("name"),
+            "version_active": active.get("version_number") if active else None,
+            "lignes": active.get("item_count") if active else 0,
+            "fichier_source": active.get("source_filename") if active else None,
+            "importe_le": active.get("activated_at") if active else None,
+            "versions": [
+                {"version_id": v["id"], "numero": v.get("version_number"),
+                 "statut": v.get("status"), "lignes": v.get("item_count"),
+                 "erreurs": v.get("error_count"),
+                 "fichier": v.get("source_filename"),
+                 "cree_le": v.get("created_at")}
+                for v in versions
+            ],
+        })
+
+    sortie.sort(key=lambda c: -(c["lignes"] or 0))
+    return {
+        "catalogues": sortie,
+        "lignes_actives_total": sum(c["lignes"] or 0 for c in sortie),
+        "note": "Tous les catalogues actifs sont interrogés simultanément "
+                "par la recherche, ce qui équivaut à un catalogue consolidé.",
+    }
 
 
 app.include_router(api)
