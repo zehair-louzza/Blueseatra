@@ -2193,6 +2193,10 @@ async def _importe_un_tarif(cu, contenu: bytes, nom_fichier: str,
                 "currency": "EUR",
                 "discount_applied": num(val(ligne, mapping, "remise")),
                 "delay": val(ligne, mapping, "delai"),
+                # Disponibilite distincte du delai : "Stock depot" est un
+                # etat de stock, pas une duree. Les confondre affichait
+                # "En stock" dans la colonne des delais de livraison.
+                "availability": val(ligne, mapping, "disponibilite"),
                 "product_url": val(ligne, mapping, "url_produit"),
                 "source_filename": nom_fichier,
                 # Date du prix : si le fichier la porte, elle est reprise.

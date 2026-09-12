@@ -103,14 +103,31 @@ CHAMPS_FOURNISSEUR = [
              "eco participation", "deee", "ecotaxe"]},
     {"cle": "quantite_conditionnement", "libelle": "Quantité par conditionnement",
      "requis": False, "numerique": True,
-     "syn": ["quantite par conditionnement", "qte cond", "colisage",
-             "pcb", "quantite colis", "par lot"]},
+     # "qte conditionnement" manquait : mesure sur le catalogue reel
+     # La Plateforme, la colonne "Qte conditionnement" n'etait pas
+     # reconnue. Sans elle, une boite de 100 vis est comparee a la vis
+     # a l'unite -- le prix au conditionnement passe pour un prix
+     # unitaire.
+     "syn": ["quantite par conditionnement", "quantite conditionnement",
+             "qte conditionnement", "qte de conditionnement", "qte cond",
+             "colisage", "pcb", "quantite colis", "par lot",
+             "nombre par conditionnement"]},
     {"cle": "quantite_min", "libelle": "Quantité minimum", "requis": False,
      "numerique": True,
      "syn": ["quantite minimum", "qte min", "minimum commande", "mini",
              "quantite mini"]},
     {"cle": "delai", "libelle": "Délai", "requis": False, "numerique": False,
-     "syn": ["delai", "delai livraison", "disponibilite", "dispo", "stock"]},
+     # "stock" et "disponibilite" retires : ce sont des etats de
+     # DISPONIBILITE, pas des delais. La table a une colonne
+     # availability dediee. Sur le catalogue La Plateforme, la colonne
+     # "Stock depot" etait rangee dans le delai -- une information de
+     # stock affichee comme un delai de livraison.
+     "syn": ["delai", "delai livraison", "delai approvisionnement",
+             "lead time"]},
+    {"cle": "disponibilite", "libelle": "Disponibilité / stock", "requis": False,
+     "syn": ["disponibilite", "dispo", "stock", "stock depot",
+             "stock agence", "stock livraison", "en stock",
+             "etat du stock"]},
     {"cle": "url_produit", "libelle": "Lien fiche produit", "requis": False,
      "numerique": False,
      "syn": ["lien fiche produit", "fiche produit", "url", "lien", "url produit",

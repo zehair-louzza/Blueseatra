@@ -303,3 +303,74 @@ def test_packaging_qty_strictement_positif():
     assert "or 1" in extrait, (
         f"packaging_qty doit retomber sur une valeur positive. "
         f"Extrait : {extrait[:120]!r}")
+
+
+# --- catalogue reel La Plateforme du Batiment, 15 colonnes -------------
+COLONNES_LA_PLATEFORME = [
+    "Fournisseur", "Metier", "Famille", "Categorie", "Designation",
+    "Marque", "Reference", "Prix net HT", "Unite de vente",
+    "Qte conditionnement", "Unite conditionnement", "Stock depot",
+    "Stock livraison", "Cycle de vie", "Fiche produit",
+]
+
+
+def test_quantite_par_conditionnement_reconnue():
+    """REGRESSION -- "Qte conditionnement" n'etait pas reconnue.
+
+    Mesure sur le catalogue reel La Plateforme (24 600 lignes) : la
+    colonne restait non associee. Sans elle, une boite de 100 vis est
+    comparee a la vis a l'unite -- le prix du conditionnement passe
+    pour un prix unitaire, et le devis est faux d'un facteur 100.
+
+    909 lignes du catalogue ont un conditionnement superieur a 1.
+    """
+    m = fi.suggere_mapping(COLONNES_LA_PLATEFORME)
+    assert m["quantite_conditionnement"] == "Qte conditionnement", (
+        f"Associe a {m.get('quantite_conditionnement')!r} : la colonne "
+        f"« Qte conditionnement » doit etre reconnue.")
+
+
+def test_stock_n_est_pas_un_delai():
+    """REGRESSION -- "Stock depot" etait range dans le champ Delai.
+
+    Un etat de stock n'est pas une duree. La table a une colonne
+    availability dediee ; mettre "En stock" dans la colonne des delais
+    de livraison affiche une information fausse au chiffreur.
+    """
+    m = fi.suggere_mapping(COLONNES_LA_PLATEFORME)
+    assert m["disponibilite"] == "Stock depot", (
+        f"disponibilite -> {m.get('disponibilite')!r}, attendu "
+        f"« Stock depot ».")
+    assert m.get("delai") is None, (
+        f"delai -> {m.get('delai')!r} : aucune colonne de ce catalogue "
+        f"n'exprime un delai, le champ doit rester vide.")
+
+
+def test_import_ecrit_la_disponibilite_dans_sa_propre_colonne():
+    import re
+    from pathlib import Path
+
+    serveur = (Path(__file__).resolve().parents[1] / "server.py").read_text(
+        encoding="utf-8")
+    debut = serveur.find("lot.append({")
+    bloc = serveur[debut:serveur.find("})", debut)]
+    assert re.search(r'"availability":\s*val\(ligne, mapping, "disponibilite"\)',
+                     bloc), (
+        "La disponibilite doit etre ecrite dans la colonne availability, "
+        "distincte de delay.")
+
+
+def test_catalogue_la_plateforme_entierement_exploitable():
+    """Aucun champ requis ne doit manquer sur ce catalogue reel."""
+    m = fi.suggere_mapping(COLONNES_LA_PLATEFORME)
+    manquants = [c["libelle"] for c in fi.CHAMPS_FOURNISSEUR
+                 if c["requis"] and not m.get(c["cle"])]
+    assert not manquants, f"Champs requis non associes : {manquants}"
+    # Les colonnes attendues, une a une.
+    for cle, colonne in (("designation", "Designation"),
+                         ("prix_net_ht", "Prix net HT"),
+                         ("reference_fournisseur", "Reference"),
+                         ("marque", "Marque"),
+                         ("unite_vente", "Unite de vente"),
+                         ("url_produit", "Fiche produit")):
+        assert m[cle] == colonne, f"{cle} -> {m[cle]!r}, attendu {colonne!r}"
