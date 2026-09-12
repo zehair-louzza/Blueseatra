@@ -1,0 +1,242 @@
+-- ============================================================================
+-- Durcissement RLS -- ETAPE 3 / 3
+-- Role non-proprietaire + FORCE ROW LEVEL SECURITY
+--
+--            /!\  NE PAS APPLIQUER EN L'ETAT  /!\
+--
+-- Ce fichier est un PLAN, pas une migration prete. Applique tel quel, il
+-- CASSE L'AUTHENTIFICATION et rend l'application inutilisable.
+-- Le nom du fichier porte NON_APPLIQUEE pour que personne ne le lance par
+-- reflexe. Voir le runbook en fin de fichier.
+-- ============================================================================
+--
+-- ETAT CONSTATE LE 12/09/2026
+-- ---------------------------
+-- Le backend se connecte avec le role `postgres`. Deux raisons INDEPENDANTES
+-- font que RLS ne s'applique jamais a lui :
+--
+--   1. rolbypassrls = true          -> il contourne RLS par attribut
+--   2. il est PROPRIETAIRE des tables -> le proprietaire ignore RLS, sauf
+--                                        FORCE ROW LEVEL SECURITY
+--
+-- Corriger l'une sans l'autre ne sert a rien. Il faut un role qui ne soit ni
+-- l'un ni l'autre.
+--
+-- Les etapes 1 et 2 sont faites : current_tenant() lit app.tenant_id, et le
+-- backend l'emet par transaction (backend/database.py, tenant_session()).
+-- La plomberie est donc en place ; il ne manque que l'interrupteur -- mais
+-- cet interrupteur a des effets de bord non triviaux, decrits ci-dessous.
+--
+--
+-- CE QUE L'ETAPE 3 CASSE, ET POURQUOI
+-- ===================================
+-- Les politiques existantes ciblent le role `authenticated` et comparent a
+-- current_tenant(). Or trois lectures ont lieu AVANT qu'un tenant existe :
+-- ce sont celles de l'authentification elle-meme.
+--
+--   Table          Politique actuelle                        Effet a l'etape 3
+--   -------------  ----------------------------------------  -----------------
+--   users          service_role uniquement (4 commandes)     login IMPOSSIBLE
+--                                                            (lecture refusee)
+--   tenant_users   tenant_id = current_tenant()              0 ligne : le
+--                                                            tenant n'est pas
+--                                                            encore connu
+--   tenants        id = current_tenant()                     0 ligne, idem
+--
+-- Concretement, dans server.py :
+--   - login()      lit users puis tenant_users : les deux echouent
+--   - get_current() lit users puis tenant_users : toute requete authentifiee
+--                   renvoie alors 401 ou 403
+--
+-- Quatrieme cas, plus discret :
+--   - _requeue_stuck_on_startup() balaie `requests` TOUS TENANTS CONFONDUS au
+--     demarrage. Sous FORCE RLS sans contexte, il lirait 0 ligne. Il ne
+--     planterait pas -- il cesserait simplement de proteger, en silence.
+--     C'est la pire categorie de regression.
+--
+-- => L'etape 3 n'est PAS un simple interrupteur. Elle exige de separer le
+--    CHEMIN D'AUTHENTIFICATION du CHEMIN METIER.
+--
+--
+-- DEUX OPTIONS
+-- ============
+--
+-- OPTION A -- Deux connexions (RECOMMANDEE)
+-- -----------------------------------------
+-- Le backend ouvre deux moteurs SQLAlchemy :
+--
+--   * moteur AUTH   : role privilegie, uniquement pour users / tenant_users /
+--                     tenants et les operations systeme (demarrage). Portee
+--                     tres reduite, aucun acces aux tables metier.
+--   * moteur METIER : role blueseatra_app, NOBYPASSRLS, non proprietaire,
+--                     membre de `authenticated`. Toutes les tables metier,
+--                     sous FORCE RLS.
+--
+--   Avantages : la base garantit l'isolation metier meme si le code se
+--   trompe -- c'est tout l'objectif. L'authentification, chemin etroit et
+--   rarement modifie, reste sur le role privilegie.
+--   Cout : un second moteur dans backend/database.py, un routage par table
+--   dans pg_adapter (MODELS_AUTH vs MODELS_METIER), et 2 x pool_size
+--   connexions -- a surveiller face a la limite Supavisor de 15 du palier
+--   gratuit. Reduire chaque pool a 4 + 1.
+--
+-- OPTION B -- Politiques d'authentification permissives
+-- ----------------------------------------------------
+-- Un seul role, avec des politiques laissant blueseatra_app lire users et
+-- tenant_users sans condition de tenant.
+--   Avantage : aucun changement de code.
+--   Inconvenient DIRIMANT : `users` contient les courriels et les
+--   empreintes de mots de passe de TOUS les tenants. Une injection SQL ou un
+--   endpoint mal ecrit les exposerait en totalite. On affaiblirait la surface
+--   la plus sensible pour proteger la moins sensible. A ecarter.
+--
+-- Le reste de ce fichier implemente l'OPTION A.
+--
+--
+-- ============================================================================
+-- 3.1 -- Role applicatif
+-- ============================================================================
+-- Mot de passe : NE JAMAIS le committer. Generer avec
+--   python -c "import secrets; print(secrets.token_urlsafe(32))"
+-- puis le placer dans Render > blueseatra-api > Environment > DATABASE_URL_APP.
+--
+-- CREATE ROLE blueseatra_app LOGIN PASSWORD '<A_GENERER>'
+--   NOBYPASSRLS      -- explicite, meme si c'est le defaut : c'est LE point
+--   NOCREATEDB NOCREATEROLE NOSUPERUSER NOINHERIT;
+--
+-- Membre de `authenticated` pour que les politiques existantes
+-- (TO authenticated) s'appliquent, sans avoir a toutes les reecrire.
+-- NOINHERIT + SET ROLE serait plus strict mais impose un SET ROLE par
+-- transaction, soit un aller-retour reseau supplementaire a chaque requete.
+--
+-- GRANT authenticated TO blueseatra_app;
+-- ALTER ROLE blueseatra_app INHERIT;
+--
+-- GRANT USAGE ON SCHEMA blueseatra TO blueseatra_app;
+-- GRANT SELECT, INSERT, UPDATE, DELETE
+--   ON ALL TABLES IN SCHEMA blueseatra TO blueseatra_app;
+-- GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA blueseatra TO blueseatra_app;
+-- ALTER DEFAULT PRIVILEGES IN SCHEMA blueseatra
+--   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO blueseatra_app;
+--
+-- Aucun droit sur les tables d'authentification : elles restent au moteur
+-- AUTH. C'est le coeur de l'option A.
+-- REVOKE ALL ON blueseatra.users FROM blueseatra_app;
+--
+--
+-- ============================================================================
+-- 3.2 -- FORCE ROW LEVEL SECURITY sur les tables metier
+-- ============================================================================
+-- Les 11 tables metier. users, tenants et tenant_users en sont ABSENTES :
+-- elles relevent du moteur AUTH.
+--
+-- FORCE est necessaire meme avec un role non proprietaire : si le role
+-- devenait proprietaire un jour (restauration de sauvegarde, migration
+-- maladroite), FORCE maintient le cloisonnement. Ceinture et bretelles, pour
+-- un cout nul.
+--
+-- ALTER TABLE blueseatra.catalogs              FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.catalog_versions      FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.pricing_items         FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.requests              FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.quotes                FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.quote_versions        FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.import_jobs           FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.import_errors         FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.audit_logs            FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.settings_integrations FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.company_profiles      FORCE ROW LEVEL SECURITY;
+--
+-- Plus les 3 tables du module fournisseur, une fois sa migration appliquee :
+-- ALTER TABLE blueseatra.suppliers             FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.canonical_products    FORCE ROW LEVEL SECURITY;
+-- ALTER TABLE blueseatra.supplier_offers       FORCE ROW LEVEL SECURITY;
+--
+-- NE PAS forcer product_match_rules ni unit_conversions : elles sont
+-- GLOBALES et mutualisees par conception (faits metier, aucune donnee
+-- client). Les forcer les rendrait illisibles, puisqu'elles n'ont pas de
+-- colonne tenant_id.
+--
+--
+-- ============================================================================
+-- 3.3 -- Politiques d'ECRITURE : verifie, rien a faire
+-- ============================================================================
+-- Une premiere lecture de pg_policies (colonne `qual` seule) laissait croire
+-- que les politiques metier n'avaient qu'une clause USING, sans WITH CHECK --
+-- ce qui aurait permis d'ECRIRE une ligne portant le tenant_id d'un AUTRE
+-- tenant. VERIFICATION FAITE LE 12/09/2026 : c'est FAUX.
+--
+-- La colonne `with_check` de pg_policies est renseignee sur les 11 tables
+-- metier, avec la meme expression :
+--
+--     (tenant_id)::text = blueseatra.current_tenant()
+--
+-- C'est le comportement documente de PostgreSQL : sur une politique
+-- FOR ALL declaree avec USING seul, l'expression USING sert AUSSI de
+-- WITH CHECK. Lecture et ecriture sont donc cloisonnees identiquement.
+--
+-- Seule exception, sans consequence : `tenants` n'a qu'une politique SELECT
+-- (tenants_select_own), donc pas de WITH CHECK -- normal, la creation d'un
+-- tenant releve du chemin d'inscription, cote moteur AUTH.
+--
+-- => Aucune politique a reecrire. L'etape 7 du runbook peut forcer RLS
+--    directement, sans travail prealable sur les politiques.
+--
+-- Les 3 tables du module fournisseur declarent USING *et* WITH CHECK
+-- explicitement (20260912020000_module_fournisseur.sql) : redondant avec le
+-- comportement par defaut, mais explicite vaut mieux qu'implicite sur du
+-- cloisonnement.
+--
+--
+-- ============================================================================
+-- RUNBOOK -- ORDRE IMPERATIF
+-- ============================================================================
+-- Toute inversion coupe la production. Les etapes 1 et 2 sont deja faites.
+--
+--  1. [FAIT]  Etape 1 : current_tenant() accepte app.tenant_id
+--             (20260912030000_rls_etape1_app_tenant.sql, applique le 12/09)
+--
+--  2. [FAIT]  Etape 2 : le backend emet app.tenant_id par transaction
+--             (backend/database.py tenant_session(), + @with_tenant)
+--
+--  3. [A FAIRE] Code : second moteur AUTH + routage par table dans
+--             pg_adapter (MODELS_AUTH vs MODELS_METIER). Deployer et
+--             VERIFIER en production que tout fonctionne encore, alors que
+--             RLS n'est toujours pas forcee. Etape reversible.
+--
+--  4. [A FAIRE] Creer le role blueseatra_app (3.1) et renseigner
+--             DATABASE_URL_APP dans Render. Ne rien forcer encore.
+--
+--  5. [A FAIRE] Basculer le moteur METIER sur DATABASE_URL_APP. Verifier :
+--             l'application doit fonctionner a l'identique, RLS n'etant pas
+--             encore forcee mais le role ne contournant plus.
+--             C'est l'etape de verite : si quelque chose casse ici, c'est un
+--             probleme de DROITS, pas de RLS. Diagnostic simple.
+--
+--  6. [SANS OBJET] Les WITH CHECK existent deja (voir 3.3). Verifie le
+--             12/09/2026 : rien a faire.
+--
+--  7. [A FAIRE] FORCE ROW LEVEL SECURITY, UNE TABLE A LA FOIS (3.2), en
+--             commencant par la moins critique (audit_logs) et en terminant
+--             par quotes. Verifier apres chacune.
+--             Retour arriere immediat : NO FORCE ROW LEVEL SECURITY.
+--
+--  8. [A FAIRE] Lancer le sondage croise A/B en conditions reelles :
+--             backend/tests_security/test_tenant_isolation_live.py avec
+--             BLUESEATRA_A_* et BLUESEATRA_B_*. C'est la seule preuve
+--             d'execution que l'isolation est effective.
+--
+--  9. [A FAIRE] Retirer rolbypassrls du role applicatif si jamais accorde,
+--             et verifier :
+--               SELECT rolname, rolbypassrls FROM pg_roles
+--               WHERE rolname = 'blueseatra_app';   -- attendu : false
+--
+-- CE QUI NE PEUT PAS ETRE FAIT PAR UN AGENT
+-- -----------------------------------------
+-- Les etapes 4 et 5 exigent de creer un mot de passe et de le renseigner
+-- dans Render. Un secret ne doit ni transiter par une conversation, ni finir
+-- dans un commit. Ces deux etapes reviennent a un humain.
+-- ============================================================================
+
+-- Aucune instruction executable dans ce fichier : c'est volontaire.
+SELECT 'Etape 3 : plan uniquement. Voir le runbook ci-dessus.' AS note;

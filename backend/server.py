@@ -26,6 +26,7 @@ import matching as match_engine
 import quote_scenarios
 import pdf_service
 import mcp_bridge
+from database import set_current_tenant, with_tenant
 from pg_adapter import PGDatabase
 
 ROOT_DIR = Path(__file__).parent
@@ -142,6 +143,11 @@ async def get_current(creds: HTTPAuthorizationCredentials = Depends(security)) -
         {"tenant_id": payload["tenant_id"], "user_id": payload["user_id"]}, {"_id": 0})
     if not tu:
         raise HTTPException(403, "No access to tenant")
+    # Publie le tenant pour toute la suite de la requete : tenant_session()
+    # le lira et l'emettra a la base (set_config app.tenant_id, is_local).
+    # Place APRES la verification d'appartenance (tenant_users) : on ne
+    # declare jamais un tenant que l'appelant n'a pas prouve.
+    set_current_tenant(payload["tenant_id"])
     return CurrentUser(user_id=user["id"], email=user["email"], name=user.get("name", ""),
                        tenant_id=payload["tenant_id"], role=tu["role"])
 
@@ -581,6 +587,7 @@ async def _requeue_stuck_on_startup():
         logger.exception("_requeue_stuck_on_startup failed")
 
 
+@with_tenant
 async def process_request(request_id: str, tenant_id: str, vision_pages: list | None = None):
     """vision_pages : liste d'images (une par page rendue, jamais empilees
     — voir ai_service.extract_from_pdf_pages) transmise directement en
@@ -753,6 +760,7 @@ async def create_request(
 _QUEUE_WATCHDOG_DELAY_SECONDS = 60.0
 
 
+@with_tenant
 async def _watchdog_reprocess_if_stuck(request_id: str, tenant_id: str):
     """Filet de securite pour la file durable Redis/RQ (voir _enqueue_extraction).
     Alternative CODE (et non documentaire) au risque "REDIS_URL renseignee
@@ -893,6 +901,7 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     return {"ok": True, "status": "queued"}
 
 
+@with_tenant
 async def _run_deep_vision(request_id: str, tenant_id: str, image_bytes: bytes):
     """Tache d'arriere-plan : appel synchrone HTTP evite ici car Phi-4-
     reasoning-vision-15B prend ~10-15 min mesure, largement au-dela du
