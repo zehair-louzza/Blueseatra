@@ -26,7 +26,7 @@ import matching as match_engine
 import quote_scenarios
 import pdf_service
 import mcp_bridge
-from database import set_current_tenant, with_tenant
+from database import set_current_tenant, with_system_context, with_tenant
 from pg_adapter import PGDatabase
 
 ROOT_DIR = Path(__file__).parent
@@ -559,6 +559,7 @@ async def _extraction_worker_loop():
             _extraction_queue.task_done()
 
 
+@with_system_context
 async def _requeue_stuck_on_startup():
     """Filet de securite au demarrage : une demande encore 'queued' ou
     'processing' au moment d'un redeploy (tres frequent sur ce projet --
