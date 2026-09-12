@@ -4,13 +4,13 @@
 
 Prérequis : [PR #73](https://github.com/zehair-louzza/Blueseatra/pull/73) fusionnée (le code du moteur AUTH existe déjà et a un repli sûr), et la migration `20260912050000_rls_etape4_role_blueseatra_app.sql` appliquée sur Supabase.
 
-> **Statut au 12/09/2026 — étape 4 TERMINÉE, étape 5 À REFAIRE.**
+> **Statut au 12/09/2026 — ÉTAPES 4 ET 5 TERMINÉES ET VÉRIFIÉES.**
 >
-> Le rôle `blueseatra_app` existe, avec son mot de passe défini et vérifié par connexion réelle (`rolcanlogin=true`, `rolbypassrls=false`).
+> Le chemin métier tourne sous `blueseatra_app` (`rolbypassrls=false`, non propriétaire). **RLS est désormais contraignante** : c'est la base de données qui garantit l'isolation entre tenants, plus seulement le code.
 >
-> La production tourne actuellement en **repli** — moteur unique, rôle `postgres`. Stable et fonctionnelle, login compris, mais RLS n'est pas encore contraignante.
+> Vérifié en production : `blueseatra_app` et `postgres` tous deux présents dans `pg_stat_activity`, login `401` sur compte inexistant, lecture des devis et recherche catalogue fonctionnelles via le pont MCP, zéro erreur dans les journaux depuis la bascule.
 >
-> Reste à configurer `DATABASE_URL_APP` sur Render, en respectant les **deux pièges** documentés plus bas. Les deux ont déjà coûté une panne chacun.
+> Prochaine étape : **7** — `FORCE ROW LEVEL SECURITY`, table par table.
 
 > **À lire avant d'exécuter l'étape 5 :** les sections « Piège n° 1 » (nom d'utilisateur du pooler) et « Piège n° 2 » (inversion des moteurs). Les étapes 5.3 et 5.4 ne sont pas optionnelles — `/api/health` a répondu `healthy` pendant les deux incidents.
 
@@ -195,3 +195,29 @@ Si `DATABASE_URL_AUTH` est encore définie dans l'environnement, elle est ignor�
 ### Ce qui a masqué le problème
 
 `/api/health` répondait `healthy` et l'application servait tout le trafic, parce que le moteur métier restait sur `DATABASE_URL`. Seul le login échouait. C'est la deuxième fois dans ce chantier qu'un repli silencieux masque un échec de configuration — d'où la requête `pg_stat_activity` de l'étape 5.3, qui est la seule vérification fiable.
+
+---
+
+## Piège n° 3 — le contexte tenant, distinct du filtre applicatif
+
+Troisième panne de la même nuit, et la plus instructive.
+
+La bascule a fonctionné : le rôle se connectait, le login marchait, `/api/health` répondait. Mais `blueseatra_list_quotes` renvoyait une liste **vide** au lieu de 43 devis. Sans erreur, sans log.
+
+### La cause
+
+`mcp_bridge.py` filtrait correctement chaque requête par `tenant_id` en SQL. L'audit d'isolation statique, qui vérifie 101 appels, le validait donc. Mais le module n'appelait jamais `set_current_tenant()`, donc `app.tenant_id` restait vide côté base.
+
+Tant que le chemin métier tournait sous `postgres` (BYPASSRLS), le filtre applicatif suffisait. Dès que RLS est devenue contraignante, la politique a exigé `app.tenant_id` **en plus** du filtre.
+
+### La leçon
+
+Le filtre applicatif et le contexte RLS sont **deux exigences distinctes**. Un audit qui ne vérifie que la première donne une fausse assurance.
+
+### Les deux garde-fous posés
+
+`tenant_session()` lève désormais `RuntimeError` si aucun tenant n'est établi, au lieu de continuer en silence. Sans ce changement, le prochain module oublieux produirait exactement la même panne invisible.
+
+Et le test `test_tout_module_metier_etablit_un_contexte` balaie tout le backend par analyse syntaxique, et échoue si un module fait des appels base de données sans jamais établir de contexte.
+
+> Ce test a d'abord été écrit faux : il cherchait les marqueurs par sous-chaîne, et les mentions dans les docstrings suffisaient à le satisfaire. La vérification par mutation l'a révélé. Toujours vérifier qu'un test échoue quand on casse ce qu'il protège.
