@@ -331,7 +331,7 @@ class SupplierOffer(Base):
     source_date = Column(String(20))
     source_filename = Column(Text)
     canonical_product_id = Column(String(36), index=True)
-    match_status = Column(String(20), nullable=False, default="pending")
+    match_status = Column(String(20), nullable=False, default="orphan")
     match_confidence = Column(Integer)
     match_rule_id = Column(String(36))
     is_active = Column(Boolean, nullable=False, default=True)

@@ -68,8 +68,21 @@ AS $$
     -- 3. tout ce qui n'est ni lettre, ni chiffre, ni point, ni plus
     --    devient une espace ; les espaces multiples sont reduits
     regexp_replace(
-      -- 2. minuscules, sans accents
-      lower(unaccent('unaccent', coalesce(txt, ''))),
+      -- 2. minuscules, sans accents, exposants ramenes a des chiffres
+      --
+      -- translate() est INDISPENSABLE ici. unaccent() ne traite pas les
+      -- exposants : "mm2" ecrit "mm²" perdait son carre, efface ensuite
+      -- par le nettoyage [^a-z0-9.+]+, et "2,5 mm²" devenait
+      -- "2.5 mm" au lieu de "2.5 mm2".
+      --
+      -- Le controle de coherence en fin de migration a detecte l'ecart.
+      -- Cote Python, unicodedata.normalize("NFKD") decompose "²" en "2"
+      -- tout seul : les deux normalisations divergeaient donc en
+      -- silence, et une recherche sur "2.5 mm2" ne trouvait pas les
+      -- lignes ecrites avec l'exposant.
+      lower(translate(
+        unaccent('unaccent', coalesce(txt, '')),
+        E'\u00B9\u00B2\u00B3', '123')),
       -- 1. protege les decimales : "2,5" -> "2.5" AVANT le nettoyage,
       --    sinon la virgule serait remplacee par une espace
       '(\d)[.,](\d)', '\1.\2', 'g'

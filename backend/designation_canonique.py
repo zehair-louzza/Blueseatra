@@ -76,7 +76,10 @@ def aplatit(t: str) -> str:
     t = sans_accent(str(t or ""))
     t = RE_COLLE.sub(r"\1 \2", t)
     t = t.lower()
-    t = t.replace("²", "2").replace("³", "3")
+    # Exposants ramenes a des chiffres, comme le fait translate() dans
+    # blueseatra.normalise_recherche. Sans cela "mm²" perd son carre et
+    # "2,5 mm²" ne correspond plus a une recherche "2.5 mm2".
+    t = t.replace("¹", "1").replace("²", "2").replace("³", "3")
     t = re.sub(r"[^a-z0-9+/.,\-]+", " ", t)
     return " ".join(t.split())
 

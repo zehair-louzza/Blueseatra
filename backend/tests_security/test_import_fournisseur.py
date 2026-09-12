@@ -233,3 +233,73 @@ def test_les_tables_fournisseur_sont_connues_de_l_adaptateur():
             f"{table} est classee table d'AUTHENTIFICATION : elle "
             f"passerait par le role privilegie, hors RLS."
         )
+
+
+def test_les_valeurs_ecrites_respectent_les_contraintes_CHECK():
+    """REGRESSION -- l'import ecrivait match_status='pending', valeur
+    REFUSEE par la base.
+
+    La contrainte supplier_offers_match_status_chk n'autorise que
+    matched / proposed / to_confirm / orphan / rejected. Tout import
+    aurait echoue des la premiere ligne.
+
+    Ce bug etait INVISIBLE en test : aucun test Python ne peut deviner
+    une contrainte CHECK cote serveur, et le bac a sable n'a pas de
+    Postgres. Il a fallu une ecriture reelle en base pour le detecter.
+
+    Ce test lit donc les contraintes dans le FICHIER DE MIGRATION et
+    verifie que les valeurs ecrites par server.py les respectent.
+    """
+    import re
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parents[2]
+    migration = (racine / "supabase" / "migrations"
+                 / "20260912020000_module_fournisseur.sql"
+                 ).read_text(encoding="utf-8")
+    serveur = (racine / "backend" / "server.py").read_text(encoding="utf-8")
+
+    # Contraintes de la forme : colonne IN ('a','b','c')
+    contraintes = {}
+    for colonne, liste in re.findall(
+            r"(\w+)\s+IN\s*\(([^)]+)\)", migration):
+        valeurs = set(re.findall(r"'([^']+)'", liste))
+        if valeurs:
+            contraintes.setdefault(colonne, set()).update(valeurs)
+
+    assert "match_status" in contraintes, (
+        "La contrainte sur match_status n'a pas ete trouvee dans la "
+        "migration : ce test doit etre mis a jour.")
+
+    # Valeurs que le code d'import ecrit pour ces colonnes.
+    debut = serveur.find("lot.append({")
+    assert debut > 0
+    bloc = serveur[debut:serveur.find("})", debut)]
+
+    for colonne, autorisees in contraintes.items():
+        for valeur in re.findall(rf'"{colonne}":\s*"([^"]+)"', bloc):
+            assert valeur in autorisees, (
+                f"L'import ecrit {colonne}={valeur!r}, refuse par la "
+                f"contrainte CHECK. Valeurs autorisees : "
+                f"{sorted(autorisees)}. Une valeur interdite fait "
+                f"echouer l'import des la premiere ligne."
+            )
+
+
+def test_packaging_qty_strictement_positif():
+    """supplier_offers_packaging_chk exige packaging_qty > 0.
+
+    L'import ecrit `num(...) or 1.0` : une valeur absente, nulle ou
+    illisible retombe donc sur 1. Sans ce repli, une colonne de
+    conditionnement vide ferait echouer toute la ligne.
+    """
+    import re
+    from pathlib import Path
+
+    serveur = (Path(__file__).resolve().parents[1] / "server.py").read_text(
+        encoding="utf-8")
+    debut = serveur.find('"packaging_qty"')
+    extrait = serveur[debut:debut + 200]
+    assert "or 1" in extrait, (
+        f"packaging_qty doit retomber sur une valeur positive. "
+        f"Extrait : {extrait[:120]!r}")

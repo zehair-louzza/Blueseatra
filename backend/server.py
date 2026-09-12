@@ -2200,7 +2200,17 @@ async def _importe_un_tarif(cu, contenu: bytes, nom_fichier: str,
                 # et un prix perime fausse un devis aussi surement qu'un
                 # prix faux.
                 "source_date": val(ligne, mapping, "date_prix") or None,
-                "match_status": "pending",
+                # 'orphan' et non 'pending' : la contrainte
+                # supplier_offers_match_status_chk n'autorise que
+                # matched / proposed / to_confirm / orphan / rejected.
+                # Une offre fraichement importee n'est rattachee a aucun
+                # produit canonique : c'est la definition d'un orphan.
+                #
+                # Ecrire 'pending' faisait echouer l'import des la
+                # premiere ligne -- detecte par une ecriture reelle en
+                # base, invisible autrement : aucun test ne peut
+                # deviner une contrainte CHECK cote serveur.
+                "match_status": "orphan",
                 "is_active": True,
                 "created_at": now_iso(),
             })
