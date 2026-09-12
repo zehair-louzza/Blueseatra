@@ -8,7 +8,7 @@ permet de retrouver l'article chez le fournisseur.
 import sys, time
 sys.path.insert(0, '/home/user/workspace/saas/backend')
 import pandas as pd
-from designation_canonique import designation_canonique
+from designation_canonique import designation_canonique, unite_canonique
 
 SRC = '/tmp/cat.pkl'
 OUT = '/home/user/workspace/catalogue_nettoye.csv'
@@ -90,7 +90,11 @@ out = pd.DataFrame({
     'Code EAN':             col('Code EAN'),
     'Prix net HT':          col('Prix net HT', None),
     'Prix public HT':       col('Prix public HT', None),
-    'Unite de vente':       col('Unite de vente'),
+    # Unite unifiee : "Piece" et "piece" sont la meme unite. Les
+    # garder distinctes empeche de comparer un prix a la piece entre
+    # deux fournisseurs. 39 -> 30 valeurs.
+    'Unite de vente':       [unite_canonique(u) or '' for u in col('Unite de vente')],
+    'Unite origine':        col('Unite de vente'),
     'Designation origine':  libelles,
 })
 

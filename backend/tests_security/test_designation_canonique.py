@@ -195,3 +195,111 @@ def test_libelle_origine_toujours_conserve():
     qui figure sur le devis et permet de commander l'article."""
     for libelle in CAPTURE:
         assert dcq.designation_canonique(libelle)["libelle_origine"] == libelle
+
+
+def test_le_a_de_ampere_ne_se_confond_pas_avec_la_preposition():
+    """REGRESSION MESUREE sur le catalogue reel.
+
+    Le "a" de l'ampere et la preposition francaise "a" deviennent
+    identiques une fois l'accent retire. Resultat observe :
+
+      "Acti9 Vigi NG125 - Bloc diff. 230 a 400Vca - 2P 63A - 1000mA"
+          -> calibre 230A   (c'est une TENSION, le calibre est 63A)
+      "Boite d'encastrement pour boites de sol 12 a 18"
+          -> calibre 12A    (c'est une plage de dimensions)
+
+    38 lignes portaient un calibre de 230A et 1 087 un calibre de 400A,
+    tous issus de tensions ou de references.
+
+    L'ESPACE tranche : "24A" colle l'unite au nombre, "230 a 400" ne
+    colle rien. Un calibre colle est donc accepte meme suivi d'un nombre
+    -- "Contacteur 24A 400V" est bien un 24A.
+    """
+    cas = {
+        "Acti9 Vigi NG125 - Bloc diff. 230 à 400Vca - 2P 63A - 1000mA": "63A",
+        "Contacteur 110V AC 3NO 24A 400V AC3 - 11kW": "24A",
+        "Boîte d'encastrement pour boîtes de sol 12 à 18": None,
+        "Câble 3G2.5 de 10 à 50 m": None,
+        "Coffret de 6 à 12 modules": None,
+        "Disjoncteur 16A courbe C 1P+N 4500A/6kA": "16A",
+        "Disjoncteur 16 A courbe C": "16A",
+        "Disjoncteur 0A": None,
+    }
+    for libelle, attendu in cas.items():
+        obtenu = dcq.extrait_attributs(libelle).get("calibre")
+        assert obtenu == attendu, (
+            f"{libelle!r}\n  calibre = {obtenu!r}, attendu {attendu!r}")
+
+
+def test_unite_de_vente_unifiee():
+    """MESURE : 39 unites distinctes dans le catalogue, dont 9 groupes
+    qui ne different que par la casse ou l'accent.
+
+    "Piece" et "piece" comptees separement empechent de comparer un prix
+    a la piece entre deux fournisseurs.
+    """
+    for variantes, attendu in (
+        (["Pièce", "pièce", "PIECE", "Unité", "U", "pc"], "pièce"),
+        (["Boîte", "boite", "BOITE", "bte"], "boîte"),
+        (["Sac-sachet", "sac", "Sacs"], "sac"),
+        (["Mètre carré", "m2", "M²"], "m²"),
+        (["Lot", "lot", "LOTS"], "lot"),
+    ):
+        obtenus = {dcq.unite_canonique(v) for v in variantes}
+        assert obtenus == {attendu}, (
+            f"{variantes} donnent {obtenus}, attendu {{{attendu!r}}}")
+
+    # Une unite inconnue est conservee telle quelle : mieux vaut une
+    # unite non reconnue qu'une unite inventee.
+    assert dcq.unite_canonique("Conditionnement maison") == \
+        "Conditionnement maison"
+    assert dcq.unite_canonique("") is None
+    assert dcq.unite_canonique(None) is None
+
+
+def test_applique_exige_un_contexte_d_eclairage():
+    """MESURE -- 16 167 libelles commencent par "Applique", et beaucoup
+    ne sont pas des luminaires :
+
+      "Applique equerre avec ecrou - M1/2\\" x M3/4\\""  -> raccord plomberie
+      "Aquastat applique a ressort AAR 20/90 C"        -> thermostat
+      "Thermometre genie climatique applique"          -> thermometre
+      "Robinet applique de WC ECLAIR - G1\\"1/4"        -> robinet
+
+    En plomberie, "en applique" qualifie un mode de POSE, pas le
+    produit. Et le mot etant souvent en tete du libelle, la regle du mot
+    principal ne peut pas trancher seule.
+
+    Le type "applique" exige donc un signe d'eclairage dans le libelle.
+    """
+    # Luminaires : signe d'eclairage present.
+    for libelle in ("Applique led BOREAL - 7W - 308 mm - blanc",
+                    "Applique murale exterieure 12W 3000K",
+                    "Applique 900 lumen blanche"):
+        assert dcq.detecte_type(dcq.aplatit(libelle)) == "applique", libelle
+
+    # Pas des luminaires : "applique" ne doit PAS etre retenu.
+    for libelle in ("Aquastat applique a ressort AAR 20°C / 90°C",
+                    "Thermometre genie climatique applique - 0_120 °C",
+                    "Robinet applique de WC ECLAIR - G1\"1/4",
+                    "Coude applique femelle LBP EASYTEC HT 52 a sertir"):
+        t = dcq.detecte_type(dcq.aplatit(libelle))
+        assert t != "applique", (
+            f"{libelle!r} classe {t!r} : aucun signe d'eclairage, ce "
+            f"n'est pas un luminaire.")
+
+
+def test_unite_debarrassee_des_residus_d_extraction():
+    """MESURE -- le catalogue porte des unites comme
+    "PiecePrecedent1Suivant" et "Metre carrePrecedent1Suiv" : du texte
+    de pagination happe lors de la collecte, colle a l'unite.
+
+    Chacun fabrique une fausse unite distincte, et empeche de comparer
+    un prix a la piece entre deux fournisseurs.
+    """
+    assert dcq.unite_canonique("PiècePrécédent1Suivant") == "pièce"
+    assert dcq.unite_canonique("Mètre carréPrécédent1Suiv") == "m²"
+    assert dcq.unite_canonique("Pièce Suivant") == "pièce"
+    # Une unite propre n'est pas abimee au passage.
+    assert dcq.unite_canonique("Pièce") == "pièce"
+    assert dcq.unite_canonique("Blister") == "Blister"

@@ -132,7 +132,26 @@ TYPES = [
     ("obturateur", r"\bobturateur\b"),
     # --- eclairage ---------------------------------------------------------
     ("projecteur", r"\bprojecteur\b|\bspot\s+exterieur\b"),
-    ("applique", r"\bapplique\b"),
+    # "applique" est AMBIGU et c'est mesure : 16 167 libelles commencent
+    # par ce mot, et beaucoup ne sont pas des luminaires --
+    #   "Applique equerre avec ecrou - M1/2\" x M3/4\""   -> raccord
+    #   "Aquastat applique a ressort AAR 20/90 C"         -> thermostat
+    #   "Thermometre genie climatique applique"           -> thermometre
+    #   "Applique led BOREAL - 7W - 308 mm - blanc"        -> luminaire
+    #
+    # En plomberie, "en applique" qualifie un mode de POSE, pas le
+    # produit. Le mot etant en tete du libelle, la regle du mot
+    # principal ne peut pas trancher.
+    #
+    # On exige donc un signe d'eclairage : le motif ne correspond que si
+    # le libelle porte aussi led, W, lumen, temperature de couleur ou
+    # un mot du domaine.
+    ("applique",
+     r"\bapplique\b(?=.*(?:\bled\b|\blumen\b|\blm\b|\d+\s?w\b|"
+     r"\d{4}\s?k\b|\beclairage\b|\bluminaire\b|\bmurale?\b|"
+     r"\bhublot\b|\bspot\b))"
+     r"|(?:(?:\bled\b|\blumen\b|\d+\s?w\b|\d{4}\s?k\b|"
+     r"\beclairage\b).*\bapplique\b)"),
     ("downlight", r"\bdownlight\b|\bencastre\s+led\b|\bencastrable[s]?\b"),
     ("reglette", r"\breglette\b|\bbandeau\s+led\b"),
     ("luminaire", r"\bluminaire\b|\bhublot\b|\bplafonnier\b|\bsuspension\b"),
@@ -217,7 +236,32 @@ def detecte_type(plat: str) -> str | None:
 # "ph+n", "1P+N", "U+N" et "phase + neutre" -- qui designent la meme
 # chose -- deviennent comparables.
 
-RE_CALIBRE = re.compile(r"\b(\d{1,3})\s?a\b(?!\s*/)")
+# CALIBRE -- trois pieges, tous mesures sur le catalogue reel.
+#
+# 1. Le "a" de l'ampere se confond avec la preposition francaise "a".
+#    L'accent disparait a la normalisation, donc "230 a 400Vca" donnait
+#    un calibre de 230A, et "boites de sol 12 a 18" un calibre de 12A.
+#    Sur "Acti9 Vigi NG125 - Bloc diff. 230 a 400Vca - 2P 63A", le vrai
+#    calibre est 63A : la valeur retenue etait une TENSION.
+#    -> on refuse un "a" suivi d'un nombre : c'est un intervalle.
+#
+# 2. Un calibre nul n'existe pas. "0A" apparaissait dans le catalogue.
+#
+# 3. Le pouvoir de coupure s'ecrit aussi en amperes ("4500A"). Il est
+#    borne a trois chiffres ici, et la paire "4500A/6kA" est ecartee
+#    par le (?!\s*/) qui suit.
+#    L'ESPACE TRANCHE. "24A" colle l'unite au nombre ; "230 a 400" ne
+#    colle rien, parce que le "a" y est la preposition. Deux motifs
+#    donc : l'unite collee est acceptee meme suivie d'un nombre
+#    ("Contacteur 24A 400V" est bien un 24A), l'unite detachee est
+#    refusee dans ce cas ("230 a 400Vca" est un intervalle de tension).
+RE_CALIBRE_COLLE = re.compile(r"\b([1-9]\d{0,2})a\b(?!\s*/)")
+RE_CALIBRE_ESPACE = re.compile(r"\b([1-9]\d{0,2}) a\b(?!\s*/)(?!\s*\d)")
+
+
+def _calibre(plat: str) -> str | None:
+    m = RE_CALIBRE_COLLE.search(plat) or RE_CALIBRE_ESPACE.search(plat)
+    return f"{int(m.group(1))}A" if m else None
 RE_COURBE = re.compile(r"\b(?:courbe|cbe|crb|c\.?b\.?e\.?)\s*([bcdkz])\b")
 RE_SENSIBILITE = re.compile(r"\b(\d{1,3})\s?ma\b")
 RE_SECTION = re.compile(r"\b(\d{1,2}(?:[.,]\d)?)\s?mm2\b")
@@ -275,9 +319,9 @@ def extrait_attributs(libelle: str) -> dict:
     plat = aplatit(libelle)
     a: dict[str, str] = {}
 
-    m = RE_CALIBRE.search(plat)
-    if m:
-        a["calibre"] = f"{int(m.group(1))}A"
+    calibre = _calibre(plat)
+    if calibre:
+        a["calibre"] = calibre
 
     m = RE_COURBE.search(plat)
     if m:
@@ -556,3 +600,72 @@ def niveau_conformite(requete: str, libelle: str) -> dict:
 
 # Ordre d'affichage des niveaux.
 RANG_NIVEAU = {"exact": 0, "partiel": 1, "non precise": 2, "ecarte": 3}
+
+
+# ---------------------------------------------------------------------------
+# Unite de vente
+# ---------------------------------------------------------------------------
+# MESURE : le catalogue porte 39 unites distinctes, dont 9 groupes qui ne
+# different que par la casse ou l'accent -- "Piece"/"piece",
+# "Boite"/"boite", "Lot"/"lot", "Carton"/"carton"... Comptees comme
+# differentes, elles empechent de comparer un prix a la piece chez un
+# fournisseur avec un prix a la piece chez un autre.
+#
+# 39 -> 30 valeurs apres unification.
+
+UNITES = {
+    "piece": "pièce", "pieces": "pièce", "pc": "pièce", "pce": "pièce",
+    "u": "pièce", "unite": "pièce", "unites": "pièce", "un": "pièce",
+    "metre": "mètre", "metres": "mètre", "ml": "mètre", "m": "mètre",
+    "metre lineaire": "mètre",
+    "metre carre": "m²", "m2": "m²", "metres carres": "m²",
+    "metre cube": "m³", "m3": "m³",
+    "kilogramme": "kg", "kg": "kg", "kilo": "kg", "kilos": "kg",
+    "tonne": "tonne", "t": "tonne",
+    "litre": "litre", "l": "litre", "litres": "litre",
+    "boite": "boîte", "boites": "boîte", "bte": "boîte",
+    "carton": "carton", "cartons": "carton", "ctn": "carton",
+    "sachet": "sachet", "sac": "sac", "sacs": "sac",
+    "sac-sachet": "sac", "sac sachet": "sac",
+    "rouleau": "rouleau", "rouleaux": "rouleau", "rlx": "rouleau",
+    "paquet": "paquet", "paquets": "paquet", "paq": "paquet",
+    "lot": "lot", "lots": "lot",
+    "bidon": "bidon", "bidons": "bidon",
+    "palette": "palette", "palettes": "palette", "pal": "palette",
+    "couronne": "couronne", "couronnes": "couronne",
+    "barre": "barre", "barres": "barre",
+    "plaque": "plaque", "plaques": "plaque",
+    "panneau": "panneau", "panneaux": "panneau",
+    "jeu": "jeu", "kit": "kit", "coffret": "coffret",
+    "seau": "seau", "pot": "pot", "tube": "tube", "cartouche": "cartouche",
+    "touret": "touret", "botte": "botte", "ensemble": "ensemble",
+    "heure": "heure", "h": "heure", "jour": "jour",
+}
+
+
+def unite_canonique(unite: str | None) -> str | None:
+    """Ramene une unite de vente a une forme unique.
+
+    La casse et les accents ne portent aucune information ici : "Piece"
+    et "piece" sont la meme unite. Les garder distinctes empeche de
+    comparer un prix a la piece entre deux fournisseurs.
+
+    Une unite inconnue est renvoyee telle quelle, sans etre inventee --
+    mieux vaut une unite non reconnue qu'une unite fausse.
+    """
+    if unite is None:
+        return None
+    brut = str(unite).strip()
+    # Residus d'extraction web collees a l'unite. Mesure sur le
+    # catalogue reel : "PiecePrecedent1Suivant",
+    # "Metre carrePrecedent1Suiv" -- du texte de pagination happe lors
+    # de la collecte, qui fabrique autant de fausses unites.
+    brut = re.sub(r"(?i)pr[eé]c[eé]dent\s*\d*\s*suiv\w*", "", brut)
+    brut = re.sub(r"(?i)\b(suivant|precedent|page\s*\d+)\b", "", brut)
+    brut = brut.strip(" -_·|")
+    if not brut:
+        return None
+    cle = aplatit(brut)
+    cle = re.sub(r"[^a-z0-9 ]+", " ", cle)
+    cle = " ".join(cle.split())
+    return UNITES.get(cle, brut)
