@@ -1,4 +1,26 @@
 -- ============================================================================
+-- ATTENTION -- MIGRATION NON ENCORE APPLIQUEE EN PRODUCTION
+-- ============================================================================
+--
+-- Corrigee le 12/09/2026 : les politiques ciblaient uniquement
+-- `authenticated`. Or blueseatra_app a ete RETIRE de ce role le meme jour
+-- (migration 20260912060000) pour fermer une faille : il heritait par ce
+-- biais d'un CRUD complet sur tenant_users.
+--
+-- Appliquer cette migration dans sa version d'origine aurait rendu les 5
+-- tables du module fournisseur INVISIBLES au chemin metier : zero ligne,
+-- sans erreur, exactement le mode de defaillance qui a coute trois pannes
+-- cette nuit-la. Les politiques ciblent donc desormais `authenticated,
+-- blueseatra_app`.
+--
+-- Rappel du role de chaque cible :
+--   authenticated   -> chemin PostgREST (utilisateur JWT cote Supabase)
+--   blueseatra_app  -> chemin metier de l'API (moteur DATABASE_URL_APP)
+--   service_role    -> ecritures sur les tables mutualisees, admin seul
+--
+-- ============================================================================
+
+-- ============================================================================
 -- Module Fournisseur — BlueSeaTra
 -- fournisseur.blueseatra.com
 --
@@ -308,19 +330,19 @@ ALTER TABLE blueseatra.supplier_offers    ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS suppliers_all ON blueseatra.suppliers;
 CREATE POLICY suppliers_all ON blueseatra.suppliers
-    FOR ALL TO authenticated
+    FOR ALL TO authenticated, blueseatra_app
     USING ((tenant_id)::text = blueseatra.current_tenant())
     WITH CHECK ((tenant_id)::text = blueseatra.current_tenant());
 
 DROP POLICY IF EXISTS canonical_products_all ON blueseatra.canonical_products;
 CREATE POLICY canonical_products_all ON blueseatra.canonical_products
-    FOR ALL TO authenticated
+    FOR ALL TO authenticated, blueseatra_app
     USING ((tenant_id)::text = blueseatra.current_tenant())
     WITH CHECK ((tenant_id)::text = blueseatra.current_tenant());
 
 DROP POLICY IF EXISTS supplier_offers_all ON blueseatra.supplier_offers;
 CREATE POLICY supplier_offers_all ON blueseatra.supplier_offers
-    FOR ALL TO authenticated
+    FOR ALL TO authenticated, blueseatra_app
     USING ((tenant_id)::text = blueseatra.current_tenant())
     WITH CHECK ((tenant_id)::text = blueseatra.current_tenant());
 
@@ -335,7 +357,7 @@ ALTER TABLE blueseatra.unit_conversions    ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS match_rules_read ON blueseatra.product_match_rules;
 CREATE POLICY match_rules_read ON blueseatra.product_match_rules
-    FOR SELECT TO authenticated USING (true);
+    FOR SELECT TO authenticated, blueseatra_app USING (true);
 
 DROP POLICY IF EXISTS match_rules_write_service ON blueseatra.product_match_rules;
 CREATE POLICY match_rules_write_service ON blueseatra.product_match_rules
@@ -343,7 +365,7 @@ CREATE POLICY match_rules_write_service ON blueseatra.product_match_rules
 
 DROP POLICY IF EXISTS unit_conv_read ON blueseatra.unit_conversions;
 CREATE POLICY unit_conv_read ON blueseatra.unit_conversions
-    FOR SELECT TO authenticated USING (true);
+    FOR SELECT TO authenticated, blueseatra_app USING (true);
 
 DROP POLICY IF EXISTS unit_conv_write_service ON blueseatra.unit_conversions;
 CREATE POLICY unit_conv_write_service ON blueseatra.unit_conversions
