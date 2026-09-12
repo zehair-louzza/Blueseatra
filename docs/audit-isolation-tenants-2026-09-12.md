@@ -164,13 +164,75 @@ Ce test doit tourner en intégration continue et bloquer la fusion. C'est la seu
 
 ---
 
+## Correction de l'audit initial — analyse resserrée
+
+La première passe détectait les gardes d'appartenance par recherche textuelle de `tenant_id` dans la fonction englobante. **Cette heuristique était trop permissive** : elle acceptait n'importe quel dictionnaire contenant `tenant_id` — une charge de jeton JWT, un corps de réponse, un `insert_one` — et déclarait donc « protégé » un appel qui ne l'était pas.
+
+La détection a été réécrite sur l'arbre syntaxique : une garde n'est reconnue que s'il existe, dans la même fonction, un appel `find_one` / `find` / `count_documents` sur une table cloisonnée dont le filtre porte `tenant_id`. Le cloisonnement indirect (filtre construit dans une variable puis réutilisé, cas de `delete_catalog`) est résolu séparément en remontant l'affectation.
+
+Chiffres après resserrement, sur les seules tables portant un `tenant_id` :
+
+| Catégorie | Nombre |
+|---|---|
+| Appels sur tables cloisonnées | 101 |
+| Filtrés directement par `tenant_id` | 72 |
+| Protégés par une garde d'appartenance | 22 |
+| Exceptions vérifiées manuellement | 7 |
+| **Fuites confirmées** | **0** |
+
+### Un cas supplémentaire révélé
+
+Le resserrement a fait apparaître `_requeue_stuck_on_startup()`, que la première passe classait à tort comme protégé :
+
+```python
+stuck = await db.requests.find(
+    {"status": {"$in": ["queued", "processing"]}}, {"_id": 0, "id": 1, "tenant_id": 1}
+).to_list(200)
+for r in stuck:
+    await db.requests.update_one({"id": r["id"]}, {"$set": {"status": "queued"}})
+    await _extraction_queue.put((r["id"], r["tenant_id"], None))
+```
+
+**Ce n'est pas une fuite.** C'est un filet de sécurité exécuté au démarrage, appelé depuis l'événement de startup et non depuis une requête HTTP. Il balaie volontairement tous les tenants pour remettre en file les demandes bloquées après un redéploiement, et propage correctement le `tenant_id` de chaque ligne. Aucune entrée utilisateur, aucun tenant appelant : le cloisonnement serait ici un contresens.
+
+Le cas est consigné dans `EXCEPTIONS_VERIFIEES` sous une rubrique distincte « opérations système », pour que la liste d'exceptions ne devienne pas un fourre-tout.
+
+---
+
+## Tests ajoutés
+
+`backend/tests_security/` — suite volontairement séparée de `backend/tests/`, qui ne peut rien exécuter sans backend vivant : son `conftest.py` lève une `RuntimeError` au moment de l'import si `REACT_APP_BACKEND_URL` est absent. Les tests de sécurité doivent tourner partout, sans base, sans réseau, sans identifiants — c'est la condition pour qu'ils bloquent réellement une fusion.
+
+| Fichier | Rôle |
+|---|---|
+| `test_build_where_strict.py` | Verrouille le comportement strict de `_build_where`, dont six fautes de frappe plausibles sur `tenant_id` et le cas du filtre partiel |
+| `test_tenant_isolation_static.py` | Garde anti-régression sur l'AST de `server.py` : couvre tout appel présent, y compris ceux ajoutés demain |
+| `test_tenant_isolation_live.py` | Sondage croisé A/B avec deux vrais jetons. Ignoré automatiquement sans identifiants |
+
+30 tests passent, 10 ignorés (les tests live, faute d'identifiants).
+
+### Vérification par mutation
+
+Un test incapable d'échouer ne protège rien. Les deux garde-fous ont donc été validés en cassant volontairement le code :
+
+- Injection d'un endpoint fuyant `GET /__leak_test__/{quote_id}` appelant `db.quotes.find_one({"id": quote_id})` sans garde → le test statique échoue et le localise précisément (`server.py:2045 quotes.find_one() dans _leak_test()`).
+- Rétablissement du `logger.warning` + `continue` dans `_build_where` → 19 tests échouent.
+
+Fichiers restaurés et suite de nouveau verte dans les deux cas.
+
+Correctif et tests livrés dans la PR #70.
+
+---
+
 ## Synthèse des actions
 
 | Priorité | Action | Effort | Statut |
 |---|---|---|---|
-| 1 | `_build_where` lève une erreur au lieu d'avertir | 2 lignes | à faire |
-| 2 | Test automatisé de fuite inter-tenants en CI | 1 à 2 jours | à faire |
-| 3 | Durcissement RLS en 3 étapes (`app.tenant_id` + `FORCE`) | 2 à 3 jours | à faire |
-| — | Audit des 114 appels de `server.py` | fait | aucune fuite |
+| 1 | `_build_where` lève une erreur au lieu d'avertir | 2 lignes | **fait (PR #70)** |
+| 2 | Tests automatisés de fuite inter-tenants | 1 à 2 jours | **fait (PR #70)** |
+| 3 | Brancher `tests_security/` dans l'intégration continue | 1 heure | à faire |
+| 4 | Durcissement RLS en 3 étapes (`app.tenant_id` + `FORCE`) | 2 à 3 jours | à faire |
+| 5 | Rendre `backend/tests/conftest.py` paresseux | 2 heures | à faire |
+| — | Audit des appels de `server.py` | fait | aucune fuite |
 
-Aucune de ces actions n'est urgente au sens d'une faille ouverte. Toutes sont bloquantes avant d'héberger les tarifs négociés de deux entreprises concurrentes dans la même base.
+Aucune de ces actions n'est urgente au sens d'une faille ouverte. Les points 3 et 4 sont bloquants avant d'héberger les tarifs négociés de deux entreprises concurrentes dans la même base : sans le point 3, les tests existent mais ne bloquent rien.
