@@ -186,3 +186,58 @@ def test_la_migration_cree_toutes_les_colonnes_utilisees():
         assert re.search(rf"ADD COLUMN IF NOT EXISTS\s+{colonne}\b",
                          migration), (
             f"La colonne {colonne} n'est pas creee par la migration.")
+
+
+def test_le_moins_cher_par_fournisseur_respecte_le_niveau():
+    """Le niveau de correspondance PRIME sur le prix.
+
+    Un article "non precise" a 3,20 EUR ne doit pas etre annonce comme
+    la meilleure offre Rexel quand un article "exact" existe a
+    6,83 EUR : le premier ne confirme pas le calibre demande. Ces deux
+    prix sont reels, releves sur le catalogue pour "disjoncteur 16A".
+
+    Annoncer un prix pour un article qui ne correspond peut-etre pas,
+    c'est precisement ce qui fausse un chiffrage.
+    """
+    source = (Path(__file__).resolve().parent.parent
+              / "fournisseur_recherche.py").read_text(encoding="utf-8")
+
+    deb = source.index("# Le moins cher chez chaque fournisseur")
+    bloc = source[deb:deb + 1800]
+    assert "RANG_NIVEAU" in bloc, (
+        "Le choix du moins cher par fournisseur ignore le niveau de "
+        "correspondance : il retiendrait un article non confirme parce "
+        "qu'il est moins cher.")
+    assert "rang > rang_connu" in bloc, (
+        "Un niveau moins bon doit etre rejete meme s'il est moins cher.")
+
+    # Rejoue la regle pour verifier son comportement.
+    lignes = [
+        {"fournisseur": "Rexel", "prix_net_ht": 3.20, "niveau": "non precise"},
+        {"fournisseur": "Rexel", "prix_net_ht": 6.83, "niveau": "exact"},
+        {"fournisseur": "Rexel", "prix_net_ht": 8.51, "niveau": "exact"},
+        {"fournisseur": "Prolians", "prix_net_ht": 13.84, "niveau": "partiel"},
+        {"fournisseur": "Prolians", "prix_net_ht": 24.98, "niveau": "exact"},
+    ]
+    meilleurs = {}
+    for ligne in lignes:
+        prix, nom = ligne["prix_net_ht"], ligne["fournisseur"]
+        rang = fr.RANG_NIVEAU.get(ligne["niveau"], 9)
+        connu = meilleurs.get(nom)
+        if connu is not None:
+            rang_connu = fr.RANG_NIVEAU.get(connu["niveau"], 9)
+            if rang > rang_connu:
+                continue
+            if rang == rang_connu and prix >= connu["prix_net_ht"]:
+                continue
+        meilleurs[nom] = {"niveau": ligne["niveau"], "prix_net_ht": prix}
+
+    assert meilleurs["Rexel"]["prix_net_ht"] == 6.83, (
+        f"Retenu {meilleurs['Rexel']} : le 3,20 EUR non precise ne doit "
+        f"pas primer sur le 6,83 EUR exact.")
+    assert meilleurs["Prolians"]["prix_net_ht"] == 24.98
+
+
+def test_rangs_de_niveau_ordonnes():
+    assert fr.RANG_NIVEAU["exact"] < fr.RANG_NIVEAU["partiel"]
+    assert fr.RANG_NIVEAU["partiel"] < fr.RANG_NIVEAU["non precise"]

@@ -59,6 +59,11 @@ from vocabulaire_btp import (
 LIMITE_DEFAUT = 50
 LIMITE_MAX = 200
 
+# Ordre d'affichage et de preference des niveaux de correspondance.
+# Sert au tri ET au choix du moins cher par fournisseur : a prix egal on
+# prefere toujours la correspondance la mieux confirmee.
+RANG_NIVEAU = {"exact": 0, "partiel": 1, "non precise": 2}
+
 # Colonnes renvoyees. Explicites plutot que SELECT *, pour ne pas
 # exposer par accident une colonne ajoutee plus tard.
 CHAMPS = """
@@ -507,15 +512,36 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         }
 
     # Le moins cher chez chaque fournisseur : la vue de negociation.
+    #
+    # LE NIVEAU PRIME SUR LE PRIX.
+    # Un article "non precise" a 3,20 EUR ne doit pas etre annonce comme
+    # la meilleure offre Rexel quand un article "exact" existe a
+    # 6,83 EUR : le premier ne confirme pas le calibre demande. Annoncer
+    # un prix pour un article qui ne correspond peut-etre pas, c'est
+    # exactement ce qui fausse un chiffrage.
+    #
+    # On ne compare donc les prix qu'a NIVEAU EGAL, en retenant le
+    # meilleur niveau disponible chez chaque fournisseur.
     meilleurs: dict[str, dict] = {}
     for ligne in retenus:
         p = ligne.get("prix_net_ht")
         nom = ligne.get("fournisseur") or "inconnu"
         if p is None or p <= 0:
             continue
-        if nom not in meilleurs or p < meilleurs[nom]["prix_net_ht"]:
+        rang = RANG_NIVEAU.get(ligne.get("niveau", "exact"), 9)
+        connu = meilleurs.get(nom)
+        if connu is not None:
+            rang_connu = RANG_NIVEAU.get(connu.get("niveau", "exact"), 9)
+            # Un niveau moins bon ne remplace jamais un meilleur, meme
+            # moins cher.
+            if rang > rang_connu:
+                continue
+            if rang == rang_connu and p >= connu["prix_net_ht"]:
+                continue
+        if True:
             meilleurs[nom] = {
                 "fournisseur": nom,
+                "niveau": ligne.get("niveau", "exact"),
                 "prix_net_ht": round(p, 2),
                 "designation": ligne.get("designation"),
                 "id": ligne.get("id"),

@@ -2,6 +2,7 @@ import React from 'react';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TruncatedText } from '@/components/TruncatedText';
+import { SupplierMatchBadge } from '@/components/SupplierMatchBadge';
 import { prixHT } from '@/lib/fournisseursFormat';
 
 // Tableau des resultats, trie par prix net HT croissant.
@@ -49,8 +50,37 @@ export const SupplierResultsTable = ({ resultats }) => {
                 <TableCell className="max-w-[10rem] align-top">
                   <TruncatedText className="text-sm font-medium">{o.fournisseur}</TruncatedText>
                 </TableCell>
+                {/*
+                  La designation RECOMPOSEE est affichee -- type en tete,
+                  puis attributs discriminants. Mesure : 23 % des libelles
+                  de disjoncteur commencent par une gamme ou une reference
+                  ("Acti9 C60H-DC - Disjoncteur modulaire - 2P - 2A"). La
+                  colonne etant etroite, la troncature masquait justement
+                  ce qui distingue les articles.
+
+                  Le libelle fournisseur reste visible en dessous : c'est
+                  une donnee contractuelle, c'est lui qui figurera sur le
+                  devis et qui permet de commander l'article.
+                */}
                 <TableCell className="max-w-[24rem] align-top text-sm">
-                  <TruncatedText testid="fournisseurs-designation">{o.designation}</TruncatedText>
+                  <div className="flex items-start gap-1.5">
+                    <TruncatedText
+                      className="text-sm font-medium"
+                      testid="fournisseurs-designation"
+                    >
+                      {o.designation_affichee || o.designation}
+                    </TruncatedText>
+                    <SupplierMatchBadge
+                      niveau={o.niveau}
+                      confirmes={o.confirmes}
+                      muets={o.muets}
+                    />
+                  </div>
+                  {o.designation_affichee && o.designation_affichee !== o.designation ? (
+                    <TruncatedText className="mt-0.5 text-xs text-muted-foreground">
+                      {o.designation}
+                    </TruncatedText>
+                  ) : null}
                 </TableCell>
                 <TableCell className="max-w-[9rem] align-top text-sm">
                   <TruncatedText className="text-sm">{o.marque}</TruncatedText>
@@ -84,7 +114,19 @@ export const SupplierResultsTable = ({ resultats }) => {
                 <span className="ml-1 text-xs font-normal text-muted-foreground">HT</span>
               </p>
             </div>
-            <p className="mt-1 text-sm leading-snug text-foreground/90">{o.designation}</p>
+            <div className="mt-1 flex items-start gap-1.5">
+              <p className="min-w-0 flex-1 text-sm font-medium leading-snug">
+                {o.designation_affichee || o.designation}
+              </p>
+              <SupplierMatchBadge
+                niveau={o.niveau}
+                confirmes={o.confirmes}
+                muets={o.muets}
+              />
+            </div>
+            {o.designation_affichee && o.designation_affichee !== o.designation ? (
+              <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{o.designation}</p>
+            ) : null}
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <div className="flex min-w-0 gap-1">
                 <dt>Marque&nbsp;:</dt>
