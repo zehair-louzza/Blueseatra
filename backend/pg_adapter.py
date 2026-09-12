@@ -22,7 +22,7 @@ from sqlalchemy import (and_, asc, delete as sa_delete, func, insert as sa_inser
 from sqlalchemy import desc as sa_desc
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from database import AsyncSessionLocal, engine
+from database import engine, tenant_session
 import models_sql as M
 
 logger = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ class _Collection:
     async def _find_list(self, flt, projection, sort, length):
         # FIX: cap unbounded queries at _MAX_ROWS.
         limit = length if (length is not None and length <= _MAX_ROWS) else _MAX_ROWS
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             stmt = select(self.model).where(_build_where(self.model, flt))
             for field, direction in (sort or []):
                 col = getattr(self.model, field)
@@ -160,7 +160,7 @@ class _Collection:
 
     async def find_one(self, flt=None, projection=None, sort=None):
         # FIX: sort accepts a list of (field, direction) tuples, matching motor's API.
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             stmt = select(self.model).where(_build_where(self.model, flt))
             for field, direction in (sort or []):
                 col = getattr(self.model, field)
@@ -173,7 +173,7 @@ class _Collection:
     async def insert_one(self, doc):
         cols = _cols(self.model)
         row = {k: v for k, v in doc.items() if k in cols}
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             await s.execute(sa_insert(self.model.__table__).values(**row))
             await s.commit()
         return doc.get("id")
@@ -184,14 +184,14 @@ class _Collection:
             return
         cols = _cols(self.model)
         rows = [{k: v for k, v in d.items() if k in cols} for d in docs]
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             await s.execute(sa_insert(self.model.__table__), rows)
             await s.commit()
 
     async def update_one(self, flt, update, upsert=False):
         cols = _cols(self.model)
         set_ = {k: v for k, v in (update.get("$set") or {}).items() if k in cols}
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             rowcount = 0
             if set_:
                 res = await s.execute(
@@ -220,7 +220,7 @@ class _Collection:
         set_ = {k: v for k, v in (update.get("$set") or {}).items() if k in cols}
         if not set_:
             return
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             await s.execute(sa_update(self.model).where(_build_where(self.model, flt)).values(**set_))
             await s.commit()
 
@@ -230,7 +230,7 @@ class _Collection:
         ``table.c.ctid`` is not a mapped column, so the previous subquery
         raised KeyError and the browser saw a dropped connection / CORS miss.
         """
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             pk_cols = [c.key for c in sa_inspect(self.model).primary_key]
             where = _build_where(self.model, flt)
             if len(pk_cols) == 1:
@@ -242,12 +242,12 @@ class _Collection:
             await s.commit()
 
     async def delete_many(self, flt):
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             await s.execute(sa_delete(self.model).where(_build_where(self.model, flt)))
             await s.commit()
 
     async def count_documents(self, flt=None):
-        async with AsyncSessionLocal() as s:
+        async with tenant_session() as s:
             res = await s.execute(
                 select(func.count()).select_from(self.model).where(_build_where(self.model, flt)))
             return res.scalar() or 0
