@@ -221,18 +221,92 @@ def test_requeue_stuck_on_startup_est_decoree():
 
 
 # ---------------------------------------------------------------------------
-# Repli : sans DATABASE_URL_AUTH, aucun changement de comportement
+# Repli et sens des moteurs -- regression de l'incident du 12/09/2026
 # ---------------------------------------------------------------------------
 
-def test_repli_sans_database_url_auth():
-    """Le coeur de la reversibilite de cette PR.
+def test_repli_sans_database_url_app():
+    """Le coeur de la reversibilite.
 
-    Sans configuration supplementaire dans Render, AuthSessionLocal DOIT
-    etre exactement AsyncSessionLocal (meme objet, pas seulement equivalent)
-    -- donc _session_pour() ne cree jamais de connexion additionnelle et le
-    comportement observable est identique a avant cette PR.
+    Sans configuration supplementaire dans Render, le moteur METIER DOIT
+    etre exactement le moteur AUTH (meme objet, pas seulement equivalent)
+    -- donc aucune connexion additionnelle et comportement identique a
+    avant l'etape 3.
     """
-    assert db_mod.DATABASE_URL_AUTH == "" or db_mod.AuthSessionLocal is db_mod.AsyncSessionLocal, (
-        "DATABASE_URL_AUTH est definie dans CET environnement de test, ce "
+    assert db_mod.DATABASE_URL_APP == "" or db_mod.AsyncSessionLocal is db_mod.AuthSessionLocal, (
+        "DATABASE_URL_APP est definie dans CET environnement de test, ce "
         "qui invalide l'hypothese de repli. Verifier les variables d'env."
+    )
+
+
+def test_le_chemin_auth_n_est_pas_configurable():
+    """REGRESSION -- incident du 12/09/2026 : login casse en production.
+
+    La premiere version lisait DATABASE_URL_AUTH et en faisait le moteur
+    d'AUTHENTIFICATION. L'operateur y a naturellement mis le role
+    RESTREINT (blueseatra_app), qui n'a AUCUN droit sur `users`. Plus
+    aucun login n'etait possible.
+
+    Le sens correct : le chemin METIER recoit le role restreint, le
+    chemin d'AUTHENTIFICATION conserve TOUJOURS DATABASE_URL.
+
+    Ce test verifie par lecture du source que le moteur AUTH est bien
+    construit depuis DATABASE_URL et jamais depuis une variable
+    configurable.
+    """
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "database.py").read_text(encoding="utf-8")
+
+    motif_auth = re.compile(
+        r"auth_engine\s*=\s*_fabrique_moteur\(\s*DATABASE_URL\s*,", re.M
+    )
+    assert motif_auth.search(source), (
+        "Le moteur AUTH n'est plus construit depuis DATABASE_URL. "
+        "Le chemin d'authentification doit TOUJOURS utiliser le role "
+        "privilegie : il lit users/tenants/tenant_users avant qu'un "
+        "tenant soit connu. Le rendre configurable a casse la production "
+        "le 12/09/2026."
+    )
+
+    motif_interdit = re.compile(
+        r"auth_engine\s*=\s*_fabrique_moteur\(\s*DATABASE_URL_APP", re.M
+    )
+    assert not motif_interdit.search(source), (
+        "INVERSION DETECTEE : le moteur AUTH est construit depuis "
+        "DATABASE_URL_APP (role restreint). C'est exactement le bug du "
+        "12/09/2026 -- le login devient impossible."
+    )
+
+
+def test_le_chemin_metier_utilise_bien_la_variable_app():
+    """Symetrique du precedent : le role restreint doit aller au METIER."""
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "database.py").read_text(encoding="utf-8")
+    motif = re.compile(r"engine\s*=\s*_fabrique_moteur\(\s*DATABASE_URL_APP\s*,", re.M)
+    assert motif.search(source), (
+        "Le moteur METIER n'est pas construit depuis DATABASE_URL_APP. "
+        "C'est lui qui doit porter le role restreint destine a FORCE RLS."
+    )
+
+
+def test_ancien_nom_detecte_et_signale():
+    """DATABASE_URL_AUTH ne doit pas etre silencieusement ignoree.
+
+    Un operateur qui a suivi l'ancien runbook aurait une variable definie
+    et sans effet : le pire des cas, puisque rien ne l'alerterait. Le code
+    doit emettre un avertissement explicite.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parent.parent / "database.py").read_text(encoding="utf-8")
+    assert "_DATABASE_URL_AUTH_OBSOLETE" in source, (
+        "La detection de l'ancienne variable DATABASE_URL_AUTH a disparu. "
+        "Sans elle, une configuration heritee serait ignoree en silence."
+    )
+    assert "IGNOREE" in source or "ignoree" in source.lower(), (
+        "L'avertissement sur DATABASE_URL_AUTH doit dire explicitement "
+        "que la variable est ignoree."
     )
