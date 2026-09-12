@@ -20,8 +20,10 @@ import { SupplierSearchSummary, RecognizedTerms } from '@/components/SupplierSea
 import { SupplierCheapestPanel } from '@/components/SupplierCheapestPanel';
 import { SupplierResultsTable } from '@/components/SupplierResultsTable';
 import { IsolatedQualifiers, RefineCriteria } from '@/components/SupplierRefinePanels';
+import { SupplierImportPanel } from '@/components/SupplierImportPanel';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Search, Loader2, AlertTriangle, PackageSearch, FlaskConical, RotateCcw } from 'lucide-react';
+import { Search, Loader2, AlertTriangle, PackageSearch, FlaskConical, RotateCcw, UploadCloud } from 'lucide-react';
 
 const LIMITE_PAR_DEFAUT = 50;
 
@@ -76,6 +78,10 @@ export default function SupplierSearch() {
   const inclureUrl = params.get('inclure_qualifiants') === 'true';
   const limiteUrl = Number(params.get('limite')) || LIMITE_PAR_DEFAUT;
 
+  // L'onglet actif vit aussi dans l'URL : un lien vers l'import est
+  // partageable, et le bouton « retour » du navigateur revient a la recherche.
+  const vue = params.get('vue') === 'import' ? 'import' : 'recherche';
+
   const [saisie, setSaisie] = useState(requeteUrl);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState(null);
@@ -87,6 +93,8 @@ export default function SupplierSearch() {
   // qu'une mise a jour de l'URL, et la recherche reste partageable et
   // rejouable via le bouton « retour » du navigateur.
   const lancer = useCallback(({ q, inclure = false, limite = LIMITE_PAR_DEFAUT }) => {
+    // Lancer une recherche ramene toujours sur l'onglet recherche : le
+    // parametre `vue` n'est donc pas reconduit.
     const suivant = { q: q.trim() };
     if (inclure) suivant.inclure_qualifiants = 'true';
     if (limite !== LIMITE_PAR_DEFAUT) suivant.limite = String(limite);
@@ -151,9 +159,23 @@ export default function SupplierSearch() {
   const rechercheVierge = !requeteUrl.trim();
 
   const sousTitre = useMemo(() => {
+    if (vue === 'import') {
+      return 'Chaque fichier importé devient le catalogue d’un fournisseur, et tous les catalogues actifs sont interrogés ensemble.';
+    }
     if (!reponse) return 'Tout produit contenant vos termes est renvoyé. La pertinence trie, elle ne filtre jamais.';
     return `Requête analysée : « ${reponse.requete} »`;
-  }, [reponse]);
+  }, [reponse, vue]);
+
+  // Changer d'onglet conserve la requete en cours : revenir a la recherche
+  // apres un import raffiche le resultat sans le relancer a la main.
+  const changerVue = (valeur) => {
+    const suivant = {};
+    if (requeteUrl.trim()) suivant.q = requeteUrl.trim();
+    if (inclureUrl) suivant.inclure_qualifiants = 'true';
+    if (limiteUrl !== LIMITE_PAR_DEFAUT) suivant.limite = String(limiteUrl);
+    if (valeur === 'import') suivant.vue = 'import';
+    setParams(suivant);
+  };
 
   return (
     <div>
@@ -176,136 +198,155 @@ export default function SupplierSearch() {
         )}
       </div>
 
-      <Card className="card-shadow mt-5 border-0 p-4 sm:p-5">
-        <form onSubmit={soumettre} className="space-y-3" role="search">
-          <Label htmlFor="fournisseurs-q" className="text-sm">
-            Que cherchez-vous&nbsp;?
-          </Label>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              id="fournisseurs-q"
-              ref={champRef}
-              value={saisie}
-              onChange={(e) => setSaisie(e.target.value)}
-              placeholder="disjoncteur 16a courbe c ph+n"
-              autoComplete="off"
-              enterKeyHint="search"
-              className="flex-1"
-              data-testid="fournisseurs-search-input"
-            />
-            <Button type="submit" className="gap-2 sm:w-auto" disabled={chargement} data-testid="fournisseurs-search-button">
-              {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              Rechercher
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Exemples&nbsp;:</span>
-            {EXEMPLES.map((ex) => (
-              <button
-                key={ex}
-                type="button"
-                onClick={() => { setSaisie(ex); lancer({ q: ex }); }}
-                className="rounded-full border px-2.5 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                data-testid="fournisseurs-exemple-requete"
-              >
-                {ex}
-              </button>
-            ))}
-          </div>
-          {inclureUrl && (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs">
-              <span>
-                Les produits d’une autre nature sont inclus dans la liste principale.
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 px-2"
-                onClick={() => lancer({ q: requeteUrl, inclure: false, limite: limiteUrl })}
-                data-testid="fournisseurs-exclure-qualifiants"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Les remettre à part
+      <Tabs value={vue} onValueChange={changerVue} className="mt-5">
+        <TabsList>
+          <TabsTrigger value="recherche" className="gap-1.5" data-testid="fournisseurs-onglet-recherche">
+            <Search className="h-4 w-4" />
+            Rechercher
+          </TabsTrigger>
+          <TabsTrigger value="import" className="gap-1.5" data-testid="fournisseurs-onglet-import">
+            <UploadCloud className="h-4 w-4" />
+            Importer des tarifs
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="import" className="mt-4">
+          <SupplierImportPanel />
+        </TabsContent>
+
+        <TabsContent value="recherche" className="mt-4">
+        <Card className="card-shadow border-0 p-4 sm:p-5">
+          <form onSubmit={soumettre} className="space-y-3" role="search">
+            <Label htmlFor="fournisseurs-q" className="text-sm">
+              Que cherchez-vous&nbsp;?
+            </Label>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="fournisseurs-q"
+                ref={champRef}
+                value={saisie}
+                onChange={(e) => setSaisie(e.target.value)}
+                placeholder="disjoncteur 16a courbe c ph+n"
+                autoComplete="off"
+                enterKeyHint="search"
+                className="flex-1"
+                data-testid="fournisseurs-search-input"
+              />
+              <Button type="submit" className="gap-2 sm:w-auto" disabled={chargement} data-testid="fournisseurs-search-button">
+                {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                Rechercher
               </Button>
             </div>
-          )}
-        </form>
-      </Card>
-
-      <div className="mt-5 space-y-4">
-        {chargement && <Spinner label="Recherche dans les catalogues fournisseurs…" />}
-
-        {!chargement && erreur && (
-          <Card
-            className="card-shadow border-0 p-4 ring-1 ring-inset ring-destructive/30 sm:p-5"
-            data-testid="fournisseurs-erreur"
-          >
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-destructive">{erreur.titre}</p>
-                <p className="mt-1 text-sm text-foreground/90">{erreur.texte}</p>
-                {erreur.detail && (
-                  <p className="mt-1 break-words text-xs text-muted-foreground">
-                    Détail du serveur&nbsp;: {erreur.detail}
-                  </p>
-                )}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Exemples&nbsp;:</span>
+              {EXEMPLES.map((ex) => (
+                <button
+                  key={ex}
+                  type="button"
+                  onClick={() => { setSaisie(ex); lancer({ q: ex }); }}
+                  className="rounded-full border px-2.5 py-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  data-testid="fournisseurs-exemple-requete"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+            {inclureUrl && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs">
+                <span>
+                  Les produits d’une autre nature sont inclus dans la liste principale.
+                </span>
                 <Button
                   type="button"
-                  variant="secondary"
+                  variant="ghost"
                   size="sm"
-                  className="mt-3 gap-1.5"
-                  onClick={() => lancer({ q: saisie || requeteUrl, inclure: inclureUrl, limite: LIMITE_PAR_DEFAUT })}
-                  data-testid="fournisseurs-reessayer"
+                  className="h-7 gap-1 px-2"
+                  onClick={() => lancer({ q: requeteUrl, inclure: false, limite: limiteUrl })}
+                  data-testid="fournisseurs-exclure-qualifiants"
                 >
-                  <RotateCcw className="h-4 w-4" />
-                  Réessayer
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Les remettre à part
                 </Button>
               </div>
-            </div>
-          </Card>
-        )}
-
-        {!chargement && !erreur && rechercheVierge && (
-          <EmptyState
-            icon={Search}
-            title="Saisissez une désignation, une référence ou une marque pour comparer les offres de vos fournisseurs."
-          />
-        )}
-
-        {!chargement && !erreur && reponse && (
-          <>
-            <SupplierSearchSummary reponse={reponse} />
-            <RecognizedTerms termes={reponse.termes_reconnus} requete={reponse.requete} />
-
-            {aucunResultat ? (
-              <EmptyState
-                icon={PackageSearch}
-                title="Aucun produit ne contient ces termes dans les catalogues de cet espace. Vérifiez ci-dessus comment vos termes ont été interprétés, puis retirez le terme le plus restrictif."
-              />
-            ) : (
-              <>
-                <SupplierCheapestPanel offres={reponse.moins_cher_par_fournisseur} />
-                <SupplierResultsTable resultats={resultats} />
-              </>
             )}
+          </form>
+        </Card>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <IsolatedQualifiers
-                qualifiants={reponse.qualifiants_isoles}
-                inclus={inclureUrl}
-                onInclure={inclureQualifiants}
-              />
-              <RefineCriteria
-                criteres={reponse.criteres_a_affiner}
-                requete={reponse.requete}
-                onAjouterTerme={ajouterTerme}
-              />
-            </div>
-          </>
-        )}
-      </div>
+        <div className="mt-5 space-y-4">
+          {chargement && <Spinner label="Recherche dans les catalogues fournisseurs…" />}
+
+          {!chargement && erreur && (
+            <Card
+              className="card-shadow border-0 p-4 ring-1 ring-inset ring-destructive/30 sm:p-5"
+              data-testid="fournisseurs-erreur"
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-destructive">{erreur.titre}</p>
+                  <p className="mt-1 text-sm text-foreground/90">{erreur.texte}</p>
+                  {erreur.detail && (
+                    <p className="mt-1 break-words text-xs text-muted-foreground">
+                      Détail du serveur&nbsp;: {erreur.detail}
+                    </p>
+                  )}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="mt-3 gap-1.5"
+                    onClick={() => lancer({ q: saisie || requeteUrl, inclure: inclureUrl, limite: LIMITE_PAR_DEFAUT })}
+                    data-testid="fournisseurs-reessayer"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Réessayer
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {!chargement && !erreur && rechercheVierge && (
+            <EmptyState
+              icon={Search}
+              title="Saisissez une désignation, une référence ou une marque pour comparer les offres de vos fournisseurs."
+            />
+          )}
+
+          {!chargement && !erreur && reponse && (
+            <>
+              <SupplierSearchSummary reponse={reponse} />
+              <RecognizedTerms termes={reponse.termes_reconnus} requete={reponse.requete} />
+
+              {aucunResultat ? (
+                <EmptyState
+                  icon={PackageSearch}
+                  title="Aucun produit ne contient ces termes dans les catalogues de cet espace. Vérifiez ci-dessus comment vos termes ont été interprétés, puis retirez le terme le plus restrictif."
+                />
+              ) : (
+                <>
+                  <SupplierCheapestPanel offres={reponse.moins_cher_par_fournisseur} />
+                  <SupplierResultsTable resultats={resultats} />
+                </>
+              )}
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <IsolatedQualifiers
+                  qualifiants={reponse.qualifiants_isoles}
+                  inclus={inclureUrl}
+                  onInclure={inclureQualifiants}
+                />
+                <RefineCriteria
+                  criteres={reponse.criteres_a_affiner}
+                  requete={reponse.requete}
+                  onAjouterTerme={ajouterTerme}
+                />
+              </div>
+            </>
+          )}
+        </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
