@@ -54,12 +54,37 @@ AsyncSessionLocal = None
 # distinct et a portee reduite, tandis que le chemin METIER passera sur le
 # role restreint.
 #
-# REPLI SUR : si DATABASE_URL_AUTH n'est pas definie, le moteur AUTH EST le
-# moteur principal. Deployer ce code sans rien configurer est donc un
-# non-evenement strict -- aucune connexion supplementaire, aucun changement
-# de comportement. C'est ce qui rend l'etape reversible et verifiable en
-# production avant d'ouvrir l'eau.
-DATABASE_URL_AUTH = os.environ.get('DATABASE_URL_AUTH', '').strip()
+# INCIDENT DU 12/09/2026 -- POURQUOI CETTE VARIABLE S'APPELLE _APP
+# ------------------------------------------------------------------
+# La premiere version de ce code lisait DATABASE_URL_AUTH et en faisait le
+# moteur d'AUTHENTIFICATION. C'etait une INVERSION : l'operateur y a
+# naturellement mis les identifiants du role RESTREINT (blueseatra_app),
+# alors que le chemin d'authentification a besoin du role PRIVILEGIE pour
+# lire users / tenants / tenant_users. Resultat immediat en production :
+# plus aucun login possible ("Connexion au serveur impossible").
+#
+# Le nom de la variable etait le piege. "URL pour le chemin AUTH" designe
+# le role privilegie, mais se lit comme "URL du nouveau role". Le sens
+# correct est l'inverse : c'est le chemin METIER qui recoit le role
+# restreint, tandis que l'authentification CONSERVE DATABASE_URL.
+#
+# D'ou DATABASE_URL_APP : "URL du role applicatif restreint". Le mot APP
+# fait echo au nom du role lui-meme (blueseatra_app), ce qui rend
+# l'association evidente et l'inversion difficile a reproduire.
+#
+# REPLI SUR : si DATABASE_URL_APP n'est pas definie, le moteur METIER EST
+# le moteur principal (DATABASE_URL, privilegie). Deployer ce code sans
+# rien configurer est donc un non-evenement strict -- aucune connexion
+# supplementaire, aucun changement de comportement.
+#
+# INVARIANT A NE JAMAIS ROMPRE : le chemin d'AUTHENTIFICATION utilise
+# TOUJOURS DATABASE_URL. Il ne doit jamais devenir configurable, sinon
+# l'incident du 12/09 redevient possible.
+DATABASE_URL_APP = os.environ.get('DATABASE_URL_APP', '').strip()
+
+# Compatibilite : ancien nom, desormais IGNORE. Detecte au demarrage pour
+# avertir plutot que d'echouer en silence (voir l'avertissement plus bas).
+_DATABASE_URL_AUTH_OBSOLETE = os.environ.get('DATABASE_URL_AUTH', '').strip()
 
 auth_engine = None
 AuthSessionLocal = None
@@ -123,7 +148,10 @@ def _fabrique_sessions(moteur):
 # metier, 2+1 pour l'authentification, soit 10 -- la meme enveloppe qu'avant,
 # repartie. Le chemin AUTH est peu sollicite (login, resolution du tenant),
 # 3 connexions suffisent largement.
-if DATABASE_URL_AUTH and DATABASE_URL_AUTH != DATABASE_URL:
+if DATABASE_URL_APP and DATABASE_URL_APP != DATABASE_URL:
+    # Le chemin METIER porte l'essentiel du trafic, le chemin AUTH est
+    # sollicite au login et a la resolution du tenant : 3 connexions y
+    # suffisent largement.
     _POOL_METIER, _OVERFLOW_METIER = 5, 2
     _POOL_AUTH, _OVERFLOW_AUTH = 2, 1
 else:
@@ -135,16 +163,34 @@ if DATABASE_URL:
     # Conserve pour compatibilite : referencee ailleurs dans le projet.
     ASYNC_DATABASE_URL = _normalise(DATABASE_URL)
 
-    engine = _fabrique_moteur(DATABASE_URL, _POOL_METIER, _OVERFLOW_METIER)
-    AsyncSessionLocal = _fabrique_sessions(engine)
+    # Moteur AUTH : TOUJOURS DATABASE_URL, le role privilegie. Non
+    # configurable, par conception -- voir l'incident du 12/09/2026.
+    # Il doit pouvoir lire users / tenants / tenant_users AVANT qu'un
+    # tenant soit connu.
+    auth_engine = _fabrique_moteur(DATABASE_URL, _POOL_AUTH or 8, _OVERFLOW_AUTH or 2)
+    AuthSessionLocal = _fabrique_sessions(auth_engine)
 
-    if DATABASE_URL_AUTH and DATABASE_URL_AUTH != DATABASE_URL:
-        auth_engine = _fabrique_moteur(DATABASE_URL_AUTH, _POOL_AUTH, _OVERFLOW_AUTH)
-        AuthSessionLocal = _fabrique_sessions(auth_engine)
+    if DATABASE_URL_APP and DATABASE_URL_APP != DATABASE_URL:
+        # Moteur METIER : role restreint (blueseatra_app), NOBYPASSRLS et
+        # non proprietaire. C'est lui qui passera sous FORCE RLS.
+        engine = _fabrique_moteur(DATABASE_URL_APP, _POOL_METIER, _OVERFLOW_METIER)
+        AsyncSessionLocal = _fabrique_sessions(engine)
     else:
-        # REPLI : un seul moteur. Comportement identique a avant l'etape 3.
-        auth_engine = engine
-        AuthSessionLocal = AsyncSessionLocal
+        # REPLI : un seul moteur, privilegie. Comportement identique a
+        # avant l'etape 3.
+        engine = auth_engine
+        AsyncSessionLocal = AuthSessionLocal
+
+    if _DATABASE_URL_AUTH_OBSOLETE:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "DATABASE_URL_AUTH est definie mais IGNOREE : cette variable a "
+            "ete renommee DATABASE_URL_APP le 12/09/2026, car son ancien "
+            "sens etait inverse (elle recevait le role restreint alors "
+            "qu'elle alimentait le chemin d'authentification, ce qui "
+            "cassait le login). Deplacer la valeur vers DATABASE_URL_APP "
+            "puis supprimer DATABASE_URL_AUTH."
+        )
 
 
 async def get_db():

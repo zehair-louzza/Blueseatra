@@ -1,4 +1,4 @@
-# Runbook — activer `DATABASE_URL_AUTH` sur Render
+# Runbook — activer `DATABASE_URL_APP` sur Render
 
 Étapes 4 et 5 du durcissement RLS. Ce document est celui que tu exécutes toi-même, à la main, dans les interfaces Supabase et Render. Aucune commande ici ne doit être collée dans cette conversation ni dans un commit.
 
@@ -6,7 +6,7 @@ Prérequis : [PR #73](https://github.com/zehair-louzza/Blueseatra/pull/73) fusio
 
 ## Ce qui se passe si tu t'arrêtes après l'étape 4
 
-Rien. Le rôle `blueseatra_app` existe, a ses droits, mais aucune connexion ne l'utilise. `backend/database.py` ne bascule que si `DATABASE_URL_AUTH` diffère de `DATABASE_URL` dans l'environnement Render — tant que cette variable n'existe pas, le repli reste actif. Tu peux donc faire l'étape 4 aujourd'hui et l'étape 5 la semaine prochaine sans aucun risque intermédiaire.
+Rien. Le rôle `blueseatra_app` existe, a ses droits, mais aucune connexion ne l'utilise. `backend/database.py` ne bascule que si `DATABASE_URL_APP` diffère de `DATABASE_URL` dans l'environnement Render — tant que cette variable n'existe pas, le repli reste actif. Tu peux donc faire l'étape 4 aujourd'hui et l'étape 5 la semaine prochaine sans aucun risque intermédiaire.
 
 ---
 
@@ -39,7 +39,7 @@ Ne colle cette valeur nulle part d'autre que dans le champ Render de l'étape 5.
 
 1. [dashboard.render.com/web/srv-d8tlsuf7f7vs73f9cjeg](https://dashboard.render.com/web/srv-d8tlsuf7f7vs73f9cjeg) → **Environment**
 2. **Add Environment Variable**
-   - Clé : `DATABASE_URL_AUTH`
+   - Clé : `DATABASE_URL_APP`
    - Valeur : `postgresql+asyncpg://blueseatra_app:<MOT_DE_PASSE>@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`
 
    Remplacer `<MOT_DE_PASSE>` par la valeur de l'étape 4bis. Garder le même hôte et le même port (6543, Transaction Pooler) que `DATABASE_URL` — seuls l'utilisateur et le mot de passe changent.
@@ -82,4 +82,30 @@ Le runbook complet (`supabase/migrations/20260912040000_rls_etape3_force_NON_APP
 
 ## Retour arrière, à tout moment
 
-Supprimer la variable `DATABASE_URL_AUTH` dans Render et sauvegarder. Le code retombe immédiatement sur le comportement de repli (moteur unique), sans redéploiement de code nécessaire — seul un redémarrage du service, déclenché automatiquement par le changement de variable d'environnement.
+Supprimer la variable `DATABASE_URL_APP` dans Render et sauvegarder. Le code retombe immédiatement sur le comportement de repli (moteur unique), sans redéploiement de code nécessaire — seul un redémarrage du service, déclenché automatiquement par le changement de variable d'environnement.
+
+---
+
+## Incident du 12/09/2026 — inversion des moteurs
+
+### Ce qui s'est passé
+
+La variable s'appelait initialement `DATABASE_URL_AUTH` et alimentait le moteur d'**authentification**. En suivant le runbook, les identifiants du rôle **restreint** (`blueseatra_app`) y ont été placés — ce qui est le réflexe naturel, puisque c'est le nouveau rôle qu'on vient de créer.
+
+Or le chemin d'authentification lit `users`, `tenants` et `tenant_users` **avant** qu'un tenant soit connu. Et `blueseatra_app` n'a délibérément aucun droit sur ces trois tables. Résultat immédiat en production : plus aucun login possible, avec le message « Connexion au serveur impossible ».
+
+### Pourquoi le nom était le piège
+
+`DATABASE_URL_AUTH` se lit comme « l'URL du nouveau rôle » alors qu'elle signifiait « l'URL du chemin AUTH », donc le rôle **privilégié**. Le sens correct est l'inverse de l'intuition : c'est le chemin **métier** qui reçoit le rôle restreint, et l'authentification qui conserve `DATABASE_URL`.
+
+### Correction
+
+La variable s'appelle désormais `DATABASE_URL_APP` — le mot `APP` fait écho au nom du rôle lui-même (`blueseatra_app`), ce qui rend l'association évidente.
+
+Et le moteur d'authentification n'est **plus configurable** : il utilise toujours `DATABASE_URL`. Trois tests verrouillent cet invariant par lecture du source, dont un qui échoue explicitement si quelqu'un reproduit l'inversion.
+
+Si `DATABASE_URL_AUTH` est encore définie dans l'environnement, elle est ignorée et le code émet un avertissement au démarrage — plutôt que de laisser une configuration héritée sans effet, silencieusement.
+
+### Ce qui a masqué le problème
+
+`/api/health` répondait `healthy` et l'application servait tout le trafic, parce que le moteur métier restait sur `DATABASE_URL`. Seul le login échouait. C'est la deuxième fois dans ce chantier qu'un repli silencieux masque un échec de configuration — d'où la requête `pg_stat_activity` de l'étape 5.3, qui est la seule vérification fiable.
