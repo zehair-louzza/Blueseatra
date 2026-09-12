@@ -4,6 +4,16 @@
 
 Prérequis : [PR #73](https://github.com/zehair-louzza/Blueseatra/pull/73) fusionnée (le code du moteur AUTH existe déjà et a un repli sûr), et la migration `20260912050000_rls_etape4_role_blueseatra_app.sql` appliquée sur Supabase.
 
+> **Statut au 12/09/2026 — étape 4 TERMINÉE, étape 5 À REFAIRE.**
+>
+> Le rôle `blueseatra_app` existe, avec son mot de passe défini et vérifié par connexion réelle (`rolcanlogin=true`, `rolbypassrls=false`).
+>
+> La production tourne actuellement en **repli** — moteur unique, rôle `postgres`. Stable et fonctionnelle, login compris, mais RLS n'est pas encore contraignante.
+>
+> Reste à configurer `DATABASE_URL_APP` sur Render, en respectant les **deux pièges** documentés plus bas. Les deux ont déjà coûté une panne chacun.
+
+> **À lire avant d'exécuter l'étape 5 :** les sections « Piège n° 1 » (nom d'utilisateur du pooler) et « Piège n° 2 » (inversion des moteurs). Les étapes 5.3 et 5.4 ne sont pas optionnelles — `/api/health` a répondu `healthy` pendant les deux incidents.
+
 ## Ce qui se passe si tu t'arrêtes après l'étape 4
 
 Rien. Le rôle `blueseatra_app` existe, a ses droits, mais aucune connexion ne l'utilise. `backend/database.py` ne bascule que si `DATABASE_URL_APP` diffère de `DATABASE_URL` dans l'environnement Render — tant que cette variable n'existe pas, le repli reste actif. Tu peux donc faire l'étape 4 aujourd'hui et l'étape 5 la semaine prochaine sans aucun risque intermédiaire.
@@ -40,7 +50,9 @@ Ne colle cette valeur nulle part d'autre que dans le champ Render de l'étape 5.
 1. [dashboard.render.com/web/srv-d8tlsuf7f7vs73f9cjeg](https://dashboard.render.com/web/srv-d8tlsuf7f7vs73f9cjeg) → **Environment**
 2. **Add Environment Variable**
    - Clé : `DATABASE_URL_APP`
-   - Valeur : `postgresql+asyncpg://blueseatra_app:<MOT_DE_PASSE>@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`
+   - Valeur : `postgresql+asyncpg://blueseatra_app.xmsxlochasjauhnxarvc:<MOT_DE_PASSE>@aws-0-eu-west-1.pooler.supabase.com:6543/postgres`
+
+   L'utilisateur doit être **qualifié par l'identifiant du projet** : `blueseatra_app.xmsxlochasjauhnxarvc`, et non `blueseatra_app` seul. Voir la section dédiée plus bas — c'est le piège le plus coûteux de ce runbook.
 
    Remplacer `<MOT_DE_PASSE>` par la valeur de l'étape 4bis. Garder le même hôte et le même port (6543, Transaction Pooler) que `DATABASE_URL` — seuls l'utilisateur et le mot de passe changent.
 
@@ -60,14 +72,36 @@ Doit répondre `{"status":"healthy","commit":"<dernier commit>"}`. Si l'appel é
 
 Puis, dans les logs Render (**Logs** dans le tableau de bord), chercher une éventuelle ligne mentionnant une authentification refusée sur Postgres (`password authentication failed`) — c'est le signal le plus direct d'une URI mal formée.
 
-### 5.3 — Confirmer que le moteur AUTH est réellement utilisé
+### 5.3 — Confirmer que le moteur métier est réellement utilisé
 
-Pas de commande SQL nécessaire ici : le test `test_repli_sans_database_url_auth` de `backend/tests_security/test_rls_engine_routing.py` vérifie l'inverse (le repli). Pour confirmer le cas actif, le plus fiable est un test fonctionnel :
+**La vérification décisive.** Une requête SQL qui montre quels rôles sont réellement connectés :
 
-1. Se connecter à l'application (un vrai login).
-2. Consulter la liste des devis (une vraie lecture métier).
+```sql
+select usename, count(*) as connexions, max(backend_start) as derniere
+from pg_stat_activity
+where usename in ('blueseatra_app', 'postgres')
+group by usename order by usename;
+```
 
-Si les deux fonctionnent, les deux moteurs sont opérationnels : l'authentification a réussi via le moteur AUTH (rôle privilégié, table `users`), et la lecture des devis a réussi via le moteur métier (rôle `blueseatra_app`, table `quotes`). C'est la preuve la plus simple que le routage par table fonctionne en conditions réelles.
+Tant que `blueseatra_app` n'apparaît **pas** dans le résultat, le repli est encore actif : le backend passe tout par `postgres` et la configuration n'a pas pris effet — même si `/api/health` répond et que l'application fonctionne parfaitement.
+
+État attendu après une configuration réussie : **les deux rôles présents**, `blueseatra_app` pour le chemin métier et `postgres` pour l'authentification.
+
+### 5.4 — Tester le login, impérativement
+
+Cette étape n'est pas optionnelle : c'est elle qui aurait détecté l'incident du 12/09/2026 avant que tu le découvres en te connectant.
+
+```
+curl -X POST https://blueseatra-api.onrender.com/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"inexistant@example.com","password":"x"}'
+```
+
+Doit renvoyer `401 Invalid credentials` — la preuve que la table `users` est bien interrogée. Un `500`, un timeout ou une erreur de connexion signifie que le chemin d'authentification est cassé.
+
+Puis se connecter réellement dans l'application et consulter la liste des devis. Les deux doivent fonctionner ensemble : le login exerce le moteur AUTH sur `users`, la liste des devis exerce le moteur métier sur `quotes`. C'est la preuve que le routage par table fonctionne en conditions réelles.
+
+> **Leçon des deux incidents de cette nuit :** `/api/health` ne prouve rien. Il a répondu `healthy` dans les deux cas, une fois alors que la configuration n'avait aucun effet, une fois alors que le login était totalement cassé. Seules les étapes 5.3 et 5.4 sont des vérifications fiables.
 
 ---
 
@@ -86,7 +120,59 @@ Supprimer la variable `DATABASE_URL_APP` dans Render et sauvegarder. Le code ret
 
 ---
 
-## Incident du 12/09/2026 — inversion des moteurs
+## Piège n° 1 — le nom d'utilisateur du pooler
+
+L'utilisateur doit être **qualifié par l'identifiant du projet** :
+
+```
+blueseatra_app.xmsxlochasjauhnxarvc
+```
+
+et **non** `blueseatra_app` seul.
+
+Supavisor, le pooler de Supabase, mutualise un même point d'entrée entre tous les projets. Il a donc besoin du `ref` du projet pour savoir vers quelle base router la connexion. C'est exactement la même logique que pour `DATABASE_URL`, dont l'utilisateur est `postgres.xmsxlochasjauhnxarvc` et non `postgres` — le parallèle existait déjà sous les yeux.
+
+Sans cette qualification :
+
+```
+InternalServerError: (ENOIDENTIFIER) no tenant identifier provided
+(external_id or sni_hostname required)
+```
+
+### Le symptôme observé est trompeur
+
+Côté Render, l'erreur remontée était :
+
+```
+socket.gaierror: [Errno -2] Name or service not known
+```
+
+Cela ressemble à un problème de DNS ou de nom d'hôte, et oriente le diagnostic vers l'hôte puis vers les caractères spéciaux du mot de passe. La cause réelle était le nom d'utilisateur.
+
+### Combinaisons testées par connexion réelle
+
+| Hôte | Utilisateur | Port | Résultat |
+|---|---|---|---|
+| `aws-0-eu-west-1` | `blueseatra_app` | 6543 | `ENOIDENTIFIER` |
+| `aws-0-eu-west-1` | `blueseatra_app.xmsxlochasjauhnxarvc` | 6543 | **OK** |
+| `aws-0-eu-west-1` | `blueseatra_app.xmsxlochasjauhnxarvc` | 5432 | OK |
+| `aws-1-eu-west-1` | `blueseatra_app.xmsxlochasjauhnxarvc` | 6543 | `ENOTFOUND` |
+
+`aws-0` **et** `aws-1` résolvent tous deux en DNS, mais seul `aws-0` héberge ce projet. Vérifier la résolution DNS ne prouve donc rien.
+
+### Caractères spéciaux dans le mot de passe
+
+Préférer un mot de passe **strictement alphanumérique** :
+
+```
+python3 -c "import secrets; print(secrets.token_hex(24))"
+```
+
+Dans une URI, `@` sépare les identifiants de l'hôte et `#` ouvre un fragment. Un mot de passe contenant l'un de ces caractères coupe l'analyse au mauvais endroit, et le fragment restant est lu comme nom d'hôte — d'où une erreur DNS trompeuse. Les encoder (`%40`, `%23`) fonctionne, mais ajoute une source d'erreur manuelle sans bénéfice.
+
+---
+
+## Piège n° 2 — inversion des moteurs
 
 ### Ce qui s'est passé
 
