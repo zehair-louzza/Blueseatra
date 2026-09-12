@@ -25,6 +25,7 @@ import ai_service
 import matching as match_engine
 import quote_scenarios
 import pdf_service
+import designation_canonique
 import fournisseur_import
 import fournisseur_recherche
 import mcp_bridge
@@ -2153,6 +2154,13 @@ async def _importe_un_tarif(cu, contenu: bytes, nom_fichier: str,
             libelle = val(ligne, mapping, "designation")
             if not libelle:
                 raise ValueError("Désignation vide")
+            marque_ligne = val(ligne, mapping, "marque")
+            # Analyse du libelle UNE SEULE FOIS, ici. La recherche lira
+            # des colonnes, jamais du texte a reanalyser.
+            canon = designation_canonique.designation_canonique(
+                libelle, marque_ligne)
+            att = canon["attributs"]
+            qual = canon["qualifiants"]
             lot.append({
                 "id": new_id(), "tenant_id": cu.tenant_id,
                 "supplier_id": supplier_id,
@@ -2161,7 +2169,21 @@ async def _importe_un_tarif(cu, contenu: bytes, nom_fichier: str,
                 "raw_reference": val(ligne, mapping, "reference_fournisseur"),
                 "raw_unit": val(ligne, mapping, "unite_vente"),
                 "label_norm": match_engine.normalize(libelle),
-                "brand": val(ligne, mapping, "marque"),
+                "brand": marque_ligne,
+                # --- designation canonique ---------------------------
+                "designation_courte": canon["designation_courte"],
+                "type_produit": canon["type_produit"],
+                "calibre": att.get("calibre"),
+                "courbe": att.get("courbe"),
+                "poles": att.get("poles"),
+                "pouvoir_coupure": att.get("pdc"),
+                "sensibilite": att.get("sensibilite"),
+                "section": att.get("section"),
+                "puissance": att.get("puissance"),
+                "temperature": att.get("temperature"),
+                "conditionnement_lot": qual.get("lot"),
+                "est_accessoire": bool(qual.get("accessoire")),
+                "est_courant_continu": bool(qual.get("courant_continu")),
                 "manufacturer_ref": val(ligne, mapping, "reference_fabricant"),
                 "ean": val(ligne, mapping, "code_ean"),
                 "packaging_qty": num(

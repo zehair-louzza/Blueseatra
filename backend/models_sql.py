@@ -338,6 +338,25 @@ class SupplierOffer(Base):
     created_at = Column(String(40))
     updated_at = Column(String(40))
 
+    # --- designation canonique (migration 20260912130000) -------------
+    # Extraits UNE FOIS a l'import : analyser 914 628 libelles prend
+    # 77 s, impensable a chaque recherche. Stockes en colonnes, ils
+    # rendent la regle de contradiction exprimable en SQL indexable :
+    #     AND (calibre IS NULL OR calibre = '16A')
+    designation_courte = Column(Text)
+    type_produit = Column(String(60))
+    calibre = Column(String(20))
+    courbe = Column(String(20))
+    poles = Column(String(12))
+    pouvoir_coupure = Column(String(20))
+    sensibilite = Column(String(20))
+    section = Column(String(20))
+    puissance = Column(String(20))
+    temperature = Column(String(20))
+    conditionnement_lot = Column(Integer)
+    est_accessoire = Column(Boolean, nullable=False, default=False)
+    est_courant_continu = Column(Boolean, nullable=False, default=False)
+
 
 class CanonicalProduct(Base):
     __tablename__ = "canonical_products"

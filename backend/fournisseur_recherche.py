@@ -43,6 +43,7 @@ import statistics
 
 from sqlalchemy import text
 
+import designation_canonique
 from database import get_current_tenant, tenant_session
 from vocabulaire_btp import (
     QUALIFIANTS,
@@ -73,8 +74,33 @@ CHAMPS = """
     o.raw_unit          AS unite_vente,
     o.product_url       AS url_produit,
     o.source_date       AS date_prix,
+    o.designation_courte,
+    o.type_produit,
+    o.calibre,
+    o.courbe,
+    o.poles,
+    o.pouvoir_coupure,
+    o.sensibilite,
+    o.section,
+    o.conditionnement_lot,
+    o.est_accessoire,
+    o.est_courant_continu,
     o.recherche_norm
 """
+
+# Correspondance entre les attributs extraits d'une requete et les
+# colonnes de supplier_offers. La cle "pdc" du module d'analyse porte un
+# nom court ; la colonne s'appelle pouvoir_coupure.
+COLONNES_ATTRIBUTS = {
+    "calibre": "calibre",
+    "courbe": "courbe",
+    "poles": "poles",
+    "pdc": "pouvoir_coupure",
+    "sensibilite": "sensibilite",
+    "section": "section",
+    "puissance": "puissance",
+    "temperature": "temperature",
+}
 
 
 def normalise(texte: str) -> str:
@@ -116,7 +142,35 @@ def _conditions(requete: str) -> tuple[list[str], dict, list[dict]]:
     parametres: dict = {}
     reconnus: list[dict] = []
 
+    # Termes deja pris en charge par une COLONNE d'attribut. Ils ne
+    # doivent pas etre exiges EN PLUS comme texte litteral.
+    #
+    # MESURE : sur "disjoncteur 16A courbe C 1P+N", exiger le mot
+    # "courbe" dans le libelle fait perdre 32 articles pourtant exacts,
+    # ecrits "CrbC" ou "Crb C" :
+    #
+    #   "Acti9 iDD40T - Disjoncteur dif. - 1P+N 16A - CrbC - 4500A/6kA"
+    #   "Acti9 iDT40N XA - Disjoncteur modulaire - 1P+N - 16A - Crb C"
+    #
+    # La colonne courbe vaut bien "courbe C" pour ces lignes : l'analyse
+    # du libelle a reconnu l'abreviation. Le filtre texte, lui, ne voit
+    # que les caracteres. Doubler le filtre revient donc a annuler le
+    # travail de normalisation.
+    attributs_requete = designation_canonique.attributs_recherche(requete)
+    couverts = set()
+    if attributs_requete:
+        for libelle_terme, _ in termes:
+            trouves = designation_canonique.attributs_recherche(libelle_terme)
+            if trouves and all(
+                    attributs_requete.get(cle) == valeur
+                    for cle, valeur in trouves.items()):
+                couverts.add(libelle_terme)
+
     for i, (libelle_terme, alternatives) in enumerate(termes):
+        if libelle_terme in couverts:
+            # Le filtre s'applique deja via (colonne IS NULL OR colonne
+            # = valeur), qui est plus juste ET indexable.
+            continue
         morceaux = []
         for j, motif in enumerate(alternatives):
             cle = f"m{i}_{j}"
@@ -138,6 +192,88 @@ def _conditions(requete: str) -> tuple[list[str], dict, list[dict]]:
             reconnus.append({"saisi": libelle_terme, "equivalences": clair})
 
     return conditions, parametres, reconnus
+
+
+def _conditions_attributs(requete: str) -> tuple[list[str], str, dict, dict]:
+    """Traduit les PRECISIONS de la requete en SQL.
+
+    LA REGLE EST LA CONTRADICTION, JAMAIS LA RESSEMBLANCE
+    ------------------------------------------------------
+    Elle s'ecrit directement en SQL :
+
+        AND (o.calibre IS NULL OR o.calibre = '16A')
+
+    Un libelle qui ne mentionne aucun calibre passe (IS NULL) : l'absence
+    n'est pas une contradiction, et le calibre peut figurer dans une
+    autre colonne ou dans la fiche produit. Un libelle qui annonce 20A
+    est ecarte.
+
+    Mesure sur les 26 860 libelles de disjoncteur du catalogue reel :
+      "disjoncteur"                 26 860 retenus -- rappel 100 %
+      "disjoncteur 16A"                862 exacts, 13 190 muets,
+                                    12 808 ecartes, ZERO fuite
+      "disjoncteur 16A courbe C 1P+N"   92 exacts, 460 partiels
+
+    POURQUOI UN CLASSEMENT EN PLUS DU FILTRE
+    -----------------------------------------
+    "disjoncteur 16A" laisse passer 14 052 lignes dont 862 seulement
+    annoncent 16A. Les ecarter perdrait de vrais articles ; les afficher
+    a plat revient a ne pas filtrer. On compte donc les attributs
+    CONFIRMES pour trier : les correspondances exactes remontent, les
+    libelles muets suivent.
+
+    SECURITE : les valeurs voyagent en parametres lies. Seuls les NOMS
+    de colonnes sont interpoles, et ils proviennent exclusivement de
+    COLONNES_ATTRIBUTS -- jamais de la requete utilisateur.
+    """
+    exiges = designation_canonique.attributs_recherche(requete)
+    conditions: list[str] = []
+    parametres: dict = {}
+    confirmes: list[str] = []
+    exiges_clairs: dict = {}
+
+    for cle, valeur in exiges.items():
+        colonne = COLONNES_ATTRIBUTS.get(cle)
+        if not colonne:
+            continue
+        param = f"att_{colonne}"
+        conditions.append(
+            f"(o.{colonne} IS NULL OR o.{colonne} = :{param})")
+        confirmes.append(
+            f"(CASE WHEN o.{colonne} = :{param} THEN 1 ELSE 0 END)")
+        parametres[param] = valeur
+        exiges_clairs[colonne] = valeur
+
+    # Expression de tri : nombre d'attributs confirmes par la ligne.
+    expression = " + ".join(confirmes) if confirmes else "0"
+    return conditions, expression, parametres, exiges_clairs
+
+
+def _niveau(ligne: dict, exiges: dict) -> dict:
+    """Qualifie la correspondance d'une ligne, pour l'affichage.
+
+    exact       tous les attributs precises sont presents et egaux
+    partiel     certains confirmes, les autres muets
+    non precise aucun attribut precise n'est mentionne
+    """
+    if not exiges:
+        return {"niveau": "exact", "confirmes": [], "muets": []}
+
+    confirmes, muets = [], []
+    for colonne, valeur in exiges.items():
+        presente = ligne.get(colonne)
+        if presente is None or presente == "":
+            muets.append(colonne)
+        elif presente == valeur:
+            confirmes.append(colonne)
+
+    if not confirmes:
+        niveau = "non precise"
+    elif muets:
+        niveau = "partiel"
+    else:
+        niveau = "exact"
+    return {"niveau": niveau, "confirmes": confirmes, "muets": muets}
 
 
 def _separe_qualifiants(lignes: list[dict], requete: str):
@@ -273,6 +409,14 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     if not conditions:
         raise ValueError("La requête ne contient aucun terme exploitable.")
 
+    # Precisions techniques de la requete : "16A", "courbe C", "1P+N".
+    # Elles ECARTENT les articles qui annoncent une autre valeur, et
+    # servent a classer les autres. Un libelle muet n'est pas ecarte.
+    cond_attrs, expr_confirmes, params_attrs, exiges = _conditions_attributs(
+        requete)
+    conditions.extend(cond_attrs)
+    parametres.update(params_attrs)
+
     # CEINTURE ET BRETELLES -- le filtre tenant_id est EXPLICITE en plus
     # de RLS, et ce n'est pas une redondance inutile.
     #
@@ -301,7 +445,8 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     parametres["tenant_id"] = tenant
 
     sql = text(f"""
-        SELECT {CHAMPS}
+        SELECT {CHAMPS},
+               ({expr_confirmes}) AS attributs_confirmes
         FROM blueseatra.supplier_offers o
         LEFT JOIN blueseatra.suppliers f
                ON f.id = o.supplier_id
@@ -319,12 +464,26 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
           -- de prix reste consultable.
           AND o.is_active = true
           AND {' AND '.join(conditions)}
-        ORDER BY o.price_ht ASC NULLS LAST
+        -- Les correspondances EXACTES d'abord, le prix ensuite.
+        -- Trier par prix seul ferait remonter un article muet a 3 EUR
+        -- devant le vrai 16A a 6,83 EUR : le moins cher n'est utile que
+        -- s'il correspond a la demande.
+        ORDER BY attributs_confirmes DESC,
+                 o.price_ht ASC NULLS LAST
     """)
 
     async with tenant_session() as session:
         resultat = await session.execute(sql, parametres)
         lignes = [dict(r) for r in resultat.mappings().all()]
+
+    # Niveau de correspondance, pour que l'ecran puisse masquer les
+    # libelles muets sans les avoir perdus.
+    for ligne in lignes:
+        ligne.update(_niveau(ligne, exiges))
+        # La designation recomposee prime a l'affichage, mais le libelle
+        # fournisseur reste expose : c'est lui qui figure sur le devis.
+        ligne["designation_affichee"] = (
+            ligne.get("designation_courte") or ligne.get("designation"))
 
     total = len(lignes)
 
