@@ -69,8 +69,31 @@ def _build_where(model, flt):
     for key, val in (flt or {}).items():
         col = getattr(model, key, None)
         if col is None:
-            logger.warning("_build_where: column '%s' not found on %s — skipped", key, model.__tablename__)
-            continue
+            # SECURITE (2026-09-12) : ceci levait autrefois un simple
+            # logger.warning() suivi d'un `continue`, donc la condition etait
+            # SILENCIEUSEMENT retiree du filtre.
+            #
+            # Consequence : une faute de frappe ('tenantId', 'tenant'), ou le
+            # renommage d'une colonne sans mise a jour des appelants, retirait
+            # le filtre de cloisonnement et la requete renvoyait les lignes de
+            # TOUS LES TENANTS -- sans erreur, sans trace, avec un HTTP 200.
+            # Si toutes les cles etaient inconnues, le `return ... else true()`
+            # plus bas renvoyait la table entiere.
+            #
+            # Un WARNING dans les logs n'est pas un mecanisme de securite :
+            # personne ne lit les warnings d'une application en production.
+            # On echoue donc bruyamment plutot que de fuir en silence.
+            #
+            # Verifie avant activation : les 110 filtres litteraux de server.py
+            # et son unique filtre dynamique (L1300) n'utilisent que des
+            # colonnes reelles. Ce durcissement ne change donc rien pour le
+            # code correct.
+            raise ValueError(
+                f"_build_where: colonne '{key}' inconnue sur "
+                f"{model.__tablename__}. Filtre refuse : un filtre partiel "
+                f"peut exposer les donnees d'autres tenants. "
+                f"Colonnes valides : {sorted(_cols(model))}"
+            )
         if isinstance(val, dict):
             if "$in" in val:
                 conds.append(col.in_(val["$in"]))
