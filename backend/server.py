@@ -25,6 +25,7 @@ import ai_service
 import matching as match_engine
 import quote_scenarios
 import pdf_service
+import fournisseur_recherche
 import mcp_bridge
 from database import set_current_tenant, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -2009,6 +2010,64 @@ async def health():
     """
     commit = os.environ.get("RENDER_GIT_COMMIT", "unknown")
     return {"status": "healthy", "commit": commit[:7] if commit != "unknown" else commit}
+
+
+# ===========================================================================
+# FOURNISSEURS -- recherche et comparaison de prix
+# ===========================================================================
+# Ces endpoints ne suivent PAS le modele de /catalog/search, qui charge le
+# catalogue actif en memoire puis filtre en Python. Acceptable pour les 712
+# lignes de pricing_items, impossible pour un catalogue fournisseurs
+# consolide de 914 628 offres : la memoire du service y passerait. Tout se
+# fait donc en SQL, sur la colonne generee recherche_norm et son index
+# trigramme (migration 20260912070000).
+
+@api.get("/fournisseurs/recherche")
+async def fournisseurs_recherche(
+    q: str = Query("", description="Requête libre du chiffreur"),
+    limite: int = Query(fournisseur_recherche.LIMITE_DEFAUT, ge=1,
+                        le=fournisseur_recherche.LIMITE_MAX),
+    inclure_qualifiants: bool = Query(
+        False,
+        description="Réintègre les produits d'une autre nature "
+                    "(différentiel, reconditionné, lot...)"),
+    cu: CurrentUser = Depends(get_current),
+):
+    """Recherche par inclusion, avec comparaison entre fournisseurs.
+
+    GARANTIE : tout produit contenant les termes demandés est renvoyé,
+    même si son libellé en contient davantage. La pertinence trie, elle
+    ne filtre jamais.
+
+    Les produits d'une autre nature ne sont pas supprimés mais isolés
+    dans `qualifiants_isoles`, comptés et récupérables via
+    `inclure_qualifiants=true`. Mesure qui l'a motivé : sur
+    "disjoncteur 16a courbe c ph+n", 85 des 174 résultats étaient des
+    différentiels à 189,90 EUR de médiane contre 6,83 EUR pour le moins
+    cher des simples -- la comparaison affichée était fausse.
+
+    Le tenant n'est pas filtré à la main : `tenant_session()` émet
+    `app.tenant_id` et RLS cloisonne. Dupliquer le filtre donnerait
+    l'illusion d'une protection et masquerait une défaillance de la
+    politique.
+    """
+    try:
+        return await fournisseur_recherche.recherche(
+            q, limite=limite, inclure_qualifiants=inclure_qualifiants)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@api.get("/fournisseurs/liste")
+async def fournisseurs_liste(cu: CurrentUser = Depends(get_current)):
+    """Fournisseurs du tenant, avec volumétrie et qualité des données.
+
+    Le taux d'EAN renseigné n'est pas décoratif : il indique à quel point
+    les offres d'un fournisseur sont rapprochables. Mesuré sur le
+    catalogue consolidé : Rexel 77,8 %, Point.P 93,8 %, et zéro chez
+    Prolians, La Plateforme et SFIC.
+    """
+    return await fournisseur_recherche.liste_fournisseurs()
 
 
 app.include_router(api)
