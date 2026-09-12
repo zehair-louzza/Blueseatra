@@ -73,8 +73,22 @@ envVarGroups:
         value: "9171d808-f7ee-4d51-92f6-db60d93d8ecc"
 
       # --- Schema PostgreSQL ---
+      # 2026-09-12 : CORRECTIF. Cette cle valait `public`, ce qui ne
+      # correspond PAS a la realite : les 14 tables applicatives vivent dans
+      # le schema dedie `blueseatra` (8 tenants, 712 pricing_items, 44 devis),
+      # et `backend/database.py` a pour defaut `blueseatra`.
+      #
+      # Le schema `public` ne contenait qu'un clone VIDE des 14 memes tables,
+      # vestige d'une creation anterieure (supprime le 2026-09-12).
+      #
+      # Consequence si on laissait `public` : toute resynchronisation du
+      # blueprint Render appliquait DB_SCHEMA=public, le search_path pointait
+      # vers le clone vide, et l'API repondait `healthy` en renvoyant ZERO
+      # donnee -- sans une seule erreur dans les logs. Panne silencieuse.
+      #
+      # Ne jamais remettre `public` ici. Voir backend/database.py.
       - key: DB_SCHEMA
-        value: public
+        value: blueseatra
 
       # --- Python env ---
       - key: PYTHON_VERSION
