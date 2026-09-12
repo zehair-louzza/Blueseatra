@@ -1,6 +1,28 @@
+> # ⚠️ DOCUMENT PÉRIMÉ — CONSERVÉ POUR HISTORIQUE UNIQUEMENT
+>
+> **Mis à jour le 12 septembre 2026.** La migration décrite ci-dessous est
+> **TERMINÉE**. Le blocage « `DATABASE_URL` est vide » a été résolu et la
+> production tourne sur Supabase/PostgreSQL depuis.
+>
+> État vérifié le 12/09/2026 dans le schéma **`blueseatra`** du projet
+> `xmsxlochasjauhnxarvc` : 8 `tenants`, 8 `users`, 11 `catalogs`,
+> 8 `catalog_versions`, **712 `pricing_items`**, 32 `requests`, 44 `quotes`,
+> 14 `quote_versions`, 3 `import_jobs`, 2 `company_profiles`.
+>
+> `server.py` utilise `PGDatabase` (`pg_adapter`) et ne contient plus aucune
+> référence à `MONGO_URL` ni à `AsyncIOMotorClient`.
+>
+> **Attention au piège de ce fichier :** lu tel quel, il fait conclure à tort
+> que la production est encore sur MongoDB et que les tables sont vides —
+> parce que les tables ne sont PAS dans `public` mais dans le schéma dédié
+> `blueseatra`. Ce fichier a déjà induit un diagnostic erroné le 12/09/2026.
+> Pour l'état réel, se référer à `backend/database.py` (`DB_SCHEMA`).
+
+---
+
 # Migration MongoDB → Supabase (PostgreSQL)
 
-## État actuel
+## État actuel (historique, au moment de la rédaction — NE REFLÈTE PLUS LA RÉALITÉ)
 - ✅ Dépendances installées : `sqlalchemy[asyncio]`, `asyncpg`, `alembic`, `psycopg2-binary`.
 - ✅ `backend/database.py` : moteur async + session (lit `DATABASE_URL`).
 - ✅ `backend/models_sql.py` : 14 modèles SQLAlchemy (JSONB pour les champs dynamiques : `attributes`, `lines`, `meta`, `snapshot`, …).
