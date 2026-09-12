@@ -167,12 +167,46 @@ TYPES = [
 TYPES_COMPILES = [(nom, re.compile(motif)) for nom, motif in TYPES]
 
 
+# Un article DESTINE a un appareil n'est pas cet appareil. Mesure sur
+# une recherche reelle "disjoncteur" triee par prix : les quatre offres
+# les moins cheres etaient
+#
+#   2,95 EUR  "systeme repiquage universel POUR disjoncteur"
+#   3,58 EUR  "cache borne 1 pole POUR disjoncteur modulaire"
+#   4,58 EUR  "Peigne 1P disjoncteur S200C 13x1P"
+#   7,60 EUR  "Borne de raccordement POUR disjoncteur 1P+N"
+#
+# aucune n'etant un disjoncteur. Le "moins cher" annonce au chiffreur
+# etait donc un accessoire a 2,95 EUR au lieu d'un disjoncteur a
+# 5,99 EUR.
+RE_POUR = re.compile(r"\b(?:pour|destine a|adapte a|compatible)\b")
+
+
 def detecte_type(plat: str) -> str | None:
-    """Premier type reconnu, du plus specifique au plus general."""
-    for nom, motif in TYPES_COMPILES:
-        if motif.search(plat):
-            return nom
-    return None
+    """Type du produit, determine par le MOT DE TETE du libelle.
+
+    POURQUOI LA POSITION DANS LE LIBELLE, ET PAS L'ORDRE DE MA LISTE
+    -----------------------------------------------------------------
+    Une premiere version renvoyait le premier type reconnu dans l'ordre
+    de TYPES. "Peigne 1P disjoncteur S200C" etait donc classe
+    "disjoncteur", parce que disjoncteur figure avant peigne dans ma
+    liste -- alors que le libelle annonce un peigne des son premier mot.
+
+    En francais, le premier nom d'un libelle est le nom principal :
+    "peigne ... disjoncteur" designe un peigne, "disjoncteur ...
+    modulaire" designe un disjoncteur. On retient donc le type dont la
+    correspondance apparait le PLUS TOT dans le libelle.
+
+    A position egale, l'ordre de TYPES tranche -- il place les types
+    specifiques avant les generiques, ce qui garde "disjoncteur
+    differentiel" devant "disjoncteur".
+    """
+    meilleur = None
+    for rang, (nom, motif) in enumerate(TYPES_COMPILES):
+        m = motif.search(plat)
+        if m and (meilleur is None or m.start() < meilleur[0]):
+            meilleur = (m.start(), rang, nom)
+    return meilleur[2] if meilleur else None
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +351,24 @@ def qualifiants(libelle: str) -> dict:
 
     if RE_ACCESSOIRE.search(plat):
         q["accessoire"] = True
+
+    # "pour disjoncteur", "adapte a un coffret" : l'article est DESTINE a
+    # l'appareil, il n'est pas l'appareil. Sans cette regle, un systeme
+    # de repiquage a 2,95 EUR etait annonce comme le disjoncteur le
+    # moins cher.
+    m = RE_POUR.search(plat)
+    if m:
+        avant = detecte_type(plat[:m.start()])
+        apres = detecte_type(plat[m.end():])
+        if apres:
+            q["destine_a"] = apres
+            # Accessoire SEULEMENT si rien d'identifiable ne precede le
+            # "pour". "Coffret 13 modules pour disjoncteur" est un
+            # coffret -- un produit a part entiere, decrit par son
+            # usage. "Systeme repiquage universel pour disjoncteur" n'a
+            # aucun type avant le "pour" : c'est bien un accessoire.
+            if not avant:
+                q["accessoire"] = True
 
     if re.search(r"\bdc\b|\bcourant\s+continu\b|\bphotovoltaique\b", plat):
         q["courant_continu"] = True

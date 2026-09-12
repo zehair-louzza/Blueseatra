@@ -396,6 +396,64 @@ def _criteres_a_affiner(lignes: list[dict], requete: str) -> list[dict]:
 
 # --- point d'entree -----------------------------------------------------
 
+def meilleurs_par_fournisseur(lignes: list[dict]) -> dict[str, dict]:
+    """Le moins cher chez chaque fournisseur : la vue de negociation.
+
+    FONCTION PURE, volontairement. Elle etait ecrite en ligne dans
+    recherche(), donc intestable sans base : le seul test possible
+    verifiait la PRESENCE d'un bout de code dans le fichier. Une
+    mutation `if False and ligne.get("est_accessoire")` passait ce test
+    sans probleme, la chaine cherchee etant toujours la.
+
+    DEUX REGLES, ET ELLES PRIMENT TOUTES DEUX SUR LE PRIX
+    ------------------------------------------------------
+    1. Un ACCESSOIRE n'est jamais le "moins cher" de l'appareil.
+       Mesure sur une recherche reelle "disjoncteur" triee par prix, les
+       quatre premieres offres renvoyees par la base etaient :
+         2,95 EUR  "systeme repiquage universel POUR disjoncteur"
+         3,58 EUR  "cache borne 1 pole POUR disjoncteur modulaire"
+         4,58 EUR  "Peigne 1P disjoncteur S200C"
+         7,60 EUR  "Borne de raccordement POUR disjoncteur"
+       Aucune n'est un disjoncteur ; le premier vrai etait a 5,99 EUR.
+       Annoncer 2,95 EUR fausse le chiffrage d'un facteur deux.
+
+    2. Le NIVEAU de correspondance prime sur le prix. Un article "non
+       precise" a 3,20 EUR ne doit pas passer devant un "exact" a
+       6,83 EUR : le premier ne confirme pas le calibre demande.
+
+    Les articles ecartes restent VISIBLES dans la liste des resultats,
+    signales. Seul ce panneau les ignore.
+    """
+    meilleurs: dict[str, dict] = {}
+    for ligne in lignes:
+        prix = ligne.get("prix_net_ht")
+        nom = ligne.get("fournisseur") or "inconnu"
+        if prix is None or prix <= 0:
+            continue
+        if ligne.get("est_accessoire"):
+            continue
+        rang = RANG_NIVEAU.get(ligne.get("niveau", "exact"), 9)
+        connu = meilleurs.get(nom)
+        if connu is not None:
+            rang_connu = RANG_NIVEAU.get(connu.get("niveau", "exact"), 9)
+            if rang > rang_connu:
+                continue
+            if rang == rang_connu and prix >= connu["prix_net_ht"]:
+                continue
+        meilleurs[nom] = {
+            "fournisseur": nom,
+            "niveau": ligne.get("niveau", "exact"),
+            "prix_net_ht": round(prix, 2),
+            "designation": ligne.get("designation_affichee")
+                           or ligne.get("designation"),
+            "reference": ligne.get("reference_fournisseur")
+                         or ligne.get("reference_fabricant"),
+            "unite_vente": ligne.get("unite_vente"),
+            "id": ligne.get("id"),
+        }
+    return meilleurs
+
+
 async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
                     inclure_qualifiants: bool = False) -> dict:
     """Recherche par inclusion, avec comparaison entre fournisseurs.
@@ -511,41 +569,10 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
             "ecart_pct": round(100 * (haut - bas) / bas) if bas > 0 else 0,
         }
 
-    # Le moins cher chez chaque fournisseur : la vue de negociation.
-    #
-    # LE NIVEAU PRIME SUR LE PRIX.
-    # Un article "non precise" a 3,20 EUR ne doit pas etre annonce comme
-    # la meilleure offre Rexel quand un article "exact" existe a
-    # 6,83 EUR : le premier ne confirme pas le calibre demande. Annoncer
-    # un prix pour un article qui ne correspond peut-etre pas, c'est
-    # exactement ce qui fausse un chiffrage.
-    #
-    # On ne compare donc les prix qu'a NIVEAU EGAL, en retenant le
-    # meilleur niveau disponible chez chaque fournisseur.
-    meilleurs: dict[str, dict] = {}
-    for ligne in retenus:
-        p = ligne.get("prix_net_ht")
-        nom = ligne.get("fournisseur") or "inconnu"
-        if p is None or p <= 0:
-            continue
-        rang = RANG_NIVEAU.get(ligne.get("niveau", "exact"), 9)
-        connu = meilleurs.get(nom)
-        if connu is not None:
-            rang_connu = RANG_NIVEAU.get(connu.get("niveau", "exact"), 9)
-            # Un niveau moins bon ne remplace jamais un meilleur, meme
-            # moins cher.
-            if rang > rang_connu:
-                continue
-            if rang == rang_connu and p >= connu["prix_net_ht"]:
-                continue
-        if True:
-            meilleurs[nom] = {
-                "fournisseur": nom,
-                "niveau": ligne.get("niveau", "exact"),
-                "prix_net_ht": round(p, 2),
-                "designation": ligne.get("designation"),
-                "id": ligne.get("id"),
-            }
+    meilleurs = meilleurs_par_fournisseur(retenus)
+
+    criteres = _criteres_a_affiner(retenus, requete)
+
 
     for ligne in retenus:
         ligne.pop("recherche_norm", None)
