@@ -310,3 +310,67 @@ def test_ancien_nom_detecte_et_signale():
         "L'avertissement sur DATABASE_URL_AUTH doit dire explicitement "
         "que la variable est ignoree."
     )
+
+
+# ---------------------------------------------------------------------------
+# get_db() : dependance sans contexte tenant, doit rester inutilisee
+# ---------------------------------------------------------------------------
+
+def test_get_db_echoue_bruyamment():
+    """get_db() ne doit jamais rendre une session sans app.tenant_id.
+
+    Sous RLS, une requete sans contexte tenant renvoie zero ligne SANS
+    erreur -- le pire mode de defaillance. Mesure le 12/09/2026 : les 11
+    tables metier renvoyaient 0 ligne au lieu de 639.
+    """
+    import asyncio
+
+    async def consomme():
+        async for _ in db_mod.get_db():
+            return "une session a ete rendue"
+        return "generateur vide"
+
+    try:
+        resultat = asyncio.run(consomme())
+    except RuntimeError as e:
+        msg = str(e)
+        assert "app.tenant_id" in msg, (
+            "Le message d'erreur doit expliquer la cause (app.tenant_id "
+            f"absent), or il dit : {msg}"
+        )
+        assert "tenant_session" in msg, (
+            "Le message doit indiquer l'alternative a utiliser."
+        )
+        return
+    raise AssertionError(
+        f"get_db() n'a pas leve RuntimeError : {resultat}. Elle rendrait "
+        "une session sans contexte tenant, donc des resultats vides "
+        "silencieux sous RLS."
+    )
+
+
+def test_get_db_n_est_utilisee_nulle_part():
+    """Aucun endpoint ne doit dependre de get_db().
+
+    Si ce test echoue, c'est qu'un endpoint vient d'etre branche sur une
+    session sans contexte tenant -- il renverra des listes vides en
+    production sans lever d'erreur.
+    """
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parent.parent
+    coupables = []
+    for fichier in backend.rglob("*.py"):
+        if "tests_security" in str(fichier) or fichier.name == "database.py":
+            continue
+        txt = fichier.read_text(encoding="utf-8", errors="ignore")
+        if re.search(r"Depends\(\s*get_db\s*\)|=\s*get_db\b|\bget_db\(\)", txt):
+            coupables.append(fichier.name)
+
+    assert not coupables, (
+        f"get_db() est referencee dans : {', '.join(coupables)}. "
+        "Cette dependance ne positionne pas app.tenant_id : sous RLS elle "
+        "renvoie zero ligne sans erreur. Utiliser tenant_session(), "
+        "auth_session() ou system_context()."
+    )

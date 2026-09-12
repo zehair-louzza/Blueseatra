@@ -194,17 +194,42 @@ if DATABASE_URL:
 
 
 async def get_db():
-    """FastAPI dependency yielding an async DB session."""
-    if AsyncSessionLocal is None:
-        raise RuntimeError("DATABASE_URL is not configured (Supabase not connected yet).")
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    """DESACTIVEE VOLONTAIREMENT -- ne pas reactiver telle quelle.
+
+    Cette dependance FastAPI rendait une session du moteur METIER SANS
+    positionner app.tenant_id. Elle n'est utilisee nulle part (verifie
+    par test), et elle doit le rester.
+
+    POURQUOI ELLE EST DANGEREUSE
+    ----------------------------
+    Depuis que le moteur metier tourne sous blueseatra_app (NOBYPASSRLS,
+    non proprietaire), RLS s'applique reellement. Or une requete sans
+    app.tenant_id ne leve AUCUNE erreur : elle renvoie simplement zero
+    ligne. Mesure le 12/09/2026 lors du pre-vol -- les 11 tables metier
+    renvoyaient 0 ligne, alors qu'elles contiennent 639 lignes pour le
+    tenant teste.
+
+    Un endpoint qui utiliserait get_db() verrait donc des listes vides,
+    des "introuvable" sur des objets existants, et des INSERT rejetes
+    par la politique WITH CHECK -- sans trace d'erreur exploitable. Le
+    pire mode de defaillance possible.
+
+    QUOI UTILISER A LA PLACE
+    ------------------------
+      - tenant_session()  : chemin metier, emet app.tenant_id ;
+      - auth_session()    : users / tenants / tenant_users ;
+      - system_context()  : balayage transverse assume, tous tenants.
+
+    En pratique, passer par PGDatabase (pg_adapter) qui route seul.
+    """
+    raise RuntimeError(
+        "get_db() est desactivee : elle ne positionne pas app.tenant_id, "
+        "donc sous RLS elle renvoie silencieusement zero ligne. Utiliser "
+        "tenant_session() pour le metier, auth_session() pour "
+        "users/tenants/tenant_users, ou system_context() pour un "
+        "balayage transverse assume. Voir la docstring."
+    )
+    yield  # pragma: no cover -- conserve la signature de generateur
 
 
 # ===========================================================================
