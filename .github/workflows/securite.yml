@@ -1,0 +1,175 @@
+name: Sécurité
+
+# Garde-fous qui doivent BLOQUER une fusion. Volontairement rapides et sans
+# dépendance externe : un contrôle de sécurité lent ou instable finit
+# désactivé, et un contrôle désactivé ne protège rien.
+#
+# N'installe PAS backend/requirements.txt (≈130 paquets, dont une wheel
+# litellm hébergée sur customer-assets.emergentagent.com — point de panne
+# unique hors de notre contrôle). Seules les dépendances réellement
+# nécessaires à l'import de pg_adapter / models_sql sont installées, avec
+# les mêmes versions épinglées que requirements.txt.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Annule les exécutions obsolètes sur une même branche.
+concurrency:
+  group: securite-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  isolation-tenants:
+    name: Isolation inter-tenants
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          # Aligné sur render.yaml (PYTHON_VERSION 3.11.0).
+          python-version: '3.11'
+          cache: pip
+
+      - name: Dépendances minimales
+        run: |
+          python -m pip install --upgrade pip
+          # Versions identiques a backend/requirements.txt.
+          pip install \
+            "SQLAlchemy==2.0.51" \
+            "python-dotenv==1.2.2" \
+            "pytest==9.1.1" \
+            "requests==2.34.2"
+
+      # Sans ce garde-fou, supprimer ou vider tests_security/ suffirait a
+      # rendre la CI verte. Un controle de securite doit aussi se proteger
+      # lui-meme.
+      - name: Les tests de sécurité existent toujours
+        run: |
+          set -euo pipefail
+          for f in \
+            backend/tests_security/test_build_where_strict.py \
+            backend/tests_security/test_tenant_isolation_static.py \
+            backend/tests_security/test_tenant_isolation_live.py ; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Fichier de securite manquant : $f"
+              echo "Supprimer un test d'isolation doit etre un acte explicite et relu."
+              exit 1
+            fi
+          done
+          echo "Les 3 fichiers de securite sont presents."
+
+      - name: Tests d'isolation
+        working-directory: backend
+        run: python -m pytest tests_security/ -v --tb=short
+
+      # Verifie que la suite n'a pas ete silencieusement videe de sa
+      # substance (tests supprimes un a un, ou tous marques skip).
+      - name: Couverture minimale de la suite
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          COLLECTES=$(python -m pytest tests_security/ --collect-only -q 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)
+          echo "Tests collectes : ${COLLECTES}"
+          # 40 = 30 executables + 10 tests live ignores faute d'identifiants.
+          if [ "${COLLECTES:-0}" -lt 35 ]; then
+            echo "::error::Seulement ${COLLECTES} tests collectes (attendu >= 35)."
+            echo "La suite de securite a-t-elle ete videe ?"
+            exit 1
+          fi
+
+  garde-db-schema:
+    name: DB_SCHEMA ne doit jamais valoir public
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    # Regression guard pour l'incident du 12/09/2026 : render.yaml declarait
+    # DB_SCHEMA=public alors que les 14 tables applicatives vivent dans le
+    # schema dedie `blueseatra`. Le schema `public` ne contenait qu'un clone
+    # VIDE. Toute resynchronisation du blueprint Render aurait pointe la
+    # production vers ce clone : l'API aurait repondu `healthy` en renvoyant
+    # ZERO donnee, sans une seule erreur dans les logs.
+    #
+    # Panne silencieuse, tres couteuse a diagnostiquer, et dont le risque
+    # etait deja signale dans nos rapports internes sans avoir ete corrige.
+    # Ce controle garantit qu'elle ne peut pas revenir.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Dépendance YAML
+        run: pip install "PyYAML==6.0.3"
+
+      - name: Vérifier render.yaml
+        run: |
+          python - <<'PY'
+          import sys, yaml
+
+          with open("render.yaml", encoding="utf-8") as fh:
+              blueprint = yaml.safe_load(fh)
+
+          ATTENDU = "blueseatra"
+          erreurs = []
+          trouve = False
+
+          def controler(paires, origine):
+              global trouve
+              for paire in paires or []:
+                  if paire.get("key") != "DB_SCHEMA":
+                      continue
+                  trouve = True
+                  valeur = paire.get("value")
+                  if valeur is None:
+                      continue  # renseigne dans le dashboard Render
+                  if valeur != ATTENDU:
+                      erreurs.append(
+                          f"{origine} : DB_SCHEMA={valeur!r}, attendu {ATTENDU!r}"
+                      )
+
+          for groupe in blueprint.get("envVarGroups") or []:
+              controler(groupe.get("envVars"), f"envVarGroups/{groupe.get('name')}")
+
+          for service in blueprint.get("services") or []:
+              controler(service.get("envVars"), f"services/{service.get('name')}")
+
+          if not trouve:
+              erreurs.append(
+                  "Aucune cle DB_SCHEMA dans render.yaml. Le defaut de "
+                  "backend/database.py ('blueseatra') s'appliquerait, mais "
+                  "l'omission doit etre un choix explicite : le rendre visible."
+              )
+
+          if erreurs:
+              for e in erreurs:
+                  print(f"::error::{e}")
+              print()
+              print("Les 14 tables applicatives vivent dans le schema 'blueseatra'.")
+              print("Pointer DB_SCHEMA vers 'public' ferait repondre l'API "
+                    "'healthy' en renvoyant ZERO donnee, sans erreur dans les logs.")
+              print("Voir render.yaml et backend/database.py.")
+              sys.exit(1)
+
+          print(f"render.yaml : DB_SCHEMA={ATTENDU!r}. Conforme.")
+          PY
+
+      - name: Le défaut du code reste blueseatra
+        run: |
+          set -euo pipefail
+          if ! grep -qE "os\.environ\.get\('DB_SCHEMA',\s*'blueseatra'\)" backend/database.py; then
+            echo "::error::Le defaut DB_SCHEMA de backend/database.py n'est plus 'blueseatra'."
+            echo "C'est le dernier filet si la variable d'environnement disparait."
+            exit 1
+          fi
+          echo "backend/database.py : defaut 'blueseatra'. Conforme."
