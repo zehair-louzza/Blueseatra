@@ -306,20 +306,43 @@ async def tenant_session():
     pooler de transactions Supabase (port 6543) rend ce point encore plus
     critique.
 
-    Absence de tenant : aucune valeur n'est emise. Ce n'est pas un oubli mais
-    le cas des operations SYSTEME -- _requeue_stuck_on_startup au demarrage,
-    ou l'authentification qui doit lire `users` AVANT de connaitre le tenant.
-    Voir le plan de l'etape 3 pour le traitement de ces chemins.
+    ABSENCE DE TENANT = ERREUR, ET C'EST DELIBERE
+    ---------------------------------------------
+    La version precedente de cette fonction n'emettait RIEN quand le
+    tenant etait inconnu, puis continuait. Sous `postgres` (BYPASSRLS,
+    proprietaire des tables) c'etait inoffensif : la requete voyait tout.
+
+    Sous blueseatra_app, RLS s'applique reellement, et une requete sans
+    app.tenant_id ne leve AUCUNE erreur -- elle renvoie zero ligne. Le
+    12/09/2026, la bascule a produit une liste de devis VIDE via le
+    routeur MCP : pas d'erreur, pas de log, juste des donnees disparues.
+    Le pire mode de defaillance possible, et impossible a distinguer
+    d'un tenant reellement vide.
+
+    Cette fonction refuse donc desormais de travailler sans contexte.
+    Un chemin transverse assume doit le declarer explicitement via
+    system_context() -- il est alors route vers le moteur AUTH et cette
+    verification ne s'applique pas.
     """
     if AsyncSessionLocal is None:
         raise RuntimeError("DATABASE_URL is not configured (Supabase not connected yet).")
+
+    tenant_id = _tenant_ctx.get()
+    if not tenant_id:
+        raise RuntimeError(
+            "tenant_session() appelee sans tenant courant. Sous RLS cette "
+            "requete renverrait zero ligne SANS erreur, ce qui est "
+            "indetectable. Corriger l'appelant : set_current_tenant(tid) "
+            "ou async with tenant_context(tid). Si l'operation est "
+            "volontairement transverse a tous les tenants, la declarer "
+            "avec system_context() / @with_system_context."
+        )
+
     async with AsyncSessionLocal() as session:
-        tenant_id = _tenant_ctx.get()
-        if tenant_id:
-            # Emis AVANT toute requete : set_config ouvre la transaction et la
-            # valeur reste valide jusqu'au commit ou rollback, donc pour
-            # toutes les requetes de cette session.
-            await session.execute(_SET_TENANT, {"tenant_id": tenant_id})
+        # Emis AVANT toute requete : set_config ouvre la transaction et la
+        # valeur reste valide jusqu'au commit ou rollback, donc pour
+        # toutes les requetes de cette session.
+        await session.execute(_SET_TENANT, {"tenant_id": tenant_id})
         yield session
 
 

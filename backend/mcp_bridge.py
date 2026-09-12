@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 
+from database import set_current_tenant, system_context
 from pg_adapter import PGDatabase
 
 logger = logging.getLogger("blueseatra.mcp")
@@ -38,26 +39,68 @@ def _tenant_id() -> str:
 
 
 async def _ensure_tenant() -> str:
+    """Resout le tenant du pont MCP, puis PUBLIE le contexte pour la requete.
+
+    DEUX RESPONSABILITES, ET C'EST VOULU
+    ------------------------------------
+    Ce module filtrait deja chaque requete par tenant_id en SQL, ce qui
+    suffisait tant que le chemin metier tournait sous `postgres`
+    (BYPASSRLS). Mais il n'appelait jamais set_current_tenant(), donc
+    app.tenant_id restait vide cote base.
+
+    Le 12/09/2026, la bascule du moteur metier sur blueseatra_app a rendu
+    RLS contraignante : la politique exige app.tenant_id EN PLUS du
+    filtre applicatif. Resultat, blueseatra_list_quotes renvoyait une
+    liste VIDE -- sans erreur ni log, indistinguable d'un tenant vide.
+
+    Toutes les fonctions _tool_* appellent deja _ensure_tenant(). Publier
+    le contexte ICI garantit qu'aucune n'est oubliee, y compris les
+    futures. C'est le seul point a ne pas manquer.
+
+    LA DECOUVERTE EST UNE OPERATION TRANSVERSE
+    ------------------------------------------
+    Les lectures ci-dessous cherchent QUEL tenant utiliser : par
+    construction, elles ne peuvent pas disposer d'un contexte tenant.
+    Elles sont donc declarees system_context() -- balayage transverse
+    assume, route vers le moteur AUTH. Sans cette declaration,
+    tenant_session() les rejette desormais, et elle a raison.
+    """
     global _TENANT_CACHE
+
     env = (os.environ.get("MCP_TENANT_ID") or "").strip()
-    if env:
-        cat = await db.catalogs.find_one(
-            {"tenant_id": env, "active_version_id": {"$ne": None}}, {"_id": 0}
-        )
-        if cat:
-            _TENANT_CACHE = env
-            return env
-    if _TENANT_CACHE:
-        return _TENANT_CACHE
-    tenants = await db.tenants.find({}, {"_id": 0}).to_list(50)
-    for t in tenants:
-        if (t.get("name") or "") == "ANELEC Test":
-            _TENANT_CACHE = t["id"]
+
+    async with system_context():
+        if env:
+            cat = await db.catalogs.find_one(
+                {"tenant_id": env, "active_version_id": {"$ne": None}}, {"_id": 0}
+            )
+            if cat:
+                _TENANT_CACHE = env
+                set_current_tenant(env)
+                return env
+
+        if _TENANT_CACHE:
+            set_current_tenant(_TENANT_CACHE)
             return _TENANT_CACHE
-    cat = await db.catalogs.find_one({"active_version_id": {"$ne": None}}, {"_id": 0}, sort=[("created_at", -1)])
-    if cat and cat.get("tenant_id"):
-        _TENANT_CACHE = cat["tenant_id"]
-        return _TENANT_CACHE
+
+        tenants = await db.tenants.find({}, {"_id": 0}).to_list(50)
+        for t in tenants:
+            if (t.get("name") or "") == "ANELEC Test":
+                _TENANT_CACHE = t["id"]
+                set_current_tenant(_TENANT_CACHE)
+                return _TENANT_CACHE
+
+        cat = await db.catalogs.find_one(
+            {"active_version_id": {"$ne": None}}, {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+        if cat and cat.get("tenant_id"):
+            _TENANT_CACHE = cat["tenant_id"]
+            set_current_tenant(_TENANT_CACHE)
+            return _TENANT_CACHE
+
+    # Aucun tenant resolu : ne PAS publier de contexte vide. Les outils
+    # echoueront bruyamment plutot que de renvoyer un vide trompeur.
     return env
 
 
