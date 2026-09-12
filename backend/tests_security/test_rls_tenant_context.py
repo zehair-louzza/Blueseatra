@@ -150,18 +150,39 @@ def test_la_session_emet_le_tenant(session_factice):
     assert params == {"tenant_id": "tenant-a"}
 
 
-def test_la_session_n_emet_rien_sans_tenant(session_factice):
-    """Operations SYSTEME : demarrage, authentification avant resolution.
+def test_la_session_refuse_de_travailler_sans_tenant(session_factice):
+    """REGRESSION -- incident du 12/09/2026 : devis disparus en silence.
 
-    Ne rien emettre est le comportement voulu, pas un oubli.
+    Cette fonction n'emettait RIEN quand le tenant etait inconnu, puis
+    continuait. Sous `postgres` (BYPASSRLS) c'etait inoffensif. Sous
+    blueseatra_app, RLS s'applique : la requete renvoie zero ligne SANS
+    erreur. La bascule a produit une liste de devis vide via le routeur
+    MCP -- aucune erreur, aucun log, juste des donnees disparues.
+
+    Le contrat est donc inverse : sans tenant, on ECHOUE. Un chemin
+    volontairement transverse doit le declarer via system_context().
     """
     async def scenario():
         async with tenant_session() as s:
-            pass
-        return s
+            return s
 
-    s = asyncio.run(scenario())
-    assert s.executions == []
+    try:
+        asyncio.run(scenario())
+    except RuntimeError as e:
+        msg = str(e)
+        assert "zero ligne" in msg or "zero" in msg, (
+            f"Le message doit expliquer POURQUOI c'est grave, or : {msg}"
+        )
+        assert "system_context" in msg, (
+            "Le message doit indiquer l'echappatoire legitime pour les "
+            f"operations transverses, or : {msg}"
+        )
+        return
+    raise AssertionError(
+        "tenant_session() a accepte de travailler sans tenant. Sous RLS, "
+        "toutes les requetes de cette session renverraient zero ligne "
+        "sans lever d'erreur -- exactement l'incident du 12/09/2026."
+    )
 
 
 def test_le_reglage_est_local_a_la_transaction(session_factice):
@@ -331,4 +352,96 @@ def test_get_current_publie_le_tenant():
         "set_current_tenant() est appele AVANT le controle d'appartenance au "
         "tenant. L'ordre doit etre inverse : ne jamais declarer un tenant "
         "non prouve."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tout module touchant des tables metier doit etablir un contexte tenant
+# ---------------------------------------------------------------------------
+
+def test_tout_module_metier_etablit_un_contexte():
+    """REGRESSION -- incident du 12/09/2026 : mcp_bridge.py.
+
+    Ce module filtrait correctement chaque requete par tenant_id en SQL,
+    donc l'audit d'isolation statique le validait. Mais il n'appelait
+    jamais set_current_tenant(), donc app.tenant_id restait vide cote
+    base de donnees.
+
+    Tant que le chemin metier tournait sous `postgres` (BYPASSRLS), le
+    filtre applicatif suffisait. Des que RLS est devenue contraignante,
+    la politique a exige app.tenant_id EN PLUS du filtre : les outils
+    MCP ont renvoye des listes VIDES, sans erreur ni log.
+
+    Le filtre applicatif et le contexte RLS sont DEUX exigences
+    distinctes. Ce test verifie la seconde, que l'audit d'isolation ne
+    couvre pas.
+
+    ANALYSE SYNTAXIQUE, PAS RECHERCHE DE TEXTE
+    ------------------------------------------
+    Une premiere version cherchait les marqueurs par sous-chaine dans le
+    fichier entier. Elle etait inoperante : les mentions de
+    `set_current_tenant()` dans les docstrings et commentaires
+    suffisaient a la satisfaire. Verifie par mutation -- le correctif
+    retire, le test passait quand meme.
+
+    On analyse donc l'AST et on ne compte que les APPELS reels et les
+    blocs `async with` effectifs.
+    """
+    import ast
+    import re
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parent.parent
+    MARQUEURS = {
+        "set_current_tenant", "tenant_context", "with_tenant",
+        "system_context", "with_system_context",
+    }
+    APPEL_DB = re.compile(
+        r"\bdb\.[a-z_]+\.(find|find_one|insert_one|insert_many|"
+        r"update_one|update_many|delete_one|delete_many|count_documents|"
+        r"aggregate)\b"
+    )
+
+    def marqueurs_reels(arbre):
+        """Ne retient que les usages executables, jamais la documentation."""
+        trouves = set()
+        for noeud in ast.walk(arbre):
+            # appel direct : set_current_tenant(...) / tenant_context(...)
+            if isinstance(noeud, ast.Call):
+                f = noeud.func
+                nom = getattr(f, "id", None) or getattr(f, "attr", None)
+                if nom in MARQUEURS:
+                    trouves.add(nom)
+            # decorateur : @with_tenant / @with_system_context
+            elif isinstance(noeud, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for d in noeud.decorator_list:
+                    nom = getattr(d, "id", None) or getattr(d, "attr", None)
+                    if nom in MARQUEURS:
+                        trouves.add(nom)
+        return trouves
+
+    coupables = []
+    for fichier in sorted(backend.glob("*.py")):
+        if fichier.name.startswith("test") or fichier.name == "database.py":
+            continue
+        txt = fichier.read_text(encoding="utf-8", errors="ignore")
+        appels = len(APPEL_DB.findall(txt))
+        if appels == 0:
+            continue
+        try:
+            arbre = ast.parse(txt)
+        except SyntaxError:
+            continue
+        if not marqueurs_reels(arbre):
+            coupables.append(f"{fichier.name} ({appels} appels DB)")
+
+    assert not coupables, (
+        "Ces modules effectuent des appels base de donnees sans jamais "
+        f"etablir de contexte tenant : {', '.join(coupables)}.\n\n"
+        "Sous RLS, leurs requetes metier renverront ZERO LIGNE sans lever "
+        "d'erreur -- panne silencieuse, indistinguable d'un tenant vide. "
+        "Un filtre tenant_id en SQL ne suffit PAS : la politique exige "
+        "aussi app.tenant_id.\n\n"
+        "Corriger avec set_current_tenant(tid) / tenant_context(tid), ou "
+        "declarer l'operation transverse via system_context()."
     )

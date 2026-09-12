@@ -150,13 +150,24 @@ def test_hors_contexte_systeme_la_meme_table_repasse_par_metier(deux_moteurs):
         async with system_context():
             async with _session_pour("requests"):
                 pass
-        # sorti du bloc : retour au comportement normal
-        async with _session_pour("requests"):
-            pass
+        # Sorti du bloc : retour au comportement normal. Un tenant est
+        # desormais OBLIGATOIRE sur le chemin metier (tenant_session()
+        # echoue sans lui), donc on en fournit un -- ce qui rend au
+        # passage le test plus proche du chemin reel.
+        async with db_mod.tenant_context("tenant-temoin"):
+            async with _session_pour("requests"):
+                pass
 
     asyncio.run(scenario())
-    assert len(auth_crees) == 1
-    assert len(metier_crees) == 1
+    assert len(auth_crees) == 1, (
+        "Dans le bloc system_context(), la table metier doit passer par le "
+        f"moteur AUTH. Moteurs AUTH crees : {len(auth_crees)}"
+    )
+    assert len(metier_crees) == 1, (
+        "Hors du bloc, la meme table doit repasser par le moteur METIER : "
+        "le contexte systeme ne doit pas fuir sur l'appel suivant. "
+        f"Moteurs METIER crees : {len(metier_crees)}"
+    )
 
 
 def test_table_auth_reste_sur_auth_meme_en_contexte_systeme(deux_moteurs):
