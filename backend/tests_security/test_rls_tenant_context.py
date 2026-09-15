@@ -445,3 +445,85 @@ def test_tout_module_metier_etablit_un_contexte():
         "Corriger avec set_current_tenant(tid) / tenant_context(tid), ou "
         "declarer l'operation transverse via system_context()."
     )
+
+
+# ---------------------------------------------------------------------------
+# Politiques des migrations : le chemin metier doit toujours etre cible
+# ---------------------------------------------------------------------------
+
+def test_les_politiques_metier_ciblent_blueseatra_app():
+    """REGRESSION -- piege detecte le 12/09/2026 sur le module fournisseur.
+
+    Toutes les politiques RLS historiques etaient definies TO authenticated,
+    et blueseatra_app en heritait par appartenance de role. Cette
+    appartenance a ete RETIREE (migration 20260912060000) parce qu'elle
+    donnait aussi un CRUD complet sur tenant_users -- une elevation de
+    privileges.
+
+    Consequence : une politique qui ne cible QUE `authenticated` ne
+    s'applique plus au chemin metier. La table devient invisible -- zero
+    ligne, sans erreur. La migration du module fournisseur, ecrite avant
+    ce changement, contenait exactement ce piege : ses 5 tables auraient
+    ete muettes.
+
+    Ce test balaie les migrations et exige que toute politique portant sur
+    une table METIER et ciblant `authenticated` cible aussi
+    `blueseatra_app`.
+
+    Les tables d'AUTHENTIFICATION sont exclues : blueseatra_app ne doit
+    justement PAS y acceder.
+    """
+    import re
+    from pathlib import Path
+
+    racine = Path(__file__).resolve().parent.parent.parent
+    dossier = racine / "supabase" / "migrations"
+    if not dossier.is_dir():
+        import pytest
+        pytest.skip("dossier supabase/migrations absent")
+
+    TABLES_AUTH = {"users", "tenants", "tenant_users"}
+    # CREATE POLICY <nom> ON <schema>.<table> ... FOR <cmd> TO <roles>
+    motif = re.compile(
+        r"CREATE\s+POLICY\s+(?P<pol>[a-z_0-9]+)\s+ON\s+[a-z_]+\.(?P<table>[a-z_]+)"
+        r"(?P<corps>.*?)(?=;)",
+        re.I | re.S,
+    )
+
+    manquants = []
+    for fichier in sorted(dossier.glob("*.sql")):
+        txt = fichier.read_text(encoding="utf-8", errors="ignore")
+        # Ignore les blocs commentes : on ne garde que le SQL actif.
+        actif = "\n".join(
+            l for l in txt.split("\n") if not l.lstrip().startswith("--")
+        )
+        for m in motif.finditer(actif):
+            table = m.group("table").lower()
+            if table in TABLES_AUTH:
+                continue
+            corps = m.group("corps")
+            # S'arrete avant USING / WITH CHECK, sinon "using" est lu
+            # comme un nom de role (bug corrige apres premiere execution).
+            cible = re.search(
+                r"\bTO\s+((?:[a-z_0-9]+\s*,\s*)*[a-z_0-9]+)(?=\s*(?:USING|WITH|$))",
+                corps, re.I,
+            )
+            if not cible:
+                continue
+            roles = {r.strip().lower() for r in cible.group(1).split(",")}
+            if "authenticated" in roles and "blueseatra_app" not in roles:
+                manquants.append(
+                    f"{fichier.name} :: {m.group('pol')} sur {table} "
+                    f"(cible : {', '.join(sorted(roles))})"
+                )
+
+    assert not manquants, (
+        "Ces politiques ciblent `authenticated` sans cibler "
+        "`blueseatra_app`, alors qu'elles portent sur des tables "
+        "METIER :\n  - " + "\n  - ".join(manquants) + "\n\n"
+        "blueseatra_app n'est plus membre de `authenticated` (retire pour "
+        "fermer une elevation de privileges sur tenant_users). Ces tables "
+        "seraient donc INVISIBLES au chemin metier : zero ligne, sans "
+        "erreur.\n\n"
+        "Corriger en ecrivant : TO authenticated, blueseatra_app"
+    )
