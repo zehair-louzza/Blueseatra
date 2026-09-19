@@ -1,51 +1,136 @@
 # Blueseatra OVH preproduction
 
-This directory provides an isolated Docker Compose stack for Blueseatra preproduction services on the OVH VPS. It intentionally does not alter the existing OVH AI stack.
+Isolated Docker Compose stack for Blueseatra preproduction on the OVH VPS.
+It deliberately does not alter the existing OVH AI stack, does not touch the
+Supabase production project, and never requires a paid Supabase branch.
 
-## Included services
+## Services
 
-- PostgreSQL 17 for preproduction data
-- Redis 7 with append-only persistence and authentication
-- MinIO for non-production object storage
+| Service  | Role | Profile |
+|----------|------|---------|
+| postgres | PostgreSQL 17, TLS on, schema `blueseatra`, Supabase-compatible roles | default |
+| redis    | Redis 7, AOF + password | default |
+| minio    | Object storage for future large-file imports (not wired to the app yet) | default |
+| api      | Blueseatra FastAPI backend (`backend/server.py`) | `app` |
+| worker   | RQ extraction worker (`backend/extraction_worker.py`) | `app` |
 
-All services are attached only to the `blueseatra_preprod_internal` Docker network. PostgreSQL, Redis and MinIO ports are not published to the host. Access them through application containers on this network or a temporary SSH/Docker tunnel.
+All services live on the internal `blueseatra_preprod_internal` network. No
+database, Redis or MinIO port is published. The API is bound to `127.0.0.1`
+on the VPS by default — reach it through an SSH tunnel or the existing
+reverse proxy, never expose it directly.
 
 ## First start
 
-1. Create the real environment file:
+```bash
+cd ovh-ai-stack-corrige/preprod
+cp .env.preprod.example .env.preprod
+chmod 600 .env.preprod
+# Fill every placeholder in .env.preprod (see comments inside).
+chmod +x scripts/*.sh
+./scripts/bootstrap.sh     # validates .env.preprod, then starts postgres/redis/minio
+./scripts/healthcheck.sh
+```
 
-   ```bash
-   cd ovh-ai-stack-corrige/preprod
-   cp .env.preprod.example .env.preprod
-   chmod 600 .env.preprod
-   ```
+## Migrations (mandatory before starting the app)
 
-2. Replace every placeholder secret in `.env.preprod`. Do not reuse production credentials.
+```bash
+./scripts/migrate.sh         # dry-run on a throwaway database, nothing persistent
+./scripts/migrate.sh --apply # only after a passing dry-run
+```
 
-3. Start and validate the stack:
+What the script does, in order:
 
-   ```bash
-   ./scripts/bootstrap.sh
-   ./scripts/healthcheck.sh
-   ```
+1. (dry-run only) creates and later drops the `blueseatra_migrate_dryrun` database;
+2. ensures the `authenticated` / `service_role` group roles and the `blueseatra` schema exist;
+3. creates the base tables from the backend SQLAlchemy models (`init_schema.py` in the api image);
+4. applies `supabase/migrations/*.sql` in filename order, with `ON_ERROR_STOP=1`;
+5. sets the password of the restricted `blueseatra_app` role from `PREPROD_APP_DB_PASSWORD`.
+
+Applied files are recorded in `blueseatra._preprod_applied_migrations` and
+skipped on re-run, so a failed run can simply be re-run.
+
+Excluded on purpose: `20260912040000_rls_etape3_force_NON_APPLIQUEE.sql` —
+its own header states it is a plan, not a runnable migration, and that
+applying it breaks authentication.
+
+### Preprod-specific adaptations (documented gaps)
+
+The repo migration history is partial relative to the production database.
+Three things existed in production before the migrations that reference
+them, so `migrate.sh` recreates them first:
+
+- the `blueseatra_app` role (GRANTed by `module_fournisseur` before its own
+  `CREATE ROLE` migration);
+- the `blueseatra.current_tenant()` function (same situation, exact same
+  definition as migration `20260912030000`);
+- table privileges on the fournisseur tables, which Supabase grants by
+default to `authenticated` but a vanilla PostgreSQL does not. Only the
+fournisseur tables are granted — the authentication tables stay out of
+reach of `blueseatra_app`, mirroring production posture.
+
+The `unaccent` dictionary is also patched (superscripts `² ³ ¹`) to match
+Supabase's rules file, which migration `20260912070000` self-checks.
+
+### RLS posture reproduced faithfully
+
+With these migrations, RLS is active on `users` and the fournisseur tables
+(`suppliers`, `supplier_offers`, ...), and deliberately NOT on the other
+business tables — that is exactly the current production state, since the
+FORCE step (etape 3) is the non-applied plan file. Verified on this stack:
+`blueseatra_app` with `app.tenant_id` sees only its tenant's fournisseur
+rows, cross-tenant inserts are refused, and `tenants`/`users` are
+inaccessible to it.
+
+## Start the application
+
+```bash
+docker compose --env-file .env.preprod --profile app up -d
+```
+
+The api and worker containers share the image `blueseatra-backend:preprod`,
+built from `Dockerfile.backend` with the repository root as build context.
+The API listens on `127.0.0.1:8080` (override with `API_BIND`), e.g.:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 vps
+curl http://127.0.0.1:8080/health
+```
+
+### Database roles (mirrors production RLS)
+
+- `DATABASE_URL` — privileged path, used for authentication tables. In
+  preprod this is the local `blueseatra_preprod` superuser.
+- `DATABASE_URL_APP` — restricted `blueseatra_app` role for the business
+  path, so RLS behaviour is exercised the same way as in production.
+  See `backend/database.py` for why the auth path must stay on `DATABASE_URL`.
 
 ## Commands
 
 ```bash
-docker compose --env-file .env.preprod up -d
 docker compose --env-file .env.preprod ps
-docker compose --env-file .env.preprod logs -f
-docker compose --env-file .env.preprod down
+docker compose --env-file .env.preprod logs -f api
+docker compose --env-file .env.preprod --profile app logs -f worker
+docker compose --env-file .env.preprod down                 # infra only
+docker compose --env-file .env.preprod --profile app down   # everything
 ```
 
 ## Reset
 
-`./scripts/reset.sh` permanently deletes all preproduction PostgreSQL, Redis and MinIO volumes. It asks for the exact confirmation value `RESET-PREPROD` before running. Never run it against production resources.
+`./scripts/reset.sh` permanently deletes all preproduction PostgreSQL, Redis
+and MinIO volumes. It asks for the exact confirmation value `RESET-PREPROD`.
+Never run it against production resources.
 
 ## Security boundaries
 
-- Keep `.env.preprod` off Git and set its permissions to `0600`.
-- Never use Supabase production service-role keys, production Stripe keys, or customer data in this environment.
+- Keep `.env.preprod` out of Git and at permissions `0600`.
+- `scripts/validate-env.sh` (run by bootstrap) refuses placeholder values and
+  production-looking secrets: `supabase.co` hosts, `sb_secret_`, `sk_live_`,
+  `whsec_`, and the production Hermes gateway.
 - Use synthetic or irreversibly anonymized data only.
-- Do not expose database, Redis or MinIO ports publicly.
-- Add any future API or worker container to `preprod_internal`; expose it through the VPS reverse proxy only after authentication and TLS are configured.
+- Never point `HERMES_BASE_URL` at the production gateway; use a preprod
+  Hermes instance with a test budget.
+- This plain PostgreSQL instance does not provide Supabase Auth, Storage API,
+  Realtime or Edge Functions — it validates schema, RLS roles and application
+  behaviour, which is exactly its purpose.
+- Add any future container to `preprod_internal`; publish it through the VPS
+  reverse proxy only after authentication and TLS are configured.

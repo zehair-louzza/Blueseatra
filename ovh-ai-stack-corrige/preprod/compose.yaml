@@ -4,6 +4,11 @@ services:
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
+    # ssl=on: backend/database.py adds ssl='require' whenever the DB host is
+    # not localhost/127.0.0.1 (the container host is `postgres`), so the
+    # preproduction instance must speak TLS. The official image generates a
+    # self-signed certificate automatically.
+    command: ["postgres", "-c", "ssl=on"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-blueseatra_preprod}
       POSTGRES_USER: ${POSTGRES_USER:-blueseatra_preprod}
@@ -47,6 +52,61 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
+    networks:
+      - preprod_internal
+
+  # --- Application (profile "app") ----------------------------------------
+  # Started only after .env.preprod is complete and migrations are applied:
+  #   docker compose --env-file .env.preprod --profile app up -d
+  api:
+    build:
+      context: ../..
+      dockerfile: ovh-ai-stack-corrige/preprod/Dockerfile.backend
+    image: blueseatra-backend:preprod
+    profiles: ["app"]
+    env_file: .env.preprod
+    environment:
+      # AUTH path (privileged) — see backend/database.py: the authentication
+      # engine always uses DATABASE_URL and must stay non-configurable.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blueseatra_preprod}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-blueseatra_preprod}
+      # BUSINESS path (restricted role, realistic RLS). The password is set
+      # on the role by scripts/migrate.sh from PREPROD_APP_DB_PASSWORD.
+      DATABASE_URL_APP: postgresql://blueseatra_app:${PREPROD_APP_DB_PASSWORD:?Set PREPROD_APP_DB_PASSWORD in .env.preprod}@postgres:5432/${POSTGRES_DB:-blueseatra_preprod}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      DB_SCHEMA: blueseatra
+    ports:
+      # Bound to the VPS loopback interface by default. Reach the API through
+      # an SSH tunnel (ssh -L 8080:127.0.0.1:8080) or the existing reverse
+      # proxy. Never publish the preproduction API publicly.
+      - "${API_BIND:-127.0.0.1:8080}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - preprod_internal
+    volumes:
+      # Bootstrap/migration helpers (read-only) — see scripts/migrate.sh
+      - ./scripts:/preprod-scripts:ro
+
+  worker:
+    image: blueseatra-backend:preprod
+    profiles: ["app"]
+    env_file: .env.preprod
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-blueseatra_preprod}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-blueseatra_preprod}
+      DATABASE_URL_APP: postgresql://blueseatra_app:${PREPROD_APP_DB_PASSWORD:?Set PREPROD_APP_DB_PASSWORD in .env.preprod}@postgres:5432/${POSTGRES_DB:-blueseatra_preprod}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      DB_SCHEMA: blueseatra
+    command: ["python", "extraction_worker.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - preprod_internal
 
