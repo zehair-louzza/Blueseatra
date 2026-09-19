@@ -1,0 +1,80 @@
+name: CI infra (lint, migrations, secrets)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install flake8
+        run: pip install flake8
+      - name: Flake8 (blocking errors only)
+        run: flake8 backend --select=E9,F63,F7,F82 --show-source
+      - name: Shell syntax check
+        run: |
+          set -e
+          find . -type f -name '*.sh' -print0 | xargs -0 -n1 sh -n
+
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate throwaway CI env file
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: |
+          set -e
+          cp .env.preprod.example .env.preprod
+          for VAR in POSTGRES_PASSWORD PREPROD_APP_DB_PASSWORD REDIS_PASSWORD MINIO_ROOT_PASSWORD; do
+            VAL=$(openssl rand -hex 16)
+            sed -i "s|^${VAR}=.*|${VAR}=${VAL}|" .env.preprod
+          done
+          for VAR in JWT_SECRET APP_ENCRYPTION_KEY; do
+            VAL=$(openssl rand -hex 32)
+            sed -i "s|^${VAR}=.*|${VAR}=${VAL}|" .env.preprod
+          done
+          chmod 600 .env.preprod
+      - name: Validate env (reject production-looking secrets)
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: ./scripts/validate-env.sh
+      - name: Start infra services (postgres, redis, minio)
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: docker compose --env-file .env.preprod up -d postgres redis minio
+      - name: Wait for services to be healthy
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: |
+          set -e
+          for i in $(seq 1 30); do
+            ./scripts/healthcheck.sh && exit 0
+            sleep 5
+          done
+          echo "Services did not become healthy in time" >&2
+          docker compose --env-file .env.preprod logs
+          exit 1
+      - name: Dry-run migrations
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: ./scripts/migrate.sh
+      - name: Build backend image
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: docker compose --env-file .env.preprod --profile app build api
+      - name: Tear down
+        if: always()
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: docker compose --env-file .env.preprod down -v --remove-orphans
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan full history for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
