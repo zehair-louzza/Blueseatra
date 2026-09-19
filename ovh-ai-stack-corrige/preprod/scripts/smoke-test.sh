@@ -13,7 +13,11 @@ if [ ! -f .env.preprod ]; then
   exit 1
 fi
 
+. ./.env.preprod 2>/dev/null || true
+
 API_URL="${SMOKE_API_URL:-http://localhost:8000}"
+DB_USER="${POSTGRES_USER:-blueseatra_preprod}"
+DB_NAME="${POSTGRES_DB:-blueseatra_preprod}"
 STAMP=$(date +%s)
 TEST_EMAIL="smoke-test+${STAMP}@blueseatra.invalid"
 TEST_PASSWORD="Smoke-Test-$(openssl rand -hex 8)"
@@ -27,7 +31,7 @@ fail() {
 
 cleanup() {
   docker compose --env-file .env.preprod exec -T postgres \
-    psql -U "${PREPROD_APP_DB_USER:-blueseatra_app}" -d "${POSTGRES_DB:-blueseatra_preprod}" -v ON_ERROR_STOP=0 -c \
+    psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=0 -c \
     "DELETE FROM blueseatra.requests WHERE tenant_id IN (SELECT tenant_id FROM blueseatra.tenant_users tu JOIN blueseatra.users u ON u.id = tu.user_id WHERE u.email = '${TEST_EMAIL}'); \
      DELETE FROM blueseatra.tenant_users WHERE user_id IN (SELECT id FROM blueseatra.users WHERE email = '${TEST_EMAIL}'); \
      DELETE FROM blueseatra.tenants WHERE id NOT IN (SELECT DISTINCT tenant_id FROM blueseatra.tenant_users) AND name = '${TEST_NAME}'; \
