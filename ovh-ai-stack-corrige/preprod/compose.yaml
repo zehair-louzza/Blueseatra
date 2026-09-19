@@ -1,0 +1,64 @@
+name: blueseatra-preprod
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-blueseatra_preprod}
+      POSTGRES_USER: ${POSTGRES_USER:-blueseatra_preprod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.preprod}
+    volumes:
+      - postgres_preprod_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - preprod_internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env.preprod}"]
+    volumes:
+      - redis_preprod_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - preprod_internal
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.preprod}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.preprod}
+    volumes:
+      - minio_preprod_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - preprod_internal
+
+networks:
+  preprod_internal:
+    name: blueseatra_preprod_internal
+    internal: true
+
+volumes:
+  postgres_preprod_data:
+    name: blueseatra_preprod_postgres_data
+  redis_preprod_data:
+    name: blueseatra_preprod_redis_data
+  minio_preprod_data:
+    name: blueseatra_preprod_minio_data
