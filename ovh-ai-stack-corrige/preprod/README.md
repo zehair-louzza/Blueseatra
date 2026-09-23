@@ -69,6 +69,13 @@ reach of `blueseatra_app`, mirroring production posture.
 
 The `unaccent` dictionary is also patched (superscripts `² ³ ¹`) to match
 Supabase's rules file, which migration `20260912070000` self-checks.
+On vanilla PostgreSQL the function in that migration can still discard
+`²` even when the direct `unaccent('mm²')` probe succeeds. The preprod
+migration runner therefore makes an ephemeral copy of that SQL with an
+explicit `translate()` for superscripts before `unaccent()`. It checks that
+exactly one source line matches and refuses to run if the rewrite fails.
+The already-applied Supabase migration file is never changed. This is a
+local compatibility shim, not a production schema change.
 
 ### RLS posture reproduced faithfully
 

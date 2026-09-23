@@ -51,6 +51,8 @@ COMPOSE="docker compose --env-file .env.preprod --profile app"
 # a runnable migration — its own header states that applying it breaks
 # authentication. It must stay excluded here and in production tooling.
 EXCLUDED="20260912040000_rls_etape3_force_NON_APPLIQUEE.sql"
+migration_tmp=""
+trap '[ -z "$migration_tmp" ] || rm -f "$migration_tmp"' EXIT
 
 echo "==> migrate.sh — mode: $MODE (target database: $TARGET_DB)"
 
@@ -137,14 +139,6 @@ if [ "$unaccent_check" != "mm2" ]; then
   echo "ERROR: active PostgreSQL unaccent dictionary maps mm² to '$unaccent_check' (expected mm2)." >&2
   exit 1
 fi
-echo "==> Unicode normalization probe (synthetic test string)"
-$COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$TARGET_DB" -tA <<'SQL'
-SELECT 'unaccent=' || unaccent('unaccent', 'Câble H07V-U 2,5 mm² Bleu');
-SELECT 'normalized=' || trim(regexp_replace(
-  regexp_replace(lower(unaccent('unaccent', 'Câble H07V-U 2,5 mm² Bleu')),
-    '(\d)[.,](\d)', '\1.\2', 'g'),
-  '[^a-z0-9.+]+', ' ', 'g'));
-SQL
 
 # ---------------------------------------------------------------------------
 # 2. Base tables from the backend SQLAlchemy models
@@ -176,30 +170,31 @@ for file in $(ls "$MIGRATIONS_DIR" | sort); do
   fi
 
   echo "    applying: $file"
+  migration_input="$MIGRATIONS_DIR/$file"
   if [ "$file" = "20260912070000_recherche_fournisseur_index.sql" ]; then
-    # Diagnostic probe before the migration's own blocking assertion.
-    # Materialize the SQL first: an awk failure must never let psql "apply"
-    # an empty input and falsely mark the migration as successful.
-    probe_file=$(mktemp)
-    awk '
-      /^-- 4\. Verification bloquante/ {
-        q=sprintf("%c",39)
-        print "SELECT " q "function_probe=" q " || blueseatra.normalise_recherche(" q "Câble H07V-U 2,5 mm² Bleu" q ");"
-      }
-      { print }
-    ' "$MIGRATIONS_DIR/$file" > "$probe_file"
-    if ! grep -q 'function_probe=' "$probe_file"; then
-      rm -f "$probe_file"
-      echo "ERROR: diagnostic SQL not generated; migration was not applied." >&2
+    # Local-only compatibility: in vanilla PostgreSQL the SQL function can
+    # drop the superscript in "mm²" even when a direct unaccent() call works.
+    # Never rewrite the already-applied Supabase migration in the repository.
+    # Translate the three superscripts explicitly in this throwaway copy.
+    source_line="lower(unaccent('unaccent', coalesce(txt, ''))),"
+    if [ "$(grep -Fc "$source_line" "$migration_input")" != "1" ]; then
+      echo "ERROR: normalization source line changed; refusing compatibility rewrite." >&2
       exit 1
     fi
-    $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
-      -U "$DB_USER" -d "$TARGET_DB" < "$probe_file" && applied=1 || applied=0
-    rm -f "$probe_file"
-  else
-    $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
-      -U "$DB_USER" -d "$TARGET_DB" < "$MIGRATIONS_DIR/$file" && applied=1 || applied=0
+    migration_tmp=$(mktemp)
+    sed "s#lower(unaccent('unaccent', coalesce(txt, ''))),#lower(unaccent('unaccent', translate(coalesce(txt, ''), '²³¹', '231'))),#" \
+      "$migration_input" > "$migration_tmp"
+    if ! grep -Fq "lower(unaccent('unaccent', translate(coalesce(txt, ''), '²³¹', '231')))," "$migration_tmp"; then
+      echo "ERROR: compatibility rewrite failed; refusing empty or unmodified SQL." >&2
+      exit 1
+    fi
+    migration_input="$migration_tmp"
+    echo "    preprod compatibility: explicit ²/³/¹ translation (Supabase SQL unchanged)"
   fi
+  $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
+    -U "$DB_USER" -d "$TARGET_DB" < "$migration_input" && applied=1 || applied=0
+  [ -z "$migration_tmp" ] || rm -f "$migration_tmp"
+  migration_tmp=""
   if [ "$applied" -eq 1 ]; then
     $COMPOSE exec -T postgres psql -U "$DB_USER" -d "$TARGET_DB" -tAc \
       "INSERT INTO blueseatra._preprod_applied_migrations (filename) VALUES ('$file')" >/dev/null
