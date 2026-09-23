@@ -13,30 +13,44 @@ if [ ! -f .env.preprod ]; then
   exit 1
 fi
 
-. ./.env.preprod 2>/dev/null || true
+set -a
+. ./.env.preprod
+set +a
 
-API_URL="${SMOKE_API_URL:-http://localhost:8000}"
+API_URL="${SMOKE_API_URL:-http://127.0.0.1:8080}"
 DB_USER="${POSTGRES_USER:-blueseatra_preprod}"
 DB_NAME="${POSTGRES_DB:-blueseatra_preprod}"
 STAMP=$(date +%s)
 TEST_EMAIL="smoke-test+${STAMP}@blueseatra.invalid"
 TEST_PASSWORD="Smoke-Test-$(openssl rand -hex 8)"
 TEST_NAME="Smoke Test ${STAMP}"
+TEST_TENANT_ID=""
+TEST_USER_ID=""
+
+cleanup() {
+  [ -n "$TEST_TENANT_ID" ] || return 0
+  docker compose --env-file .env.preprod exec -T postgres \
+    psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
+    -v tenant_id="$TEST_TENANT_ID" -v user_id="$TEST_USER_ID" <<'SQL' >/dev/null
+DELETE FROM blueseatra.audit_logs WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.quote_versions WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.quotes WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.requests WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.import_errors WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.import_jobs WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.pricing_items WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.catalog_versions WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.catalogs WHERE tenant_id = :'tenant_id';
+DELETE FROM blueseatra.tenant_users WHERE tenant_id = :'tenant_id' AND user_id = :'user_id';
+DELETE FROM blueseatra.tenants WHERE id = :'tenant_id';
+DELETE FROM blueseatra.users WHERE id = :'user_id';
+SQL
+}
+trap cleanup EXIT
 
 fail() {
   echo "SMOKE TEST FAILED: $1" >&2
-  cleanup
   exit 1
-}
-
-cleanup() {
-  docker compose --env-file .env.preprod exec -T postgres \
-    psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=0 -c \
-    "DELETE FROM blueseatra.requests WHERE tenant_id IN (SELECT tenant_id FROM blueseatra.tenant_users tu JOIN blueseatra.users u ON u.id = tu.user_id WHERE u.email = '${TEST_EMAIL}'); \
-     DELETE FROM blueseatra.tenant_users WHERE user_id IN (SELECT id FROM blueseatra.users WHERE email = '${TEST_EMAIL}'); \
-     DELETE FROM blueseatra.tenants WHERE id NOT IN (SELECT DISTINCT tenant_id FROM blueseatra.tenant_users) AND name = '${TEST_NAME}'; \
-     DELETE FROM blueseatra.users WHERE email = '${TEST_EMAIL}';" \
-    >/dev/null 2>&1 || true
 }
 
 echo "==> 1/5 Waiting for API health"
@@ -51,33 +65,38 @@ done
 echo "==> 2/5 Signup test user"
 SIGNUP_BODY=$(curl -fsS -X POST "${API_URL}/api/auth/signup" \
   -H 'Content-Type: application/json' \
-  -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASSWORD}\",\"name\":\"${TEST_NAME}\"}") \
+  -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASSWORD}\",\"name\":\"${TEST_NAME}\",\"company\":\"${TEST_NAME}\"}") \
   || fail "signup request failed"
+TEST_TENANT_ID=$(printf '%s' "$SIGNUP_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["tenant"]["id"])') \
+  || fail "signup response has no tenant id"
+TEST_USER_ID=$(printf '%s' "$SIGNUP_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["user"]["id"])') \
+  || fail "signup response has no user id"
 
 echo "==> 3/5 Login"
 LOGIN_BODY=$(curl -fsS -X POST "${API_URL}/api/auth/login" \
   -H 'Content-Type: application/json' \
   -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASSWORD}\"}") \
   || fail "login request failed"
-TOKEN=$(printf '%s' "$LOGIN_BODY" | grep -o '"token"[^,}]*' | head -n1 | sed -E 's/.*:\s*"([^"]+)".*/\1/')
-[ -n "$TOKEN" ] || TOKEN=$(printf '%s' "$LOGIN_BODY" | grep -o '"access_token"[^,}]*' | head -n1 | sed -E 's/.*:\s*"([^"]+)".*/\1/')
-[ -n "$TOKEN" ] || fail "could not extract auth token from login response: $LOGIN_BODY"
+TOKEN=$(printf '%s' "$LOGIN_BODY" | python3 -c 'import sys,json; obj=json.load(sys.stdin); print(obj.get("token") or obj.get("access_token") or "")') \
+  || fail "invalid login response JSON"
+[ -n "$TOKEN" ] || fail "could not extract auth token"
 
 echo "==> 4/5 Create a minimal request (queues an extraction job on Redis/RQ)"
 REQ_BODY=$(curl -fsS -X POST "${API_URL}/api/requests" \
   -H "Authorization: Bearer ${TOKEN}" \
-  -H 'Content-Type: application/json' \
-  -d '{"text":"Smoke test request: 1 unite de test, aucune donnee reelle."}') \
+  --form "title=Smoke test ${STAMP}" \
+  --form 'text=Smoke test request: 1 unite de test, aucune donnee reelle.') \
   || fail "request creation failed"
-REQUEST_ID=$(printf '%s' "$REQ_BODY" | grep -o '"id"[^,}]*' | head -n1 | sed -E 's/.*:\s*"?([a-zA-Z0-9-]+)"?.*/\1/')
-[ -n "$REQUEST_ID" ] || fail "could not extract request id from response: $REQ_BODY"
+REQUEST_ID=$(printf '%s' "$REQ_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])') \
+  || fail "could not extract request id"
 
 echo "==> 5/5 Waiting for the worker to consume the queued job (request ${REQUEST_ID})"
 for i in $(seq 1 30); do
   STATUS_BODY=$(curl -fsS "${API_URL}/api/requests/${REQUEST_ID}" -H "Authorization: Bearer ${TOKEN}") \
     || fail "could not poll request status"
-  STATUS=$(printf '%s' "$STATUS_BODY" | grep -o '"status"[^,}]*' | head -n1 | sed -E 's/.*:\s*"([^"]+)".*/\1/')
-  if [ "$STATUS" != "queued" ] && [ -n "$STATUS" ]; then
+  STATUS=$(printf '%s' "$STATUS_BODY" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status", ""))') \
+    || fail "invalid request status JSON"
+  if [ "$STATUS" = "done" ] || [ "$STATUS" = "needs_review" ] || [ "$STATUS" = "failed" ]; then
     echo "Worker processed the job — status is now: ${STATUS}"
     break
   fi
@@ -85,6 +104,5 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-cleanup
 echo "SMOKE TEST PASSED"
 exit 0

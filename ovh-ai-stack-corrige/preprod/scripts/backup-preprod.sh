@@ -9,6 +9,7 @@
 #   echo "BACKUP_ENCRYPTION_PASSPHRASE=$(openssl rand -hex 32)" >> .env.preprod
 
 set -eu
+umask 077
 cd "$(dirname "$0")/.."
 
 if [ ! -f .env.preprod ]; then
@@ -16,7 +17,9 @@ if [ ! -f .env.preprod ]; then
   exit 1
 fi
 
+set -a
 . ./.env.preprod
+set +a
 
 if [ -z "${BACKUP_ENCRYPTION_PASSPHRASE:-}" ] || [ ${#BACKUP_ENCRYPTION_PASSPHRASE} -lt 32 ]; then
   echo "BACKUP_ENCRYPTION_PASSPHRASE missing or shorter than 32 chars in .env.preprod." >&2
@@ -32,6 +35,7 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 DUMP_FILE="${BACKUP_DIR}/blueseatra-preprod-${STAMP}.dump"
 ENC_FILE="${DUMP_FILE}.enc"
 SUM_FILE="${ENC_FILE}.sha256"
+trap 'rm -f "$DUMP_FILE"' EXIT
 
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR"

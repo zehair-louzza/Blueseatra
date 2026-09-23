@@ -5,6 +5,7 @@
 #   ./scripts/restore-preprod.sh <file.dump.enc> --apply      restore into the persistent preprod db (destructive)
 
 set -eu
+umask 077
 cd "$(dirname "$0")/.."
 
 ENC_FILE="${1:-}"
@@ -19,7 +20,9 @@ if [ ! -f .env.preprod ]; then
   echo "Missing .env.preprod." >&2
   exit 1
 fi
+set -a
 . ./.env.preprod
+set +a
 
 [ -n "${BACKUP_ENCRYPTION_PASSPHRASE:-}" ] || { echo "BACKUP_ENCRYPTION_PASSPHRASE missing in .env.preprod." >&2; exit 1; }
 
