@@ -27,7 +27,7 @@ import quote_scenarios
 import pdf_service
 import fournisseur_recherche
 import mcp_bridge
-from database import set_current_tenant, with_system_context, with_tenant
+from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
 
 ROOT_DIR = Path(__file__).parent
@@ -230,8 +230,9 @@ async def signup(body: SignupIn):
         "id": new_id(), "tenant_id": tenant_id, "user_id": user_id, "role": "owner",
         "created_at": now_iso(),
     })
-    await seed_demo_catalog(tenant_id, body.email.lower())
-    await audit(tenant_id, body.email.lower(), "auth.signup", user_id)
+    async with tenant_context(tenant_id):
+        await seed_demo_catalog(tenant_id, body.email.lower())
+        await audit(tenant_id, body.email.lower(), "auth.signup", user_id)
     token = make_token(user_id, tenant_id, "owner")
     return {"token": token, "user": {"id": user_id, "email": body.email.lower(), "name": body.name},
             "tenant": {"id": tenant_id, "name": body.company, "role": "owner"}}
