@@ -10,12 +10,11 @@ Supabase production project, and never requires a paid Supabase branch.
 |----------|------|---------|
 | postgres | PostgreSQL 17, TLS on, schema `blueseatra`, Supabase-compatible roles | default |
 | redis    | Redis 7, AOF + password | default |
-| minio    | Object storage for future large-file imports (not wired to the app yet) | default |
 | api      | Blueseatra FastAPI backend (`backend/server.py`) | `app` |
 | worker   | RQ extraction worker (`backend/extraction_worker.py`) | `app` |
 
 All services live on the internal `blueseatra_preprod_internal` network. No
-database, Redis or MinIO port is published. The API is bound to `127.0.0.1`
+database or Redis port is published. The API is bound to `127.0.0.1`
 on the VPS by default — reach it through an SSH tunnel or the existing
 reverse proxy, never expose it directly.
 
@@ -27,7 +26,7 @@ cp .env.preprod.example .env.preprod
 chmod 600 .env.preprod
 # Fill every placeholder in .env.preprod (see comments inside).
 chmod +x scripts/*.sh
-./scripts/bootstrap.sh     # validates .env.preprod, then starts postgres/redis/minio
+./scripts/bootstrap.sh     # validates .env.preprod, then starts postgres/redis
 ./scripts/healthcheck.sh
 ```
 
@@ -116,8 +115,10 @@ docker compose --env-file .env.preprod --profile app down   # everything
 
 ## Reset
 
-`./scripts/reset.sh` permanently deletes all preproduction PostgreSQL, Redis
-and MinIO volumes. It asks for the exact confirmation value `RESET-PREPROD`.
+`./scripts/reset.sh` permanently deletes the configured preproduction
+PostgreSQL and Redis volumes. It asks for the exact confirmation value
+`RESET-PREPROD`. If a MinIO volume exists from the old stack, it is left
+untouched and must be handled separately after a data inventory.
 Never run it against production resources.
 
 ## Security boundaries

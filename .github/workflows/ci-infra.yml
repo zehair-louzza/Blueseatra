@@ -31,7 +31,7 @@ jobs:
         run: |
           set -e
           cp .env.preprod.example .env.preprod
-          for VAR in POSTGRES_PASSWORD PREPROD_APP_DB_PASSWORD REDIS_PASSWORD MINIO_ROOT_PASSWORD; do
+          for VAR in POSTGRES_PASSWORD PREPROD_APP_DB_PASSWORD REDIS_PASSWORD; do
             VAL=$(openssl rand -hex 16)
             sed -i "s|^${VAR}=.*|${VAR}=${VAL}|" .env.preprod
           done
@@ -43,9 +43,9 @@ jobs:
       - name: Validate env (reject production-looking secrets)
         working-directory: ovh-ai-stack-corrige/preprod
         run: ./scripts/validate-env.sh
-      - name: Start infra services (postgres, redis, minio)
+      - name: Start infra services (postgres, redis)
         working-directory: ovh-ai-stack-corrige/preprod
-        run: docker compose --env-file .env.preprod up -d postgres redis minio
+        run: docker compose --env-file .env.preprod up -d postgres redis
       - name: Wait for services to be healthy
         working-directory: ovh-ai-stack-corrige/preprod
         run: |

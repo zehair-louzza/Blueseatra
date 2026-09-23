@@ -9,7 +9,7 @@ if [ ! -f .env.preprod ]; then
 fi
 
 status=0
-for service in postgres redis minio; do
+for service in postgres redis; do
   health=$(docker compose --env-file .env.preprod ps --format json "$service" 2>/dev/null | grep -o '"Health":"[^"]*"' | head -n 1 | cut -d '"' -f 4 || true)
   if [ "$health" != "healthy" ]; then
     echo "$service is not healthy (status: ${health:-unknown})" >&2

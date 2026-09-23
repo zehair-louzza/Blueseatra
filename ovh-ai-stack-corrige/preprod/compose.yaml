@@ -38,23 +38,6 @@ services:
     networks:
       - preprod_internal
 
-  minio:
-    image: minio/minio:latest
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env.preprod}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env.preprod}
-    volumes:
-      - minio_preprod_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-    networks:
-      - preprod_internal
-
   # --- Application (profile "app") ----------------------------------------
   # Started only after .env.preprod is complete and migrations are applied:
   #   docker compose --env-file .env.preprod --profile app up -d
@@ -120,5 +103,3 @@ volumes:
     name: blueseatra_preprod_postgres_data
   redis_preprod_data:
     name: blueseatra_preprod_redis_data
-  minio_preprod_data:
-    name: blueseatra_preprod_minio_data

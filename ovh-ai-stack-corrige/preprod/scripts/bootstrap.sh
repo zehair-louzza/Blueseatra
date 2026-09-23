@@ -13,7 +13,7 @@ chmod 600 .env.preprod
 # Refuse placeholders and production-looking secrets before starting anything.
 ./scripts/validate-env.sh
 
-# Infrastructure only (postgres, redis, minio). The api/worker services belong
+# Infrastructure only (postgres, redis). The api/worker services belong
 # to the "app" profile and are started after migrations are applied.
 docker compose --env-file .env.preprod up -d
 docker compose --env-file .env.preprod ps

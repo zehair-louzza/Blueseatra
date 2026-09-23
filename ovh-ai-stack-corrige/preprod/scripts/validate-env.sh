@@ -45,7 +45,6 @@ require_set() {
 require_set POSTGRES_PASSWORD        24
 require_set PREPROD_APP_DB_PASSWORD  24
 require_set REDIS_PASSWORD           24
-require_set MINIO_ROOT_PASSWORD      24
 require_set JWT_SECRET               48
 require_set APP_ENCRYPTION_KEY        48
 require_set HERMES_BASE_URL          12
