@@ -318,3 +318,57 @@ def test_rls_bloque_une_ecriture_vers_un_autre_tenant(base):
     with pytest.raises(psycopg2.Error, match="row-level security"):
         _sql("INSERT INTO blueseatra.supplier_offers (id, tenant_id, supplier_id, raw_label) "
              "VALUES ('x', %s, 'lp_f', 'intrus')", (TA,), role_tenant=TB)
+
+
+@integration
+def test_catalogue_orphelin_de_production_reste_visible_puis_remplace(base):
+    """Reproduit ANELEC Test : offres LP avec un catalog_id absent de catalogs."""
+    _sql("DELETE FROM blueseatra.catalog_versions")
+    _sql("DELETE FROM blueseatra.catalogs")
+    assert _visibles(TA) == [("La Plateforme du Batiment", 150)]   # visible comme avant
+
+    f = base / "catalogue.xlsx"
+    _xlsx(f, _jeu(300))
+    r = icl.importer(f, TA, None, None, None, sans_role=False)
+    assert _visibles(TA) == [("La Plateforme du Batiment", 150)]   # import invisible
+    assert _sql("SELECT active_version_id FROM blueseatra.catalogs WHERE id='lp_c'") == [("lp_v",)]
+
+    a = icl.activer(r["import_id"], TA, sans_role=False, forcer=True)
+    lp = [v for v in a["versions"] if v["fournisseur"] == "La Plateforme du Batiment"][0]
+    assert lp["remplace"] == "lp_v" and lp["lignes_avant"] == 150
+    assert _visibles(TA) == [("La Plateforme du Batiment", 100), ("Point.P", 100), ("Rexel", 100)]
+
+    icl.annuler(r["import_id"], TA, sans_role=False)
+    assert _visibles(TA) == [("La Plateforme du Batiment", 150)]
+
+
+@integration
+def test_nettoyer_supprime_ancien_tarif_et_garde_le_nouveau(base):
+    f = base / "catalogue.xlsx"
+    _xlsx(f, _jeu(300))
+    r = icl.importer(f, TA, None, None, None, sans_role=False)
+    with pytest.raises(SystemExit, match="activer"):
+        icl.nettoyer(r["import_id"], TA, sans_role=False, confirmer=True)   # pas encore active
+    icl.activer(r["import_id"], TA, sans_role=False, forcer=True)
+    with pytest.raises(SystemExit, match="confirmer"):
+        icl.nettoyer(r["import_id"], TA, sans_role=False, confirmer=False)
+    n = icl.nettoyer(r["import_id"], TA, sans_role=False, confirmer=True)
+    assert n["lignes_supprimees"] == 150
+    assert _sql("SELECT count(*) FROM blueseatra.supplier_offers WHERE version_id='lp_v'")[0][0] == 0
+    assert _sql("SELECT count(*) FROM blueseatra.supplier_offers")[0][0] == 300
+    assert _visibles(TA) == [("La Plateforme du Batiment", 100), ("Point.P", 100), ("Rexel", 100)]
+    with pytest.raises(SystemExit, match="impossible"):
+        icl.annuler(r["import_id"], TA, sans_role=False)
+    assert _visibles(TA) == [("La Plateforme du Batiment", 100), ("Point.P", 100), ("Rexel", 100)]
+
+
+@integration
+def test_nettoyer_catalogue_orphelin(base):
+    _sql("DELETE FROM blueseatra.catalog_versions")
+    _sql("DELETE FROM blueseatra.catalogs")
+    f = base / "catalogue.xlsx"
+    _xlsx(f, _jeu(300))
+    r = icl.importer(f, TA, None, None, None, sans_role=False)
+    icl.activer(r["import_id"], TA, sans_role=False, forcer=True)
+    assert icl.nettoyer(r["import_id"], TA, sans_role=False, confirmer=True)["lignes_supprimees"] == 150
+    assert _sql("SELECT count(*) FROM blueseatra.supplier_offers")[0][0] == 300

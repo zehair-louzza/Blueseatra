@@ -71,10 +71,15 @@ PLAFOND_LIGNES = 5000
 # version. Les offres sans catalogue (historique) restent visibles.
 FILTRE_VERSION_ACTIVE = """
     o.is_active
-    AND (o.catalog_id IS NULL OR o.version_id IN (
-        SELECT c.active_version_id FROM blueseatra.catalogs c
-        WHERE c.tenant_id = :tenant_id
-          AND c.active_version_id IS NOT NULL))
+    AND (o.catalog_id IS NULL
+         OR o.version_id IN (
+            SELECT c.active_version_id FROM blueseatra.catalogs c
+            WHERE c.tenant_id = :tenant_id
+              AND c.active_version_id IS NOT NULL)
+         -- offres historiques dont le catalogue n'a jamais ete cree :
+         -- elles restent visibles comme avant le versionnage.
+         OR o.catalog_id NOT IN (
+            SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id = :tenant_id))
 """
 # Sous-requete NON correlee : evaluee une fois par recherche (et non par
 # ligne). Mesure sur 943 681 offres : surcout ~150 ms contre ~300 ms en
