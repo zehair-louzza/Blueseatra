@@ -19,6 +19,7 @@ import { Spinner, EmptyState } from '@/components/Spinner';
 import { SupplierSearchSummary, RecognizedTerms } from '@/components/SupplierSearchSummary';
 import { SupplierCheapestPanel } from '@/components/SupplierCheapestPanel';
 import { SupplierResultsTable } from '@/components/SupplierResultsTable';
+import { CatalogueCommunPanel } from '@/components/CatalogueCommunPanel';
 import { IsolatedQualifiers, RefineCriteria } from '@/components/SupplierRefinePanels';
 import { toast } from 'sonner';
 import { Search, Loader2, AlertTriangle, PackageSearch, FlaskConical, RotateCcw } from 'lucide-react';
@@ -81,6 +82,9 @@ export default function SupplierSearch() {
   const [erreur, setErreur] = useState(null);
   const [reponse, setReponse] = useState(null);
   const champRef = useRef(null);
+  // Incremente quand le catalogue commun est masque/reaffiche : relance la recherche.
+  const [generation, setGeneration] = useState(0);
+  const relancer = useCallback(() => setGeneration((g) => g + 1), []);
 
   // La recherche est pilotee par l'URL (q / inclure_qualifiants / limite) :
   // une relance (clic sur un qualifiant ou sur un critere a affiner) n'est
@@ -117,7 +121,7 @@ export default function SupplierSearch() {
       })
       .finally(() => { if (!annule) setChargement(false); });
     return () => { annule = true; };
-  }, [requeteUrl, inclureUrl, limiteUrl]);
+  }, [requeteUrl, inclureUrl, limiteUrl, generation]);
 
   const soumettre = (e) => {
     e.preventDefault();
@@ -175,6 +179,8 @@ export default function SupplierSearch() {
           </span>
         )}
       </div>
+
+      {!UTILISER_JEU_EXEMPLE && <CatalogueCommunPanel onChange={relancer} />}
 
       <Card className="card-shadow mt-5 border-0 p-4 sm:p-5">
         <form onSubmit={soumettre} className="space-y-3" role="search">

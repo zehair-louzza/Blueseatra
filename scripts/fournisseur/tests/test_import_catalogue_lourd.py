@@ -211,18 +211,23 @@ def _sql(q, params=(), role_tenant=None):
 def _visibles(tenant, terme="disjoncteur"):
     return _sql(f"""SELECT f.name, count(*) FROM blueseatra.supplier_offers o
                     JOIN blueseatra.suppliers f ON f.id=o.supplier_id
-                    WHERE o.tenant_id=%(t)s AND {FILTRE.replace(':tenant_id', '%(t)s')}
+                    WHERE o.tenant_id=%(t)s AND {FILTRE.replace(':tenant_id', '%(t)s').replace(':commun', '%(c)s')}
                       AND o.recherche_norm LIKE %(m)s
-                    GROUP BY f.name ORDER BY 1""", {"t": tenant, "m": f"%{terme}%"}, role_tenant=tenant)
+                    GROUP BY f.name ORDER BY 1""", {"t": tenant, "c": icl.TENANT_COMMUN, "m": f"%{terme}%"}, role_tenant=tenant)
 
 
 @pytest.fixture
 def base(monkeypatch, tmp_path):
     monkeypatch.setenv(icl.ENV_DSN, DSN)
     monkeypatch.chdir(tmp_path)
-    for t in ("supplier_offers", "catalog_versions", "catalogs", "suppliers", "tenants"):
+    for t in ("supplier_offers", "catalog_versions", "catalogs", "suppliers", "catalogue_commun_masque"):
         _sql(f"DELETE FROM blueseatra.{t}")
-    _sql("INSERT INTO blueseatra.tenants VALUES (%s,'ANELEC','starter'),(%s,'Autre','starter')", (TA, TB))
+    _sql("DELETE FROM blueseatra.tenants WHERE id <> %s", (icl.TENANT_COMMUN,))
+    # ligne creee par la migration 20260923200000 (reposee si un test l'a effacee)
+    _sql("INSERT INTO blueseatra.tenants (id, name, plan) VALUES (%s, 'Catalogue commun Blueseatra', "
+         "'systeme') ON CONFLICT (id) DO NOTHING", (icl.TENANT_COMMUN,))
+    _sql("INSERT INTO blueseatra.tenants (id, name, plan) VALUES (%s,'ANELEC','starter'),(%s,'Autre','starter')",
+         (TA, TB))
     # etat de production : La Plateforme deja importee (version active lp_v)
     _sql("INSERT INTO blueseatra.suppliers (id, tenant_id, name, slug) VALUES "
          "('lp_f', %s, 'La Plateforme du Batiment', 'la-plateforme-du-batiment')", (TA,))
@@ -372,3 +377,96 @@ def test_nettoyer_catalogue_orphelin(base):
     icl.activer(r["import_id"], TA, sans_role=False, forcer=True)
     assert icl.nettoyer(r["import_id"], TA, sans_role=False, confirmer=True)["lignes_supprimees"] == 150
     assert _sql("SELECT count(*) FROM blueseatra.supplier_offers")[0][0] == 300
+
+
+# ------------------------------------------------------ catalogue commun
+# Requete de recherche REELLE du backend (perimetre + version active), lue
+# dans le code de production et executee sous blueseatra_app.
+_SRC = (RACINE / "backend" / "fournisseur_recherche.py").read_text()
+PERIMETRE = re.search(r'FILTRE_PERIMETRE = """(.*?)"""', _SRC, re.S).group(1)
+MASQUAGE = re.search(r'SELECT m\.tenant_id FROM blueseatra\.catalogue_commun_masque m.*?"""',
+                     (RACINE / "backend" / "catalogue_commun.py").read_text(), re.S).group(0)[:-3]
+
+
+def _pg(sql):
+    return sql.replace(":tenant_id", "%(t)s").replace(":commun", "%(c)s").replace(":avec_commun", "%(a)s")
+
+
+def _site(tenant, terme="disjoncteur"):
+    """Ce que la recherche du site renvoie a `tenant` : (fournisseur, commun, nb)."""
+    p = {"t": tenant, "c": icl.TENANT_COMMUN}
+    ids = {r[0] for r in _sql(_pg(MASQUAGE), p, role_tenant=tenant)}
+    p.update(a=not ids, m=f"%{terme}%")
+    return _sql(f"""SELECT f.name, o.tenant_id = %(c)s, count(*) FROM blueseatra.supplier_offers o
+                    JOIN blueseatra.suppliers f ON f.id=o.supplier_id AND f.tenant_id=o.tenant_id
+                    WHERE {_pg(PERIMETRE)} AND {_pg(FILTRE)} AND o.recherche_norm LIKE %(m)s
+                    GROUP BY 1, 2 ORDER BY 1, 2""", p, role_tenant=tenant)
+
+
+def _catalogue_commun_en_ligne(base):
+    f = base / "commun.xlsx"
+    _xlsx(f, _jeu(90, fournisseurs=("Rexel", "Sonepar", "Point.P")))
+    r = icl.importer(f, icl.TENANT_COMMUN, None, None, "2026-09-23", sans_role=False, taille_lot=50)
+    icl.activer(r["import_id"], icl.TENANT_COMMUN, sans_role=False, forcer=False)
+    return r["import_id"]
+
+
+@integration
+def test_catalogue_commun_visible_par_toutes_les_entreprises(base):
+    _catalogue_commun_en_ligne(base)
+    commun = [("Point.P", True, 30), ("Rexel", True, 30), ("Sonepar", True, 30)]
+    # A voit son propre tarif LP + le commun ; B, sans catalogue, voit le commun
+    assert _site(TA) == [("La Plateforme du Batiment", False, 150)] + commun
+    assert _site(TB) == commun
+
+
+@integration
+def test_imports_propres_restent_prives(base):
+    _catalogue_commun_en_ligne(base)
+    assert all(commun for _, commun, _ in _site(TB))  # B ne voit jamais le tarif LP de A
+
+
+@integration
+def test_masquage_par_entreprise_et_global_reversible(base):
+    _catalogue_commun_en_ligne(base)
+    ins = ("INSERT INTO blueseatra.catalogue_commun_masque (tenant_id, masque_le) VALUES (%s, 'x')")
+    _sql(ins, (TA,), role_tenant=TA)                                    # A masque chez lui
+    assert _site(TA) == [("La Plateforme du Batiment", False, 150)]
+    assert len(_site(TB)) == 3                                          # B non affecte
+    _sql("DELETE FROM blueseatra.catalogue_commun_masque WHERE tenant_id=%s", (TA,), role_tenant=TA)
+    assert len(_site(TA)) == 4
+
+    _sql(ins, (icl.TENANT_COMMUN,), role_tenant=icl.TENANT_COMMUN)      # masquage global
+    assert _site(TB) == [] and _site(TA) == [("La Plateforme du Batiment", False, 150)]
+    _sql("DELETE FROM blueseatra.catalogue_commun_masque WHERE tenant_id=%s",
+         (icl.TENANT_COMMUN,), role_tenant=icl.TENANT_COMMUN)
+    assert len(_site(TB)) == 3                                          # rien n'a ete perdu
+
+
+@integration
+def test_une_entreprise_ne_peut_ni_modifier_ni_supprimer_le_commun(base):
+    import psycopg2
+    _catalogue_commun_en_ligne(base)
+    c = icl.TENANT_COMMUN
+    assert _sql("UPDATE blueseatra.supplier_offers SET price_ht=0 WHERE tenant_id=%s RETURNING 1",
+                (c,), role_tenant=TA) == []
+    assert _sql("DELETE FROM blueseatra.supplier_offers WHERE tenant_id=%s RETURNING 1",
+                (c,), role_tenant=TA) == []
+    assert _sql("UPDATE blueseatra.catalogs SET active_version_id=NULL WHERE tenant_id=%s RETURNING 1",
+                (c,), role_tenant=TA) == []
+    with pytest.raises(psycopg2.Error, match="row-level security"):
+        _sql("INSERT INTO blueseatra.supplier_offers (id, tenant_id, raw_label) VALUES ('x', %s, 'y')",
+             (c,), role_tenant=TA)
+    with pytest.raises(psycopg2.Error, match="row-level security"):   # ni masquer pour tous
+        _sql("INSERT INTO blueseatra.catalogue_commun_masque (tenant_id, masque_le) VALUES (%s, 'x')",
+             (c,), role_tenant=TA)
+    assert len(_site(TB)) == 3
+
+
+@integration
+def test_le_script_ne_supprime_jamais_le_catalogue_commun(base):
+    iid = _catalogue_commun_en_ligne(base)
+    for fn in (icl.purger, icl.nettoyer):
+        with pytest.raises(SystemExit, match="jamais supprime"):
+            fn(iid, icl.TENANT_COMMUN, sans_role=False, confirmer=True)
+    assert icl.main(["statut", "--import-id", iid, "--tenant", "commun"]) in (0, None)

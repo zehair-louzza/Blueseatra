@@ -26,6 +26,7 @@ import matching as match_engine
 import quote_scenarios
 import pdf_service
 import fournisseur_recherche
+import catalogue_commun
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -2069,6 +2070,46 @@ async def fournisseurs_liste(cu: CurrentUser = Depends(get_current)):
     Prolians, La Plateforme et SFIC.
     """
     return await fournisseur_recherche.liste_fournisseurs()
+
+
+# --- Catalogue commun a toutes les entreprises (voir catalogue_commun.py) ---
+@api.get("/fournisseurs/catalogue-commun")
+async def catalogue_commun_etat(cu: CurrentUser = Depends(get_current)):
+    """Etat du catalogue commun pour l'entreprise courante et droits de l'utilisateur."""
+    return await catalogue_commun.etat(cu.role)
+
+
+@api.post("/fournisseurs/catalogue-commun/masquer")
+async def catalogue_commun_masquer(cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    """Masque le catalogue commun pour CETTE entreprise uniquement."""
+    return await catalogue_commun.masquer(cu.user_id, True)
+
+
+@api.post("/fournisseurs/catalogue-commun/afficher")
+async def catalogue_commun_afficher(cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    """Reaffiche le catalogue commun pour CETTE entreprise."""
+    return await catalogue_commun.masquer(cu.user_id, False)
+
+
+@api.post("/fournisseurs/catalogue-commun/masquer-pour-tous")
+async def catalogue_commun_masquer_tous(cu: CurrentUser = Depends(require_role("owner"))):
+    """Masque le catalogue commun pour TOUTES les entreprises (compte Blueseatra uniquement).
+
+    Le catalogue commun n'est jamais supprime depuis le site : ce masquage
+    est instantane et reversible via /afficher-pour-tous.
+    """
+    try:
+        return await catalogue_commun.masquer_pour_tous(cu.role, cu.user_id, True)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc))
+
+
+@api.post("/fournisseurs/catalogue-commun/afficher-pour-tous")
+async def catalogue_commun_afficher_tous(cu: CurrentUser = Depends(require_role("owner"))):
+    try:
+        return await catalogue_commun.masquer_pour_tous(cu.role, cu.user_id, False)
+    except PermissionError as exc:
+        raise HTTPException(403, str(exc))
 
 
 app.include_router(api)
