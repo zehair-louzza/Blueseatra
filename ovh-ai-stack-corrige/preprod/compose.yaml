@@ -99,7 +99,9 @@ services:
 networks:
   preprod_internal:
     name: blueseatra_preprod_internal
-    internal: true
+    # A normal private bridge is needed for the API's loopback-published
+    # port and outbound calls to the preprod Hermes gateway. Only the API
+    # has a host port; PostgreSQL and Redis remain unexposed.
 
 volumes:
   postgres_preprod_data:

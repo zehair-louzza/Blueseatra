@@ -13,8 +13,10 @@ Supabase production project, and never requires a paid Supabase branch.
 | api      | Blueseatra FastAPI backend (`backend/server.py`) | `app` |
 | worker   | RQ extraction worker (`backend/extraction_worker.py`) | `app` |
 
-All services live on the internal `blueseatra_preprod_internal` network. No
-database or Redis port is published. The API is bound to `127.0.0.1`
+All services live on the private `blueseatra_preprod_internal` bridge network.
+It is not a Docker `internal: true` network: the API needs a loopback-published
+port and outbound access to the preprod Hermes gateway. No database or Redis
+port is published. The API is bound to `127.0.0.1`
 on the VPS by default — reach it through an SSH tunnel or the existing
 reverse proxy, never expose it directly.
 
