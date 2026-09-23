@@ -9,6 +9,9 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='blueseatra_app') THEN
     CREATE ROLE blueseatra_app NOLOGIN NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
 END $$;
 GRANT USAGE ON SCHEMA blueseatra TO blueseatra_app;
 
@@ -19,7 +22,8 @@ LANGUAGE sql STABLE SET search_path TO '' AS $f$
     NULLIF(current_setting('app.tenant_id', true), ''))
 $f$;
 
-CREATE TABLE blueseatra.tenants (id varchar(36) PRIMARY KEY, name varchar(200), plan varchar(40));
+CREATE TABLE blueseatra.tenants (id varchar(36) PRIMARY KEY, name varchar(200) NOT NULL,
+  plan varchar(40) DEFAULT 'starter', created_at varchar(40));
 CREATE TABLE blueseatra.catalogs (
   id varchar(36) PRIMARY KEY, tenant_id varchar(36) NOT NULL, name varchar(200) NOT NULL,
   client_code varchar(60) DEFAULT 'N/A', active_version_id varchar(36), created_at varchar(40));
@@ -83,11 +87,19 @@ CREATE INDEX idx_offers_recherche_trgm ON blueseatra.supplier_offers USING gin (
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON blueseatra.suppliers, blueseatra.catalogs,
   blueseatra.catalog_versions, blueseatra.supplier_offers TO blueseatra_app;
-GRANT SELECT ON blueseatra.tenants TO blueseatra_app;
+-- Politiques TELLES QUE RELEVEES EN PRODUCTION (pg_policies, 23/09/2026) :
+-- supplier_offers_all et suppliers_all ne visent QUE `authenticated`
+-- (corrige par la migration 20260923200000). blueseatra_app n'a aucun
+-- droit sur tenants.
 DO $$ DECLARE t text; BEGIN
   FOREACH t IN ARRAY ARRAY['suppliers','catalogs','catalog_versions','supplier_offers'] LOOP
     EXECUTE format('ALTER TABLE blueseatra.%I ENABLE ROW LEVEL SECURITY', t);
-    EXECUTE format('CREATE POLICY %I ON blueseatra.%I FOR ALL TO blueseatra_app
-       USING ((tenant_id)::text = blueseatra.current_tenant())
-       WITH CHECK ((tenant_id)::text = blueseatra.current_tenant())', t||'_all', t);
   END LOOP; END $$;
+CREATE POLICY supplier_offers_all ON blueseatra.supplier_offers FOR ALL TO authenticated
+  USING ((tenant_id)::text = blueseatra.current_tenant()) WITH CHECK ((tenant_id)::text = blueseatra.current_tenant());
+CREATE POLICY suppliers_all ON blueseatra.suppliers FOR ALL TO authenticated
+  USING ((tenant_id)::text = blueseatra.current_tenant()) WITH CHECK ((tenant_id)::text = blueseatra.current_tenant());
+CREATE POLICY catalogs_all ON blueseatra.catalogs FOR ALL TO authenticated, blueseatra_app
+  USING ((tenant_id)::text = blueseatra.current_tenant()) WITH CHECK ((tenant_id)::text = blueseatra.current_tenant());
+CREATE POLICY cv_all ON blueseatra.catalog_versions FOR ALL TO authenticated, blueseatra_app
+  USING ((tenant_id)::text = blueseatra.current_tenant()) WITH CHECK ((tenant_id)::text = blueseatra.current_tenant());

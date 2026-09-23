@@ -33,6 +33,8 @@ COMMANDES
   analyser  fichier                       -> validation de 100 % des lignes (rapport JSON
                                              + anomalies.csv), AUCUNE connexion base
   importer  fichier --tenant ID           -> ecrit une version NON active
+            (--tenant commun : catalogue commun, visible par toutes les entreprises,
+             jamais supprimable, seulement masquable depuis le site)
   statut    --import-id ID --tenant ID
   activer   --import-id ID --tenant ID    -> bascule atomique
   annuler   --import-id ID --tenant ID    -> revient aux versions precedentes
@@ -70,6 +72,7 @@ XLSX_RATIO_MAX = 150                         # ratio decompresse/compresse par e
 XLSX_MAX_ENTREES = 5000
 LIGNES_MAX = 3_000_000
 LIGNES_ENTETE_MAX = 30                       # l'entete est cherchee dans les 30 premieres lignes
+TENANT_COMMUN = "00000000-0000-4000-8000-000000000c0d"   # voir backend/catalogue_commun.py
 TAILLE_LOT = 5000
 OCTETS_PAR_LIGNE_ESTIMES = 1250              # mesure reelle : 60 Mo / 49 200 offres
 PLAFOND_BASE_GO = 7.0                        # plan Pro : 8 Go de disque inclus
@@ -1052,6 +1055,9 @@ def annuler(import_id: str, tenant: str, sans_role: bool) -> dict:
 
 
 def purger(import_id: str, tenant: str, sans_role: bool, confirmer: bool) -> dict:
+    if tenant == TENANT_COMMUN:
+        raise SystemExit("Le catalogue commun n'est jamais supprime : utilisez `annuler` ou le "
+                         "masquage depuis le site.")
     if not confirmer:
         raise SystemExit("Suppression definitive : ajoutez --confirmer.")
     cx = connexion(tenant, sans_role)
@@ -1078,6 +1084,9 @@ def purger(import_id: str, tenant: str, sans_role: bool, confirmer: bool) -> dic
 
 
 def nettoyer(import_id: str, tenant: str, sans_role: bool, confirmer: bool) -> dict:
+    if tenant == TENANT_COMMUN:
+        raise SystemExit("Le catalogue commun n'est jamais supprime : utilisez `annuler` ou le "
+                         "masquage depuis le site.")
     """Supprime DEFINITIVEMENT les anciens tarifs remplaces par cet import.
 
     Conditions : toutes les versions de l'import sont actives (activer
@@ -1152,6 +1161,8 @@ def main(argv=None) -> int:
             s.add_argument("--sans-role", action="store_true",
                            help="Ne pas passer sous blueseatra_app (deconseille)")
     args = p.parse_args(argv)
+    if getattr(args, "tenant", None) == "commun":
+        args.tenant = TENANT_COMMUN   # catalogue visible par toutes les entreprises
 
     try:
         if args.cmd == "analyser":

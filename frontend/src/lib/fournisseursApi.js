@@ -387,3 +387,17 @@ export const rechercherFournisseurs = async ({ q, limite = 50, inclureQualifiant
   });
   return data;
 };
+
+// --- Catalogue commun a toutes les entreprises ---------------------------
+// Jamais supprimable depuis le site : seulement masquable, pour son
+// entreprise (owner/admin) ou pour toutes (compte Blueseatra).
+export async function etatCatalogueCommun() {
+  const { data } = await api.get('/fournisseurs/catalogue-commun');
+  return data;
+}
+
+export async function changerMasquageCatalogueCommun({ masquer, pourTous = false }) {
+  const action = `${masquer ? 'masquer' : 'afficher'}${pourTous ? '-pour-tous' : ''}`;
+  const { data } = await api.post(`/fournisseurs/catalogue-commun/${action}`);
+  return data;
+}

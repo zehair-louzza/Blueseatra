@@ -1,3 +1,4 @@
+import { BadgeCommun } from '@/components/CatalogueCommunPanel';
 import React from 'react';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -48,6 +49,7 @@ export const SupplierResultsTable = ({ resultats }) => {
               <TableRow key={o.id} data-testid="fournisseurs-resultat-ligne">
                 <TableCell className="max-w-[10rem] align-top">
                   <TruncatedText className="text-sm font-medium">{o.fournisseur}</TruncatedText>
+                  {o.catalogue_commun && <BadgeCommun />}
                 </TableCell>
                 <TableCell className="max-w-[24rem] align-top text-sm">
                   <TruncatedText testid="fournisseurs-designation">{o.designation}</TruncatedText>
@@ -78,7 +80,7 @@ export const SupplierResultsTable = ({ resultats }) => {
         {lignes.map((o) => (
           <li key={o.id} className="px-4 py-3" data-testid="fournisseurs-resultat-carte">
             <div className="flex items-start justify-between gap-3">
-              <p className="min-w-0 flex-1 text-sm font-medium">{o.fournisseur}</p>
+              <p className="min-w-0 flex-1 text-sm font-medium">{o.fournisseur}{o.catalogue_commun && <BadgeCommun />}</p>
               <p className="shrink-0 text-right text-sm font-semibold tabular-nums">
                 {prixHT(o.prix_net_ht)}
                 <span className="ml-1 text-xs font-normal text-muted-foreground">HT</span>

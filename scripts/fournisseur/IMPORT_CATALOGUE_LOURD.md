@@ -121,3 +121,22 @@ TEST_PG_DSN='postgresql://postgres@/bs?host=/tmp&port=55432' pytest scripts/four
 ```
 
 Base **jetable** initialisée avec `scripts/fournisseur/tests/schema_prod_minimal.sql`. Ne jamais pointer `TEST_PG_DSN` vers Supabase.
+
+## Catalogue commun à toutes les entreprises
+
+Le fichier test TCE 2026 s’importe **une seule fois** dans le catalogue commun. Il devient alors visible par toutes les entreprises, et chaque ligne porte le badge « Commun » dans la recherche.
+
+Prérequis : la migration `supabase/migrations/20260923200000_catalogue_commun.sql` doit être appliquée en production.
+
+```powershell
+python scripts\fournisseur\import_catalogue_lourd.py analyser  "C:\chemin\catalogue.xlsx"
+python scripts\fournisseur\import_catalogue_lourd.py importer  "C:\chemin\catalogue.xlsx" --tenant commun
+python scripts\fournisseur\import_catalogue_lourd.py activer   --import-id <ID> --tenant commun
+```
+
+Règles :
+
+- **Jamais de suppression.** Le catalogue commun n’est jamais supprimé : `purger` et `nettoyer` refusent `--tenant commun`, et le site ne propose aucune suppression. `annuler` reste possible : cette commande revient à la version précédente sans effacer de données.
+- **Masquage par entreprise.** Le propriétaire ou un admin d’une entreprise peut masquer le catalogue commun pour son entreprise sur la page Recherche fournisseurs, puis le réafficher. Les autres entreprises ne sont pas affectées.
+- **Masquage global.** Le propriétaire du compte Blueseatra peut masquer le catalogue commun pour toutes les entreprises, puis le réafficher.
+- **Imports privés.** Les imports faits avec `--tenant <id de l’entreprise>` restent visibles uniquement par cette entreprise.

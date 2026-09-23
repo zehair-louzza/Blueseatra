@@ -44,6 +44,7 @@ import statistics
 from sqlalchemy import text
 
 from database import get_current_tenant, tenant_session
+import catalogue_commun
 from vocabulaire_btp import (
     QUALIFIANTS,
     est_regex,
@@ -74,12 +75,19 @@ FILTRE_VERSION_ACTIVE = """
     AND (o.catalog_id IS NULL
          OR o.version_id IN (
             SELECT c.active_version_id FROM blueseatra.catalogs c
-            WHERE c.tenant_id = :tenant_id
+            WHERE c.tenant_id IN (:tenant_id, :commun)
               AND c.active_version_id IS NOT NULL)
          -- offres historiques dont le catalogue n'a jamais ete cree :
          -- elles restent visibles comme avant le versionnage.
          OR o.catalog_id NOT IN (
-            SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id = :tenant_id))
+            SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id IN (:tenant_id, :commun)))
+"""
+
+# Perimetre : les offres de l'entreprise + le catalogue commun, sauf si
+# l'entreprise l'a masque. Filtre EXPLICITE (mode repli sous postgres).
+FILTRE_PERIMETRE = """
+    (o.tenant_id = :tenant_id
+     OR (:avec_commun AND o.tenant_id = :commun))
 """
 # Sous-requete NON correlee : evaluee une fois par recherche (et non par
 # ligne). Mesure sur 943 681 offres : surcout ~150 ms contre ~300 ms en
@@ -101,6 +109,7 @@ CHAMPS = """
     o.raw_unit          AS unite_vente,
     o.product_url       AS url_produit,
     o.source_date       AS date_prix,
+    (o.tenant_id = :commun) AS catalogue_commun,
     o.recherche_norm
 """
 
@@ -327,6 +336,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
             "contexte via set_current_tenant."
         )
     parametres["tenant_id"] = tenant
+    parametres["commun"] = catalogue_commun.TENANT_COMMUN
 
     sql = text(f"""
         SELECT {CHAMPS}
@@ -334,7 +344,8 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         LEFT JOIN blueseatra.suppliers f
                ON f.id = o.supplier_id
               AND f.tenant_id = o.tenant_id
-        WHERE o.tenant_id = :tenant_id
+        WHERE {FILTRE_PERIMETRE}
+          AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
           AND {FILTRE_VERSION_ACTIVE}
           AND {' AND '.join(conditions)}
         ORDER BY o.price_ht ASC NULLS LAST
@@ -343,6 +354,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     parametres["plafond"] = PLAFOND_LIGNES
 
     async with tenant_session() as session:
+        parametres["avec_commun"] = not await catalogue_commun.est_masque(session, tenant)
         resultat = await session.execute(sql, parametres)
         lignes = [dict(r) for r in resultat.mappings().all()]
 
@@ -423,18 +435,22 @@ async def liste_fournisseurs() -> dict:
             count(*)                                          AS references_,
             max(o.source_date)                                AS derniere_maj,
             round(100.0 * count(o.ean) / nullif(count(*), 0), 1)      AS taux_ean,
-            round(100.0 * count(o.price_ht) / nullif(count(*), 0), 1) AS prix_pct
+            round(100.0 * count(o.price_ht) / nullif(count(*), 0), 1) AS prix_pct,
+            bool_or(o.tenant_id = :commun)                    AS catalogue_commun
         FROM blueseatra.supplier_offers o
         LEFT JOIN blueseatra.suppliers f
                ON f.id = o.supplier_id
               AND f.tenant_id = o.tenant_id
-        WHERE o.tenant_id = :tenant_id
+        WHERE {FILTRE_PERIMETRE}
+          AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
           AND {FILTRE_VERSION_ACTIVE}
-        GROUP BY coalesce(f.name, 'inconnu')
+        GROUP BY coalesce(f.name, 'inconnu'), (o.tenant_id = :commun)
         ORDER BY count(*) DESC
     """)
     async with tenant_session() as session:
-        resultat = await session.execute(sql, {"tenant_id": tenant})
+        avec_commun = not await catalogue_commun.est_masque(session, tenant)
+        resultat = await session.execute(sql, {"tenant_id": tenant, "avec_commun": avec_commun,
+                                               "commun": catalogue_commun.TENANT_COMMUN})
         lignes = [dict(r) for r in resultat.mappings().all()]
 
     return {
@@ -446,6 +462,7 @@ async def liste_fournisseurs() -> dict:
                                  if l["derniere_maj"] else None),
                 "taux_ean": float(l["taux_ean"] or 0),
                 "prix_renseignes_pct": float(l["prix_pct"] or 0),
+                "catalogue_commun": bool(l["catalogue_commun"]),
             }
             for l in lignes
         ],
