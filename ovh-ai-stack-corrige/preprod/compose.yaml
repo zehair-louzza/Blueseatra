@@ -2,19 +2,20 @@ name: blueseatra-preprod
 
 services:
   postgres:
-    image: postgres:17-alpine
+    build:
+      context: ../..
+      dockerfile: ovh-ai-stack-corrige/preprod/Dockerfile.postgres
+    image: blueseatra-postgres:preprod
     restart: unless-stopped
-    # ssl=on: backend/database.py adds ssl='require' whenever the DB host is
-    # not localhost/127.0.0.1 (the container host is `postgres`), so the
-    # preproduction instance must speak TLS. The official image generates a
-    # self-signed certificate automatically.
-    command: ["postgres", "-c", "ssl=on"]
+    # database.py requires TLS for container-to-container DB connections.
+    # The custom entrypoint generates/renews a private server certificate.
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-blueseatra_preprod}
       POSTGRES_USER: ${POSTGRES_USER:-blueseatra_preprod}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.preprod}
     volumes:
       - postgres_preprod_data:/var/lib/postgresql/data
+      - postgres_preprod_tls:/etc/postgresql/preprod-tls
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
@@ -101,5 +102,7 @@ networks:
 volumes:
   postgres_preprod_data:
     name: blueseatra_preprod_postgres_data
+  postgres_preprod_tls:
+    name: blueseatra_preprod_postgres_tls
   redis_preprod_data:
     name: blueseatra_preprod_redis_data

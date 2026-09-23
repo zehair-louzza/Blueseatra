@@ -8,7 +8,7 @@ Supabase production project, and never requires a paid Supabase branch.
 
 | Service  | Role | Profile |
 |----------|------|---------|
-| postgres | PostgreSQL 17, TLS on, schema `blueseatra`, Supabase-compatible roles | default |
+| postgres | PostgreSQL 17, TLS on (private self-signed certificate generated on start), schema `blueseatra`, Supabase-compatible roles | default |
 | redis    | Redis 7, AOF + password | default |
 | api      | Blueseatra FastAPI backend (`backend/server.py`) | `app` |
 | worker   | RQ extraction worker (`backend/extraction_worker.py`) | `app` |

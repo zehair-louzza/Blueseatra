@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-infra-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -45,7 +52,7 @@ jobs:
         run: ./scripts/validate-env.sh
       - name: Start infra services (postgres, redis)
         working-directory: ovh-ai-stack-corrige/preprod
-        run: docker compose --env-file .env.preprod up -d postgres redis
+        run: docker compose --env-file .env.preprod up -d --build postgres redis
       - name: Wait for services to be healthy
         working-directory: ovh-ai-stack-corrige/preprod
         run: |
