@@ -172,19 +172,19 @@ for file in $(ls "$MIGRATIONS_DIR" | sort); do
   echo "    applying: $file"
   migration_input="$MIGRATIONS_DIR/$file"
   if [ "$file" = "20260912070000_recherche_fournisseur_index.sql" ]; then
-    # Local-only compatibility: in vanilla PostgreSQL the SQL function can
-    # drop the superscript in "mm²" even when a direct unaccent() call works.
+    # Local-only compatibility: vanilla PostgreSQL may drop superscripts;
+    # pg_restore also clears search_path, so qualify both the extension
+    # function and dictionary for generated columns restored from a dump.
     # Never rewrite the already-applied Supabase migration in the repository.
-    # Translate the three superscripts explicitly in this throwaway copy.
     source_line="lower(unaccent('unaccent', coalesce(txt, ''))),"
     if [ "$(grep -Fc "$source_line" "$migration_input")" != "1" ]; then
       echo "ERROR: normalization source line changed; refusing compatibility rewrite." >&2
       exit 1
     fi
     migration_tmp=$(mktemp)
-    sed "s#lower(unaccent('unaccent', coalesce(txt, ''))),#lower(unaccent('unaccent', translate(coalesce(txt, ''), '²³¹', '231'))),#" \
+    sed "s#lower(unaccent('unaccent', coalesce(txt, ''))),#lower(public.unaccent('public.unaccent', translate(coalesce(txt, ''), '²³¹', '231'))),#" \
       "$migration_input" > "$migration_tmp"
-    if ! grep -Fq "lower(unaccent('unaccent', translate(coalesce(txt, ''), '²³¹', '231')))," "$migration_tmp"; then
+    if ! grep -Fq "lower(public.unaccent('public.unaccent', translate(coalesce(txt, ''), '²³¹', '231')))," "$migration_tmp"; then
       echo "ERROR: compatibility rewrite failed; refusing empty or unmodified SQL." >&2
       exit 1
     fi
