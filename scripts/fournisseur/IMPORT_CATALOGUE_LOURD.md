@@ -71,6 +71,31 @@ py scripts\fournisseur\import_catalogue_lourd.py statut  --import-id <ID> --tena
 py scripts\fournisseur\import_catalogue_lourd.py activer --import-id <ID> --tenant <TENANT_ID>
 ```
 
+## 4. Supprimer l’ancien tarif (ne garder que le nouveau)
+
+Une fois le nouveau catalogue activé et contrôlé sur le site :
+
+```powershell
+py scripts\fournisseur\import_catalogue_lourd.py nettoyer --import-id <ID> --tenant <TENANT_ID> --confirmer
+```
+
+- **Ce qui est supprimé** : définitivement, uniquement les anciennes versions remplacées par cet import. Les fournisseurs absents du fichier ne sont pas touchés.
+- **Condition** : la commande refuse de s’exécuter si l’import n’est pas activé.
+- **Conséquence** : après le nettoyage, `annuler` devient impossible. Pour revenir en arrière, il faudrait réimporter l’ancien fichier.
+
+## Import pour les deux entreprises ANELEC
+
+L’analyse est faite une seule fois. Ensuite, on répète pour chaque entreprise les étapes importer → activer → contrôler → nettoyer :
+
+```powershell
+$fichier = "C:\chemin\Catalogue TCE 2026.xlsx"
+foreach ($t in "f66c1482-0b9b-462a-b3ec-06847f693ec0", "9171d808-f7ee-4d51-92f6-db60d93d8ecc") {
+  py scripts\fournisseur\import_catalogue_lourd.py importer $fichier --tenant $t --date-tarif 2026-09-23
+}
+```
+
+Chaque import affiche son propre `import_id`, à utiliser ensuite pour `activer` puis `nettoyer`. Les anciennes offres de « ANELEC Test » pointaient vers un catalogue manquant : le script le recrée automatiquement, pour que l’ancien tarif soit bien remplacé et non doublé.
+
 ## Retour arrière
 
 ```powershell

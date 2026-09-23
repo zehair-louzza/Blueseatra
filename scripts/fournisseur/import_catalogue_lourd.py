@@ -730,6 +730,44 @@ class Contexte:
     fournisseurs_existants: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
+def adopte_catalogue_orphelin(cur, tenant: str, supplier_id: str, nom: str) -> str | None:
+    """Offres historiques pointant vers un catalogue jamais cree.
+
+    Constate en production (tenant ANELEC Test : 24 600 offres avec
+    catalog_id = lp_c_9171d808 absent de catalogs). Sans correction, un
+    import creerait un NOUVEAU catalogue et ces anciennes offres resteraient
+    visibles a cote des nouvelles (doublons). On cree donc le catalogue et
+    sa version manquants avec LEURS identifiants d'origine, version active :
+    la visibilite ne change pas, et l'activation pourra ensuite archiver
+    proprement l'ancien tarif.
+    """
+    cur.execute("""SELECT o.catalog_id, o.version_id, count(*) FROM blueseatra.supplier_offers o
+                   WHERE o.tenant_id = %s AND o.supplier_id = %s AND o.is_active
+                     AND o.catalog_id IS NOT NULL
+                     AND NOT EXISTS (SELECT 1 FROM blueseatra.catalogs c WHERE c.id = o.catalog_id)
+                   GROUP BY 1, 2""", (tenant, supplier_id))
+    orphelins = cur.fetchall()
+    if not orphelins:
+        return None
+    if len(orphelins) > 1 or orphelins[0][1] is None:
+        raise SystemExit(f"Fournisseur {nom} : offres historiques incoherentes {orphelins} ; "
+                         "correction manuelle necessaire avant import.")
+    catalog_id, version_id, n = orphelins[0]
+    horodatage = "to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')"
+    cur.execute(f"""INSERT INTO blueseatra.catalogs (id, tenant_id, name, client_code, active_version_id, created_at)
+                    VALUES (%s,%s,%s,'FOURNISSEUR',%s,{horodatage})""",
+                (catalog_id, tenant, f"Tarif {nom}"[:200], version_id))
+    cur.execute(f"""INSERT INTO blueseatra.catalog_versions
+                      (id, tenant_id, catalog_id, version_number, status, item_count, error_count,
+                       mapping, created_at, activated_at)
+                    SELECT %s,%s,%s,1,'active',%s,0,%s,{horodatage},{horodatage}
+                    WHERE NOT EXISTS (SELECT 1 FROM blueseatra.catalog_versions WHERE id = %s)""",
+                (version_id, tenant, catalog_id, n,
+                 json.dumps({"origine": "catalogue orphelin adopte par import_catalogue_lourd"}), version_id))
+    print(f"  catalogue historique {catalog_id} recree ({n:,} offres, version {version_id})", file=sys.stderr)
+    return catalog_id
+
+
 def prepare_cible(cur, ctx: Contexte, nom: str) -> Cible:
     cle = slug(nom)
     if cle in ctx.cibles:
@@ -742,6 +780,7 @@ def prepare_cible(cur, ctx: Contexte, nom: str) -> Cible:
             "INSERT INTO blueseatra.suppliers (id, tenant_id, name, slug) VALUES (%s,%s,%s,%s)",
             (supplier_id, ctx.tenant, nom, cle[:120]))
         ctx.fournisseurs_existants[cle] = (supplier_id, nom)
+    adopte_catalogue_orphelin(cur, ctx.tenant, supplier_id, nom_base)
     # catalogue : celui des offres deja actives du fournisseur, sinon par nom, sinon nouveau
     cur.execute("""
         SELECT c.id FROM blueseatra.catalogs c
@@ -991,6 +1030,12 @@ def annuler(import_id: str, tenant: str, sans_role: bool) -> dict:
             if v["active_version_id"] != v["id"]:
                 continue
             precedente = (v["mapping"] or {}).get("version_precedente")
+            if precedente:
+                cur.execute("SELECT status FROM blueseatra.catalog_versions WHERE id=%s", (precedente,))
+                st = cur.fetchone()
+                if st and st[0] == "purged":
+                    raise SystemExit(f"L'ancien tarif {precedente} a ete supprime par `nettoyer` : "
+                                     "retour arriere impossible, reimportez l'ancien fichier.")
             cur.execute("UPDATE blueseatra.catalogs SET active_version_id=%s WHERE id=%s AND tenant_id=%s",
                         (precedente, v["catalog_id"], tenant))
             cur.execute("UPDATE blueseatra.catalog_versions SET status='ready' WHERE id=%s", (v["id"],))
@@ -1032,6 +1077,46 @@ def purger(import_id: str, tenant: str, sans_role: bool, confirmer: bool) -> dic
     return {"lignes_supprimees": total, "versions": [v["id"] for v in vs]}
 
 
+def nettoyer(import_id: str, tenant: str, sans_role: bool, confirmer: bool) -> dict:
+    """Supprime DEFINITIVEMENT les anciens tarifs remplaces par cet import.
+
+    Conditions : toutes les versions de l'import sont actives (activer
+    reussi). Seules les versions `version_precedente` enregistrees par
+    `activer` sont supprimees : les autres fournisseurs du tenant ne sont
+    pas touches. Apres nettoyage, `annuler` n'est plus possible.
+    """
+    if not confirmer:
+        raise SystemExit("Suppression definitive de l'ancien tarif : ajoutez --confirmer.")
+    cx = connexion(tenant, sans_role)
+    cur = cx.cursor()
+    vs = _versions(cur, import_id, tenant)
+    inactives = [v["id"] for v in vs if v["active_version_id"] != v["id"]]
+    if not vs or inactives:
+        raise SystemExit(f"Import non active ({inactives or 'aucune version'}) : lancez d'abord `activer`.")
+    bilan = []
+    for v in vs:
+        ancienne = (v["mapping"] or {}).get("version_precedente")
+        if not ancienne or ancienne == v["id"]:
+            continue
+        total = 0
+        while True:
+            cur.execute("""DELETE FROM blueseatra.supplier_offers WHERE id IN (
+                             SELECT id FROM blueseatra.supplier_offers
+                             WHERE tenant_id=%s AND version_id=%s LIMIT 10000)""", (tenant, ancienne))
+            n = cur.rowcount
+            cx.commit()
+            total += n
+            if n == 0:
+                break
+        cur.execute("UPDATE blueseatra.catalog_versions SET status='purged', item_count=0 "
+                    "WHERE id=%s AND tenant_id=%s", (ancienne, tenant))
+        cx.commit()
+        bilan.append({"fournisseur": (v["mapping"] or {}).get("fournisseur"),
+                      "ancienne_version": ancienne, "lignes_supprimees": total})
+    cx.close()
+    return {"nettoye": bilan, "lignes_supprimees": sum(b["lignes_supprimees"] for b in bilan)}
+
+
 # ---------------------------------------------------------------------------
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -1054,13 +1139,13 @@ def main(argv=None) -> int:
     commun_fichier(i)
     i.add_argument("--tenant", required=True)
     i.add_argument("--lot", type=int, default=TAILLE_LOT)
-    for nom in ("statut", "activer", "annuler", "purger"):
+    for nom in ("statut", "activer", "annuler", "purger", "nettoyer"):
         s = sp.add_parser(nom)
         s.add_argument("--import-id", required=True)
         s.add_argument("--tenant", required=True)
         if nom == "activer":
             s.add_argument("--forcer", action="store_true")
-        if nom == "purger":
+        if nom in ("purger", "nettoyer"):
             s.add_argument("--confirmer", action="store_true")
     for s in sp.choices.values():
         if s.prog.split()[-1] != "analyser":
@@ -1082,6 +1167,8 @@ def main(argv=None) -> int:
             r = activer(args.import_id, args.tenant, args.sans_role, args.forcer)
         elif args.cmd == "annuler":
             r = annuler(args.import_id, args.tenant, args.sans_role)
+        elif args.cmd == "nettoyer":
+            r = nettoyer(args.import_id, args.tenant, args.sans_role, args.confirmer)
         else:
             r = purger(args.import_id, args.tenant, args.sans_role, args.confirmer)
     except FichierRefuse as e:
