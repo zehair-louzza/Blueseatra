@@ -178,14 +178,24 @@ for file in $(ls "$MIGRATIONS_DIR" | sort); do
   echo "    applying: $file"
   if [ "$file" = "20260912070000_recherche_fournisseur_index.sql" ]; then
     # Diagnostic probe before the migration's own blocking assertion.
+    # Materialize the SQL first: an awk failure must never let psql "apply"
+    # an empty input and falsely mark the migration as successful.
+    probe_file=$(mktemp)
     awk '
       /^-- 4\. Verification bloquante/ {
-        print "SELECT '\\''function_probe='\\'' || blueseatra.normalise_recherche('\\''Câble H07V-U 2,5 mm² Bleu'\\'');"
+        q=sprintf("%c",39)
+        print "SELECT " q "function_probe=" q " || blueseatra.normalise_recherche(" q "Câble H07V-U 2,5 mm² Bleu" q ");"
       }
       { print }
-    ' "$MIGRATIONS_DIR/$file" | \
-      $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
-        -U "$DB_USER" -d "$TARGET_DB" && applied=1 || applied=0
+    ' "$MIGRATIONS_DIR/$file" > "$probe_file"
+    if ! grep -q 'function_probe=' "$probe_file"; then
+      rm -f "$probe_file"
+      echo "ERROR: diagnostic SQL not generated; migration was not applied." >&2
+      exit 1
+    fi
+    $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
+      -U "$DB_USER" -d "$TARGET_DB" < "$probe_file" && applied=1 || applied=0
+    rm -f "$probe_file"
   else
     $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
       -U "$DB_USER" -d "$TARGET_DB" < "$MIGRATIONS_DIR/$file" && applied=1 || applied=0
