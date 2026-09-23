@@ -10,10 +10,10 @@
 # scripts/migrate.sh handles that right after running this patch.
 set -eu
 
-rules=$(find /usr -name unaccent.rules -type f 2>/dev/null | head -n 1)
-if [ -z "$rules" ]; then
-  echo "03-unaccent-superscripts: unaccent.rules not found, skipping" >&2
-  exit 0
+rules="$(pg_config --sharedir)/tsearch_data/unaccent.rules"
+if [ ! -f "$rules" ]; then
+  echo "03-unaccent-superscripts: active unaccent.rules not found: $rules" >&2
+  exit 1
 fi
 
 add_if_missing() {

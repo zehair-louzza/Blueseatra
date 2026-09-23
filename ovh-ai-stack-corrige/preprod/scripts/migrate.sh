@@ -80,7 +80,7 @@ fi
 echo "==> Ensuring roles, schema, current_tenant(), extensions, tracking table"
 
 # 1a. unaccent superscript rules (² -> 2, ³ -> 3, ¹ -> 1), idempotent
-$COMPOSE exec -u root -T postgres sh /docker-entrypoint-initdb.d/03-unaccent-superscripts.sh || true
+$COMPOSE exec -u root -T postgres sh /docker-entrypoint-initdb.d/03-unaccent-superscripts.sh
 
 $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$TARGET_DB" <<'SQL'
 DO $$
@@ -130,6 +130,13 @@ CREATE TABLE IF NOT EXISTS blueseatra._preprod_applied_migrations (
   applied_at timestamptz NOT NULL DEFAULT now()
 );
 SQL
+
+unaccent_check=$($COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$TARGET_DB" \
+  -tAc "SELECT unaccent('unaccent', 'mm²')" | tr -d '[:space:]')
+if [ "$unaccent_check" != "mm2" ]; then
+  echo "ERROR: active PostgreSQL unaccent dictionary maps mm² to '$unaccent_check' (expected mm2)." >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Base tables from the backend SQLAlchemy models
