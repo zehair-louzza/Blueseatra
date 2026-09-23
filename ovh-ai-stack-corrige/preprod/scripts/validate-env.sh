@@ -46,8 +46,15 @@ require_set POSTGRES_PASSWORD        24
 require_set PREPROD_APP_DB_PASSWORD  24
 require_set REDIS_PASSWORD           24
 require_set JWT_SECRET               48
-require_set APP_ENCRYPTION_KEY        48
+require_set APP_ENCRYPTION_KEY        44
 require_set HERMES_BASE_URL          12
+
+# Fernet (backend/server.py) accepts URL-safe base64 for exactly 32 bytes.
+fernet_key=$(grep '^APP_ENCRYPTION_KEY=' .env.preprod | head -n 1 | cut -d= -f2-)
+if ! python3 -c 'import base64,sys; k=sys.argv[1]; assert len(k)==44 and len(base64.urlsafe_b64decode(k))==32' "$fernet_key" >/dev/null 2>&1; then
+  echo "INVALID: APP_ENCRYPTION_KEY must be a 44-character Fernet key (see .env.preprod.example)." >&2
+  fail=1
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo "" >&2

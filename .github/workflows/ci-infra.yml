@@ -42,10 +42,10 @@ jobs:
             VAL=$(openssl rand -hex 16)
             sed -i "s|^${VAR}=.*|${VAR}=${VAL}|" .env.preprod
           done
-          for VAR in JWT_SECRET APP_ENCRYPTION_KEY; do
-            VAL=$(openssl rand -hex 32)
-            sed -i "s|^${VAR}=.*|${VAR}=${VAL}|" .env.preprod
-          done
+          JWT_VAL=$(openssl rand -hex 32)
+          FERNET_VAL=$(python3 -c 'import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')
+          sed -i "s|^JWT_SECRET=.*|JWT_SECRET=${JWT_VAL}|" .env.preprod
+          sed -i "s|^APP_ENCRYPTION_KEY=.*|APP_ENCRYPTION_KEY=${FERNET_VAL}|" .env.preprod
           chmod 600 .env.preprod
       - name: Validate env (reject production-looking secrets)
         working-directory: ovh-ai-stack-corrige/preprod
@@ -70,10 +70,28 @@ jobs:
       - name: Build backend image
         working-directory: ovh-ai-stack-corrige/preprod
         run: docker compose --env-file .env.preprod --profile app build api
+      - name: Apply migrations to disposable CI database
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: ./scripts/migrate.sh --apply
+      - name: Start API and worker
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: docker compose --env-file .env.preprod --profile app up -d
+      - name: Smoke-test API and worker
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: ./scripts/smoke-test.sh
+      - name: Encrypted backup and restore verification
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: |
+          set -euo pipefail
+          echo "BACKUP_ENCRYPTION_PASSPHRASE=$(openssl rand -hex 32)" >> .env.preprod
+          ./scripts/backup-preprod.sh
+          backup=$(find backups -maxdepth 1 -type f -name '*.dump.enc' -print -quit)
+          [ -n "$backup" ] || exit 1
+          ./scripts/restore-preprod.sh "$backup"
       - name: Tear down
         if: always()
         working-directory: ovh-ai-stack-corrige/preprod
-        run: docker compose --env-file .env.preprod down -v --remove-orphans
+        run: docker compose --env-file .env.preprod --profile app down -v --remove-orphans
 
   secrets:
     runs-on: ubuntu-latest

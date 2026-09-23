@@ -97,6 +97,10 @@ The api and worker containers share the image `blueseatra-backend:preprod`,
 built from `Dockerfile.backend` with the repository root as build context.
 The API listens on `127.0.0.1:8080` (override with `API_BIND`), e.g.:
 
+`APP_ENCRYPTION_KEY` must be a Fernet key (URL-safe base64 encoding of exactly
+32 random bytes), not a hex string. `scripts/validate-env.sh` checks its
+format before the stack starts. The CI uses an ephemeral Fernet key.
+
 ```bash
 ssh -L 8080:127.0.0.1:8080 vps
 curl http://127.0.0.1:8080/health
