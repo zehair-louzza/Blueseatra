@@ -57,6 +57,29 @@ from vocabulaire_btp import (
 # plus que la requete.
 LIMITE_DEFAUT = 50
 LIMITE_MAX = 200
+# Plafond de lignes lues en SQL avant le traitement Python. Le catalogue
+# consolide compte ~944 000 offres : un terme large ("cable") en
+# ramenerait des dizaines de milliers en memoire sur un service a 512 Mo.
+# Les lignes sont triees par prix croissant, les moins cheres sont donc
+# toujours dans la fenetre ; `tronque` signale que la liste est partielle.
+PLAFOND_LIGNES = 5000
+
+# Seules les offres de la VERSION ACTIVE de leur catalogue sont visibles.
+# Un import lourd ecrit d'abord une version non active (script
+# scripts/fournisseur/import_catalogue_lourd.py) : sans ce filtre, ses
+# lignes apparaitraient pendant l'import puis en double avec l'ancienne
+# version. Les offres sans catalogue (historique) restent visibles.
+FILTRE_VERSION_ACTIVE = """
+    o.is_active
+    AND (o.catalog_id IS NULL OR o.version_id IN (
+        SELECT c.active_version_id FROM blueseatra.catalogs c
+        WHERE c.tenant_id = :tenant_id
+          AND c.active_version_id IS NOT NULL))
+"""
+# Sous-requete NON correlee : evaluee une fois par recherche (et non par
+# ligne). Mesure sur 943 681 offres : surcout ~150 ms contre ~300 ms en
+# EXISTS correle. version_id est une cle primaire de catalog_versions :
+# aucun risque de collision entre tenants.
 
 # Colonnes renvoyees. Explicites plutot que SELECT *, pour ne pas
 # exposer par accident une colonne ajoutee plus tard.
@@ -307,15 +330,19 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
                ON f.id = o.supplier_id
               AND f.tenant_id = o.tenant_id
         WHERE o.tenant_id = :tenant_id
+          AND {FILTRE_VERSION_ACTIVE}
           AND {' AND '.join(conditions)}
         ORDER BY o.price_ht ASC NULLS LAST
+        LIMIT :plafond
     """)
+    parametres["plafond"] = PLAFOND_LIGNES
 
     async with tenant_session() as session:
         resultat = await session.execute(sql, parametres)
         lignes = [dict(r) for r in resultat.mappings().all()]
 
     total = len(lignes)
+    tronque = total >= PLAFOND_LIGNES
 
     if inclure_qualifiants:
         retenus, isoles = lignes, []
@@ -357,6 +384,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     return {
         "requete": requete,
         "total": total,
+        "tronque": tronque,
         "comparables": len(retenus),
         "termes_reconnus": reconnus,
         "prix": bloc_prix,
@@ -384,7 +412,7 @@ async def liste_fournisseurs() -> dict:
             "exposerait tous les tenants."
         )
 
-    sql = text("""
+    sql = text(f"""
         SELECT
             coalesce(f.name, 'inconnu')                       AS nom,
             count(*)                                          AS references_,
@@ -396,6 +424,7 @@ async def liste_fournisseurs() -> dict:
                ON f.id = o.supplier_id
               AND f.tenant_id = o.tenant_id
         WHERE o.tenant_id = :tenant_id
+          AND {FILTRE_VERSION_ACTIVE}
         GROUP BY coalesce(f.name, 'inconnu')
         ORDER BY count(*) DESC
     """)
