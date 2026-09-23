@@ -88,6 +88,10 @@ jobs:
           backup=$(find backups -maxdepth 1 -type f -name '*.dump.enc' -print -quit)
           [ -n "$backup" ] || exit 1
           ./scripts/restore-preprod.sh "$backup"
+      - name: Diagnostic logs if app or restore fails
+        if: failure()
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: docker compose --env-file .env.preprod --profile app logs --tail=150 api worker postgres redis
       - name: Tear down
         if: always()
         working-directory: ovh-ai-stack-corrige/preprod
