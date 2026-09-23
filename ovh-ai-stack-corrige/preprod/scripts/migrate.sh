@@ -137,6 +137,14 @@ if [ "$unaccent_check" != "mm2" ]; then
   echo "ERROR: active PostgreSQL unaccent dictionary maps mm² to '$unaccent_check' (expected mm2)." >&2
   exit 1
 fi
+echo "==> Unicode normalization probe (synthetic test string)"
+$COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -U "$DB_USER" -d "$TARGET_DB" -tA <<'SQL'
+SELECT 'unaccent=' || unaccent('unaccent', 'Câble H07V-U 2,5 mm² Bleu');
+SELECT 'normalized=' || trim(regexp_replace(
+  regexp_replace(lower(unaccent('unaccent', 'Câble H07V-U 2,5 mm² Bleu')),
+    '(\d)[.,](\d)', '\1.\2', 'g'),
+  '[^a-z0-9.+]+', ' ', 'g'));
+SQL
 
 # ---------------------------------------------------------------------------
 # 2. Base tables from the backend SQLAlchemy models
