@@ -176,8 +176,21 @@ for file in $(ls "$MIGRATIONS_DIR" | sort); do
   fi
 
   echo "    applying: $file"
-  if $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
-      -U "$DB_USER" -d "$TARGET_DB" < "$MIGRATIONS_DIR/$file"; then
+  if [ "$file" = "20260912070000_recherche_fournisseur_index.sql" ]; then
+    # Diagnostic probe before the migration's own blocking assertion.
+    awk '
+      /^-- 4\. Verification bloquante/ {
+        print "SELECT '\\''function_probe='\\'' || blueseatra.normalise_recherche('\\''Câble H07V-U 2,5 mm² Bleu'\\'');"
+      }
+      { print }
+    ' "$MIGRATIONS_DIR/$file" | \
+      $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
+        -U "$DB_USER" -d "$TARGET_DB" && applied=1 || applied=0
+  else
+    $COMPOSE exec -T postgres psql -v ON_ERROR_STOP=1 -q \
+      -U "$DB_USER" -d "$TARGET_DB" < "$MIGRATIONS_DIR/$file" && applied=1 || applied=0
+  fi
+  if [ "$applied" -eq 1 ]; then
     $COMPOSE exec -T postgres psql -U "$DB_USER" -d "$TARGET_DB" -tAc \
       "INSERT INTO blueseatra._preprod_applied_migrations (filename) VALUES ('$file')" >/dev/null
   else
