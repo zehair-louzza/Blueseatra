@@ -13,8 +13,11 @@
 // ne connaissent que la charge utile du contrat.
 import { api } from '@/lib/api';
 
+// Le backend est en ligne depuis le 23/09/2026 (catalogue commun de
+// 967 563 produits) : les vraies donnees par defaut. Le jeu d'exemple ne
+// s'active plus que sur demande explicite (REACT_APP_FOURNISSEURS_MOCK=true).
 export const UTILISER_JEU_EXEMPLE =
-  (process.env.REACT_APP_FOURNISSEURS_MOCK ?? 'true') !== 'false';
+  (process.env.REACT_APP_FOURNISSEURS_MOCK ?? 'false') === 'true';
 
 // Latence simulee, pour que l'etat de chargement soit reellement observable.
 const LATENCE_EXEMPLE_MS = 450;
@@ -399,5 +402,26 @@ export async function etatCatalogueCommun() {
 export async function changerMasquageCatalogueCommun({ masquer, pourTous = false }) {
   const action = `${masquer ? 'masquer' : 'afficher'}${pourTous ? '-pour-tous' : ''}`;
   const { data } = await api.post(`/fournisseurs/catalogue-commun/${action}`);
+  return data;
+}
+
+
+// --- Parcours des catalogues fournisseurs --------------------------------
+// Liste des fournisseurs visibles par l'entreprise, puis produits page par
+// page. Aucune donnee d'exemple ici : c'est un ecran de consultation.
+export async function listerCatalogueFournisseurs() {
+  const { data } = await api.get('/fournisseurs/catalogue');
+  return data;
+}
+
+export async function produitsFournisseur({ cle, page = 1, taille = 50, q = '', famille = '' }) {
+  const { data } = await api.get(`/fournisseurs/catalogue/${encodeURIComponent(cle)}/produits`, {
+    params: { page, taille, q: q || undefined, famille: famille || undefined },
+  });
+  return data;
+}
+
+export async function famillesFournisseur(cle) {
+  const { data } = await api.get(`/fournisseurs/catalogue/${encodeURIComponent(cle)}/familles`);
   return data;
 }

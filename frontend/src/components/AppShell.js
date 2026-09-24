@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   LayoutDashboard, Inbox, BookOpen, FileText, Users, ScrollText,
-  Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Building2, Store,
+  Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Building2, Store, Library,
 } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
 import { cn } from '@/lib/utils';
@@ -20,7 +20,8 @@ const navItems = [
   { to: '/app', key: 'dashboard', icon: LayoutDashboard, end: true },
   { to: '/app/requests', key: 'requests', icon: Inbox },
   { to: '/app/catalogs', key: 'catalogs', icon: BookOpen },
-  { to: '/app/fournisseurs', key: 'suppliers', icon: Store },
+  { to: '/app/fournisseurs/catalogue', key: 'supplierCatalog', icon: Library },
+  { to: '/app/fournisseurs', key: 'suppliers', icon: Store, end: true },
   { to: '/app/quotes', key: 'quotes', icon: FileText },
   { to: '/app/members', key: 'members', icon: Users },
   { to: '/app/audit', key: 'audit', icon: ScrollText },
