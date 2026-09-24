@@ -396,7 +396,8 @@ Toutes les routes sont préfixées par `/api` (routeur `APIRouter(prefix="/api")
 | GET | `/api/fournisseurs/catalogue/{cle}/familles` | Familles d'une version (en cache par version) |
 | GET | `/api/fournisseurs/recherche?q=` | Comparaison de prix entre fournisseurs (5 000 candidats triés par prix, moins cher par fournisseur) |
 | GET | `/api/fournisseurs/catalogue-commun` | État du masquage du catalogue commun pour l'entreprise |
-| POST | `/api/fournisseurs/catalogue-commun/{action}` | Masquer ou réafficher le catalogue commun (owner/admin) |
+| POST | `/api/fournisseurs/catalogue-commun/masquer` et `/afficher` | Masquer ou réafficher le catalogue commun pour l'entreprise (owner/admin) |
+| POST | `/api/fournisseurs/catalogue-commun/masquer-pour-tous` | Masquage global, réservé au compte Blueseatra |
 
 La clé `cle` est toujours résolue côté serveur contre les versions visibles par l'entreprise ; un identifiant d'un autre tenant est refusé.
 
