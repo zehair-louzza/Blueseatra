@@ -343,6 +343,15 @@ BEGIN
 END $$;
 
 REVOKE ALL ON FUNCTION blueseatra.quota_crediter_recharge(varchar, varchar, integer, varchar, varchar) FROM PUBLIC;
+DO $$
+DECLARE r text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'blueseatra_app'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            EXECUTE format('REVOKE ALL ON FUNCTION blueseatra.quota_crediter_recharge(varchar, varchar, integer, varchar, varchar) FROM %I', r);
+        END IF;
+    END LOOP;
+END $$;
 GRANT EXECUTE ON FUNCTION blueseatra.quota_garde_tenant(varchar) TO blueseatra_app;
 GRANT EXECUTE ON FUNCTION blueseatra.quota_abonnement(varchar) TO blueseatra_app;
 GRANT EXECUTE ON FUNCTION blueseatra.quota_periode(blueseatra.abonnements, blueseatra.offres, timestamptz) TO blueseatra_app;
