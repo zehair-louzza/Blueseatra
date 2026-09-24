@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { lpFr, lpEn } from './i18n_lp';
 
 const resources = {
   en: {
@@ -143,6 +144,9 @@ const resources = {
     },
   },
 };
+
+resources.fr.translation.lp = lpFr;
+resources.en.translation.lp = lpEn;
 
 i18n.use(initReactI18next).init({
   resources,
