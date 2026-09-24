@@ -87,8 +87,8 @@ LIBELLE_MAX = 2000
 # ---------------------------------------------------------------------------
 SYNONYMES: dict[str, list[str]] = {
     "fournisseur": ["fournisseur", "enseigne", "distributeur", "supplier", "nom fournisseur"],
-    "famille": ["famille", "categorie", "rayon"],
-    "sous_famille": ["sous famille", "sous categorie"],
+    "famille": ["famille", "categorie", "rayon", "famille source"],
+    "sous_famille": ["sous famille", "sous categorie", "sous famille source"],
     "designation": ["designation", "libelle", "description", "libelle article",
                     "designation article", "produit", "nom produit"],
     "marque": ["marque", "fabricant", "brand", "marque fabricant"],
@@ -98,10 +98,15 @@ SYNONYMES: dict[str, list[str]] = {
                       "reference constructeur", "ref fab"],
     "ean": ["code ean", "ean", "ean13", "gtin", "code barre", "gencod"],
     "prix_net": ["prix net ht", "prix net", "prix ht", "prix", "tarif net",
-                 "prix remise", "prix achat ht", "prix unitaire ht", "net ht"],
-    "prix_public": ["prix public ht", "prix public", "ppht", "prix catalogue", "prix brut"],
-    "unite": ["unite de vente", "unite", "uv", "unite vente"],
-    "url": ["url", "lien", "url produit", "lien produit"],
+                 "prix remise", "prix achat ht", "prix unitaire ht", "net ht",
+                 # catalogue TCE 2026 : le prix NET fournisseur est le prix d'ACHAT.
+                 # "Prix vente HT" (prix revendu, marge incluse) n'est volontairement
+                 # PAS reconnu : il reste dans raw_row.
+                 "prix achat ht source", "prix d achat ht", "prix achat"],
+    "prix_public": ["prix public ht", "prix public", "ppht", "prix catalogue", "prix brut",
+                    "prix public ht source"],
+    "unite": ["unite de vente", "unite", "uv", "unite vente", "unite de vente source"],
+    "url": ["url", "lien", "url produit", "lien produit", "fiche produit"],
     "date_prix": ["date prix", "date tarif", "date de prix", "date"],
     "conditionnement": ["conditionnement", "qte conditionnement", "colisage",
                         "quantite par conditionnement"],
@@ -144,6 +149,13 @@ def detecte_colonnes(entete: list) -> dict[str, int]:
             if champ in mapping:
                 break
     return mapping
+
+
+def _url_http(v: str | None) -> str | None:
+    """Un lien n'est retenu que s'il commence par http(s) : une colonne
+    "Fiche produit" peut contenir du texte, qui reste alors dans raw_row."""
+    v = (v or "").strip()
+    return v if v.lower().startswith(("http://", "https://")) else None
 
 
 def normalize_label(s: str) -> str:
@@ -467,7 +479,7 @@ def offres(lecture: Lecture, fournisseur_defaut: str | None, date_tarif: str | N
             ean=ean,
             price_ht=prix(cel(row, "prix_net")),
             packaging_qty=quantite(cel(row, "conditionnement")),
-            product_url=(texte(cel(row, "url")) or None),
+            product_url=_url_http(texte(cel(row, "url"))),
             source_date=(texte(cel(row, "date_prix")) or date_tarif),
             raw_row=raw_row,
             ean_verdict=verdict,

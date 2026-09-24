@@ -48,6 +48,27 @@ def test_references_excel_flottantes_redeviennent_entieres():
     assert icl.texte("  ") is None
 
 
+def test_entetes_du_catalogue_tce_2026():
+    # En-tetes exacts du fichier reel (rapport_analyse du 23/09/2026).
+    entete = ["ID source", "Fournisseur", "Famille source", "Sous-famille source", "Désignation",
+              "Marque", "Réf. fournisseur", "Réf. fabricant", "Code EAN", "Prix achat HT source",
+              "Nature du prix", "Prix public HT source", "Remise source %", "Unité de vente source",
+              "Qté conditionnement", "Fiche produit", "Marge %", "Prix vente HT", "Prix vente TTC"]
+    m = icl.detecte_colonnes(entete)
+    assert entete[m["prix_net"]] == "Prix achat HT source"   # jamais le prix de vente marge
+    assert entete[m["prix_public"]] == "Prix public HT source"
+    assert entete[m["unite"]] == "Unité de vente source"
+    assert entete[m["famille"]] == "Famille source"
+    assert entete[m["sous_famille"]] == "Sous-famille source"
+    assert entete[m["url"]] == "Fiche produit"
+    assert "Prix vente HT" not in [entete[i] for i in m.values()]
+
+
+def test_url_non_http_ignoree():
+    assert icl._url_http("voir catalogue") is None
+    assert icl._url_http(" https://x.fr/p ") == "https://x.fr/p"
+
+
 def test_detection_exacte_ne_confond_pas_prix_et_prix_public():
     m = icl.detecte_colonnes(["Désignation", "Prix public HT", "Prix net HT", "Marque"])
     assert m == {"designation": 0, "prix_public": 1, "prix_net": 2, "marque": 3}

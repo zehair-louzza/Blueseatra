@@ -99,6 +99,13 @@ jobs:
 
   secrets:
     runs-on: ubuntu-latest
+    # gitleaks-action v2 lit la liste des commits de la PR via l'API GitHub :
+    # sans `pull-requests: read`, l'appel echoue en 403 « Resource not
+    # accessible by integration » et le controle tombe en echec sans avoir
+    # analyse quoi que ce soit.
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
