@@ -491,3 +491,58 @@ def test_le_script_ne_supprime_jamais_le_catalogue_commun(base):
         with pytest.raises(SystemExit, match="jamais supprime"):
             fn(iid, icl.TENANT_COMMUN, sans_role=False, confirmer=True)
     assert icl.main(["statut", "--import-id", iid, "--tenant", "commun"]) in (0, None)
+
+
+# ------------------------------------------ parcours des catalogues (site)
+_NAV = (RACINE / "backend" / "catalogue_navigation.py").read_text()
+SQL_CATALOGUES = re.search(r'SQL_CATALOGUES = """(.*?)"""', _NAV, re.S).group(1)
+SQL_HISTORIQUE = re.search(r'SQL_HISTORIQUE = """(.*?)"""', _NAV, re.S).group(1)
+SQL_FAMILLES = re.search(r'SQL_FAMILLES = """(.*?)"""', _NAV, re.S).group(1)
+
+
+def _pg2(sql):
+    return re.sub(r":(\w+)", r"%(\1)s", sql)
+
+
+def _catalogues_site(tenant):
+    ids = {r[0] for r in _sql(_pg(MASQUAGE), {"t": tenant, "c": icl.TENANT_COMMUN}, role_tenant=tenant)}
+    p = {"tenant_id": tenant, "commun": icl.TENANT_COMMUN, "avec_commun": not ids}
+    return sorted((r[6], r[5], r[3]) for r in _sql(_pg2(SQL_CATALOGUES), p, role_tenant=tenant))
+
+
+@integration
+def test_parcours_liste_les_fournisseurs_du_commun_et_de_l_entreprise(base):
+    _catalogue_commun_en_ligne(base)
+    commun = [("Point.P", True, 30), ("Rexel", True, 30), ("Sonepar", True, 30)]
+    assert _catalogues_site(TA) == [("La Plateforme du Batiment", False, 150)] + commun
+    assert _catalogues_site(TB) == commun          # B ne voit jamais le tarif de A
+
+
+@integration
+def test_parcours_respecte_le_masquage(base):
+    _catalogue_commun_en_ligne(base)
+    _sql("INSERT INTO blueseatra.catalogue_commun_masque (tenant_id, masque_le) VALUES (%s, 'x')",
+         (TA,), role_tenant=TA)
+    assert _catalogues_site(TA) == [("La Plateforme du Batiment", False, 150)]
+    assert len(_catalogues_site(TB)) == 3
+
+
+@integration
+def test_parcours_offres_historiques_sans_catalogue(base):
+    _sql("INSERT INTO blueseatra.supplier_offers (id, tenant_id, supplier_id, raw_label, price_ht) "
+         "VALUES ('h1', %s, 'lp_f', 'Cheville ancienne', 1.2)", (TA,))
+    p = {"tenant_id": TA, "commun": icl.TENANT_COMMUN, "avec_commun": True}
+    assert [(r[1], r[2]) for r in _sql(_pg2(SQL_HISTORIQUE), p, role_tenant=TA)] == [
+        ("La Plateforme du Batiment", 1)]
+    p["tenant_id"] = TB
+    assert _sql(_pg2(SQL_HISTORIQUE), p, role_tenant=TB) == []
+
+
+@integration
+def test_parcours_familles_d_une_version_du_commun(base):
+    _catalogue_commun_en_ligne(base)
+    v = _sql("SELECT active_version_id FROM blueseatra.catalogs WHERE tenant_id=%s AND name LIKE '%%Rexel'",
+             (icl.TENANT_COMMUN,))[0][0]
+    p = {"tenant_id": TB, "commun": icl.TENANT_COMMUN, "vt": icl.TENANT_COMMUN, "version": v}
+    fam = _sql(_pg2(SQL_FAMILLES), p, role_tenant=TB)
+    assert sum(n for _, n in fam) == 30
