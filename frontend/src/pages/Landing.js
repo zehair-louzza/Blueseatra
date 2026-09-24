@@ -11,10 +11,6 @@ import { LanguageToggle } from '@/components/LanguageToggle';
 import { BrandLogo } from '@/components/BrandLogo';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 
-// Chiffres reels du catalogue commun en production (24/09/2026).
-const FOURNISSEURS = ['Rexel', 'Prolians', 'Point.P', 'YESSS', 'La Plateforme du Bâtiment',
-  'Au Forum du Bâtiment', 'SFIC', 'Chausson Matériaux', 'Icilux'];
-
 const reveal = (reduce, delay = 0) => (reduce ? {} : {
   initial: { opacity: 0, y: 20 },
   whileInView: { opacity: 1, y: 0 },
@@ -96,44 +92,47 @@ function Hero({ t, reduce }) {
 }
 
 function Proof({ t }) {
-  const stats = [
-    { v: '967 563', l: t('lp.stat_refs') },
-    { v: '9', l: t('lp.stat_suppliers') },
-    { v: '4', l: t('lp.stat_vat') },
-    { v: '0', l: t('lp.stat_zero') },
+  const entrees = [
+    { icon: Mail, l: t('lp.in_mail') }, { icon: FileText, l: t('lp.in_pdf') },
+    { icon: FileSpreadsheet, l: t('lp.in_xls') }, { icon: Camera, l: t('lp.in_photo') },
   ];
+  const sorties = ['out_lots', 'out_labor', 'out_vat', 'out_pdf'];
   return (
     <section className="border-y border-border/70 bg-card">
-      <Container className="py-12">
-        <dl className="grid grid-cols-2 gap-y-8 md:grid-cols-4">
-          {stats.map((s) => (
-            <div key={s.l} className="px-2">
-              <dt className="sr-only">{s.l}</dt>
-              <dd className="tabular font-display text-3xl font-semibold text-primary md:text-4xl">{s.v}</dd>
-              <dd className="mt-1 text-sm text-muted-foreground">{s.l}</dd>
-            </div>
-          ))}
-        </dl>
-        <div className="mt-10 border-t border-border/70 pt-8">
-          <p className="text-sm font-medium text-foreground">{t('lp.suppliers_label')}</p>
-          <ul className="mt-4 flex flex-wrap gap-2">
-            {FOURNISSEURS.map((f) => (
-              <li key={f} className="rounded-full border border-border bg-background px-3.5 py-1.5 text-[13px] font-medium text-foreground/80">{f}</li>
-            ))}
-          </ul>
+      <Container className="grid gap-10 py-16 lg:grid-cols-12 lg:gap-12">
+        <div className="lg:col-span-5">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+            <FileSpreadsheet className="h-5 w-5" />
+          </span>
+          <h2 className="mt-5 max-w-[22ch] font-display text-3xl font-semibold leading-tight">{t('lp.own_t')}</h2>
+          <p className="mt-4 max-w-[48ch] text-[15px] leading-7 text-muted-foreground">{t('lp.own_d')}</p>
+          <Link to="/signup" className="mt-7 inline-block">
+            <Button variant="outline" className="gap-2">{t('lp.own_cta')} <ArrowRight className="h-4 w-4" /></Button>
+          </Link>
         </div>
-        <div className="mt-8 grid items-center gap-6 rounded-2xl border border-accent/30 bg-[hsl(185_45%_96%)] p-6 md:grid-cols-12 md:p-8">
-          <div className="flex items-start gap-4 md:col-span-9">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-              <FileSpreadsheet className="h-5 w-5" />
-            </span>
-            <div>
-              <h3 className="font-display text-xl font-semibold">{t('lp.own_t')}</h3>
-              <p className="mt-2 max-w-[70ch] text-[15px] leading-7 text-muted-foreground">{t('lp.own_d')}</p>
-            </div>
+        <div className="grid items-center gap-4 sm:grid-cols-[1fr_auto_1fr] lg:col-span-7">
+          <div className="rounded-2xl border border-border/80 bg-background p-6">
+            <p className="text-sm font-semibold">{t('lp.in_title')}</p>
+            <ul className="mt-4 space-y-2.5">
+              {entrees.map(({ icon: Icon, l }) => (
+                <li key={l} className="flex items-center gap-3 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-sm">
+                  <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />{l}
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="md:col-span-3 md:text-right">
-            <Link to="/signup"><Button variant="outline" className="gap-2">{t('lp.own_cta')} <ArrowRight className="h-4 w-4" /></Button></Link>
+          <span className="mx-auto flex h-10 w-10 rotate-90 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-soft sm:rotate-0">
+            <ArrowRight className="h-4 w-4" />
+          </span>
+          <div className="rounded-2xl border border-primary/20 bg-primary p-6 text-primary-foreground">
+            <p className="text-sm font-semibold">{t('lp.out_title')}</p>
+            <ul className="mt-4 space-y-2.5">
+              {sorties.map((k) => (
+                <li key={k} className="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2.5 text-sm">
+                  <Check className="h-4 w-4 shrink-0 text-[hsl(var(--brand-teal))]" />{t(`lp.${k}`)}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </Container>
