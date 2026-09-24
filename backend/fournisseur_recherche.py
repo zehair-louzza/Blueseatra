@@ -338,33 +338,75 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     parametres["tenant_id"] = tenant
     parametres["commun"] = catalogue_commun.TENANT_COMMUN
 
+    # RECHERCHE EN DEUX TEMPS. Les 5 000 candidats (tri par prix) sont lus
+    # dans l'index compact idx_offers_recherche_prix_v2, qui contient toutes
+    # les colonnes utiles au filtrage, aux statistiques et au tri
+    # (index-only, ~250 Mo). Les fiches completes (1,1 ko chacune) ne sont
+    # lues ensuite QUE pour les lignes affichees et les meilleurs prix par
+    # fournisseur. En une seule passe, lire 5 000 fiches depassait 60 s sur
+    # un terme courant. Memes lignes, meme ordre, memes statistiques.
     sql = text(f"""
+        SELECT o.id, o.tenant_id, o.supplier_id,
+               o.price_ht AS prix_net_ht, o.recherche_norm
+        FROM blueseatra.supplier_offers o
+        WHERE {FILTRE_PERIMETRE}
+          AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+          AND {FILTRE_VERSION_ACTIVE}
+          AND {' AND '.join(conditions)}
+        ORDER BY o.price_ht ASC NULLS LAST, o.id
+        LIMIT :plafond
+    """)
+    parametres["plafond"] = PLAFOND_LIGNES
+    sql_noms = text("""
+        SELECT f.tenant_id, f.id, f.name FROM blueseatra.suppliers f
+         WHERE f.tenant_id = :tenant_id OR f.tenant_id = :commun
+    """)
+    sql_fiches = text(f"""
         SELECT {CHAMPS}
         FROM blueseatra.supplier_offers o
         LEFT JOIN blueseatra.suppliers f
                ON f.id = o.supplier_id
               AND f.tenant_id = o.tenant_id
-        WHERE {FILTRE_PERIMETRE}
+        WHERE o.id = ANY(:ids)
           AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-          AND {FILTRE_VERSION_ACTIVE}
-          AND {' AND '.join(conditions)}
-        ORDER BY o.price_ht ASC NULLS LAST
-        LIMIT :plafond
     """)
-    parametres["plafond"] = PLAFOND_LIGNES
 
     async with tenant_session() as session:
         parametres["avec_commun"] = not await catalogue_commun.est_masque(session, tenant)
         resultat = await session.execute(sql, parametres)
         lignes = [dict(r) for r in resultat.mappings().all()]
+        noms = {(r["tenant_id"], r["id"]): r["name"] for r in (await session.execute(
+            sql_noms, {"tenant_id": tenant, "commun": parametres["commun"]})).mappings()}
+        for l in lignes:
+            l["fournisseur"] = noms.get((l.pop("tenant_id"), l.pop("supplier_id")))
 
-    total = len(lignes)
-    tronque = total >= PLAFOND_LIGNES
+        total = len(lignes)
+        tronque = total >= PLAFOND_LIGNES
 
-    if inclure_qualifiants:
-        retenus, isoles = lignes, []
-    else:
-        retenus, isoles = _separe_qualifiants(lignes, requete)
+        if inclure_qualifiants:
+            retenus, isoles = lignes, []
+        else:
+            retenus, isoles = _separe_qualifiants(lignes, requete)
+
+        # Ids a detailler : les lignes affichees + le moins cher de chaque
+        # fournisseur (meme regle que plus bas).
+        a_lire = [l["id"] for l in retenus[:limite]]
+        vus: dict[str, tuple] = {}
+        for l in retenus:
+            p, nom = l.get("prix_net_ht"), l.get("fournisseur") or "inconnu"
+            if p is not None and p > 0 and (nom not in vus or p < vus[nom][0]):
+                vus[nom] = (p, l["id"])
+        a_lire += [i for _, i in vus.values()]
+        fiches = {}
+        if a_lire:
+            res = await session.execute(sql_fiches, {
+                "ids": list(dict.fromkeys(a_lire)), "tenant_id": tenant,
+                "commun": parametres["commun"]})
+            fiches = {r["id"]: dict(r) for r in res.mappings()}
+
+    # Les lignes detaillees reprennent l'ordre et le perimetre du premier
+    # passage ; les autres gardent seulement prix/fournisseur/recherche.
+    retenus = [fiches.get(l["id"], l) for l in retenus]
 
     criteres = _criteres_a_affiner(retenus, requete)
 

@@ -35,6 +35,9 @@ TAILLE_DEFAUT = 50
 TAILLE_MAX = 200
 # Au-dela, un total exact coute un parcours complet ; on affiche « 10 000+ ».
 PLAFOND_COMPTE = 10000
+# Avec un mot cherche, compter au-dela coute plus cher que la page elle-meme
+# sur Rexel (747 771 lignes) ; l'ecran affiche alors "Plus de 1 000".
+PLAFOND_COMPTE_RECHERCHE = 1000
 
 # Versions ACTIVES visibles par l'entreprise : les siennes + le commun si
 # non masque. Le fournisseur est lu sur une offre de la version (index
@@ -196,18 +199,40 @@ async def produits(cle: str, page: int = 1, taille: int = TAILLE_DEFAUT,
             conds += c
             p.update(pq)
         clause = " AND ".join(conds)
-        ordre = "o.price_ht ASC NULLS LAST, o.id" if q else "o.raw_label, o.id"
-        p.update(limite=taille + 1, decalage=(page - 1) * taille, plafond=PLAFOND_COMPTE + 1)
+        plafond = PLAFOND_COMPTE_RECHERCHE if q else PLAFOND_COMPTE
+        p.update(limite=taille + 1, decalage=(page - 1) * taille, plafond=plafond + 1)
         # Les deux requetes filtrent tenant_id via `clause` (voir _resoudre).
-        sql = text(f"""
-            SELECT {CHAMPS}
-              FROM blueseatra.supplier_offers o
-              LEFT JOIN blueseatra.suppliers f
-                     ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
-             WHERE {clause} AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-             ORDER BY {ordre}
-             LIMIT :limite OFFSET :decalage
-        """)
+        if q:
+            # Recherche en deux temps : les identifiants de la page sont lus
+            # dans l'index compact idx_offers_recherche_prix_v2 (tri par
+            # prix, index-only), puis seules ces lignes sont lues en table.
+            # En une seule requete, PostgreSQL lisait chaque fiche candidate
+            # (1,1 ko) : > 60 s pour "disjoncteur" dans Rexel, 1,3 s ainsi.
+            sql = text(f"""
+                WITH page AS MATERIALIZED (
+                    SELECT o.id, o.price_ht
+                      FROM blueseatra.supplier_offers o
+                     WHERE {clause} AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+                     ORDER BY o.price_ht ASC NULLS LAST, o.id
+                     LIMIT :limite OFFSET :decalage)
+                SELECT {CHAMPS}
+                  FROM page
+                  JOIN blueseatra.supplier_offers o ON o.id = page.id
+                  LEFT JOIN blueseatra.suppliers f
+                         ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+                 WHERE (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+                 ORDER BY page.price_ht ASC NULLS LAST, page.id
+            """)
+        else:
+            sql = text(f"""
+                SELECT {CHAMPS}
+                  FROM blueseatra.supplier_offers o
+                  LEFT JOIN blueseatra.suppliers f
+                         ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+                 WHERE {clause} AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+                 ORDER BY o.raw_label, o.id
+                 LIMIT :limite OFFSET :decalage
+            """)
         lignes = [dict(r) for r in (await session.execute(sql, p)).mappings()]
         total = None
         if q or famille:
@@ -230,7 +255,8 @@ async def produits(cle: str, page: int = 1, taille: int = TAILLE_DEFAUT,
         l["date_prix"] = _iso(l.get("date_prix"))
     return {
         "cle": cle, "page": page, "taille": taille,
-        "total": total, "total_plafonne": bool(total and total > PLAFOND_COMPTE),
+        "total": total,
+        "total_plafonne": bool(total and total > (PLAFOND_COMPTE_RECHERCHE if q else PLAFOND_COMPTE)),
         "page_suivante": suivante, "produits": lignes,
     }
 
