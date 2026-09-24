@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowRight, Check, Mail, FileText, Camera, Layers, Receipt, ShieldCheck, Search,
-  Inbox, ScanText, GitCompareArrows, ClipboardCheck, FileCheck2,
+  Inbox, ScanText, GitCompareArrows, ClipboardCheck, FileCheck2, FileSpreadsheet,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LanguageToggle } from '@/components/LanguageToggle';
@@ -121,6 +121,20 @@ function Proof({ t }) {
               <li key={f} className="rounded-full border border-border bg-background px-3.5 py-1.5 text-[13px] font-medium text-foreground/80">{f}</li>
             ))}
           </ul>
+        </div>
+        <div className="mt-8 grid items-center gap-6 rounded-2xl border border-accent/30 bg-[hsl(185_45%_96%)] p-6 md:grid-cols-12 md:p-8">
+          <div className="flex items-start gap-4 md:col-span-9">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+              <FileSpreadsheet className="h-5 w-5" />
+            </span>
+            <div>
+              <h3 className="font-display text-xl font-semibold">{t('lp.own_t')}</h3>
+              <p className="mt-2 max-w-[70ch] text-[15px] leading-7 text-muted-foreground">{t('lp.own_d')}</p>
+            </div>
+          </div>
+          <div className="md:col-span-3 md:text-right">
+            <Link to="/signup"><Button variant="outline" className="gap-2">{t('lp.own_cta')} <ArrowRight className="h-4 w-4" /></Button></Link>
+          </div>
         </div>
       </Container>
     </section>
