@@ -46,11 +46,14 @@ SQL_CATALOGUES = """
            v.item_count    AS references_,
            v.activated_at  AS active_le,
            (c.tenant_id = :commun) AS catalogue_commun,
-           (SELECT f.name FROM blueseatra.supplier_offers o
-              JOIN blueseatra.suppliers f
-                ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
-             WHERE o.tenant_id = c.tenant_id AND o.version_id = v.id
-             LIMIT 1)      AS fournisseur
+           -- Une seule offre lue (LIMIT 1 sur l'index tenant/version), puis le
+           -- fournisseur : la jointure directe parcourait des centaines de
+           -- milliers d'offres par fournisseur (24 s en production).
+           (SELECT f.name FROM blueseatra.suppliers f
+             WHERE f.tenant_id = c.tenant_id
+               AND f.id = (SELECT o.supplier_id FROM blueseatra.supplier_offers o
+                            WHERE o.tenant_id = c.tenant_id AND o.version_id = v.id
+                            LIMIT 1)) AS fournisseur
       FROM blueseatra.catalogs c
       JOIN blueseatra.catalog_versions v
         ON v.id = c.active_version_id AND v.tenant_id = c.tenant_id
