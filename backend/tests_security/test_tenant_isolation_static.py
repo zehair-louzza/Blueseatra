@@ -313,6 +313,7 @@ def test_sql_brut_filtre_toujours_le_tenant():
         "pricing_items", "requests", "catalogs", "catalog_versions",
         "audit_logs", "company_profiles", "import_jobs", "import_errors",
         "quote_versions", "settings_integrations",
+        "registre_consommation", "abonnements",
     )
 
     manquants = []

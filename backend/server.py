@@ -28,6 +28,7 @@ import pdf_service
 import fournisseur_recherche
 import catalogue_commun
 import catalogue_navigation
+import quotas
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -73,6 +74,13 @@ def decrypt_secret(value: str) -> str:
         return ""
 
 app = FastAPI(title="Blueseatra API")
+
+
+@app.exception_handler(quotas.QuotaAtteint)
+async def _quota_atteint(_request, exc: quotas.QuotaAtteint):
+    # 402 explicite, jamais 500 : le frontend affiche le message et l'offre.
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=402, content={"detail": str(exc), "motif": exc.motif})
 api = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
 
@@ -290,6 +298,20 @@ class InviteIn(BaseModel):
     role: str = "operator"
 
 
+@api.get("/abonnement/consommation")
+async def abonnement_consommation(cu: CurrentUser = Depends(get_current)):
+    """Offre, période en cours et jauges (devis assistés, pages lues, sièges).
+    Les soldes sont la somme des lignes du registre : toujours reproductibles."""
+    nb = await db.tenant_users.count_documents({"tenant_id": cu.tenant_id})
+    return await quotas.etat(nb_membres=nb)
+
+
+@api.get("/abonnement/historique")
+async def abonnement_historique(limite: int = Query(50, ge=1, le=200), decalage: int = Query(0, ge=0),
+                                cu: CurrentUser = Depends(require_role("owner", "admin", "billing_admin"))):
+    return {"lignes": await quotas.historique(limite, decalage)}
+
+
 @api.get("/members")
 async def list_members(cu: CurrentUser = Depends(get_current)):
     members = await db.tenant_users.find({"tenant_id": cu.tenant_id}, {"_id": 0}).to_list(500)
@@ -305,6 +327,8 @@ async def list_members(cu: CurrentUser = Depends(get_current)):
 async def add_member(body: InviteIn, cu: CurrentUser = Depends(require_role("owner", "admin"))):
     if body.role not in ROLES:
         raise HTTPException(400, "Invalid role")
+    # Sièges de l'offre (refus seulement en mode application des quotas)
+    await quotas.verifier_siege(await db.tenant_users.count_documents({"tenant_id": cu.tenant_id}))
     user = await db.users.find_one({"email": body.email.lower()})
     if not user:
         user_id = new_id()
@@ -647,6 +671,9 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
     except Exception as e:
         logger.exception("process_request failed")
         await db.requests.update_one({"id": request_id}, {"$set": {"status": "failed", "error": str(e)}})
+        # Extraction échouée : le devis assisté et les pages sont rendus
+        # (ligne inverse dans le registre, jamais de modification).
+        await quotas.annuler(request_id, f"Extraction échouée : {type(e).__name__}")
 
 
 @api.post("/requests")
@@ -721,13 +748,22 @@ async def create_request(
             raise HTTPException(400, "Unsupported file type")
     if not raw_text.strip() and source_type not in ("image", "pdf_ocr"):
         raise HTTPException(400, "No text or supported file provided")
+    # Compteurs (ticket #89) : 1 devis assisté + les pages lues sur photo ou
+    # scan. Réservé AVANT d'enregistrer la demande ; en mode application,
+    # QuotaAtteint devient une 402 et rien n'est créé.
+    await quotas.reserver(
+        req_id, 1, quotas.pages_a_compter(source_type, len(vision_bytes or [])), cu.email)
     doc = {
         "id": req_id, "tenant_id": cu.tenant_id, "title": title, "source_type": source_type,
         "status": "received", "raw_text": raw_text, "filename": filename, "file_b64": file_b64,
         "extracted": None, "language": None, "confidence": None,
         "created_by": cu.email, "created_at": now_iso(),
     }
-    await db.requests.insert_one(doc)
+    try:
+        await db.requests.insert_one(doc)
+    except Exception:
+        await quotas.annuler(req_id, "Demande non enregistrée")
+        raise
     await audit(cu.tenant_id, cu.email, "request.create", req_id, {"source": source_type})
     # File durable opt-in : si REDIS_URL est défini ET pas d'octets vision en
     # mémoire (RGPD : ils ne transitent pas par Redis), on met le job en file
@@ -894,6 +930,9 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id})
     if not r:
         raise HTTPException(404, "Request not found")
+    # Retraitement : gratuit si le devis de cette demande est déjà compté ;
+    # recompté seulement si la première extraction avait échoué (rendue).
+    await quotas.reserver(request_id, 1, 1 if r.get("source_type") == "image" else 0, cu.email)
     if _redis_sync() is not None:
         _enqueue_extraction(request_id, cu.tenant_id)
         background.add_task(_watchdog_reprocess_if_stuck, request_id, cu.tenant_id)
@@ -951,6 +990,8 @@ async def deep_vision_escalation(request_id: str, background: BackgroundTasks,
             "Analyse approfondie disponible uniquement pour les photos importees "
             "(le fichier original n'est pas conserve pour les autres types).",
         )
+    # Analyse approfondie : une page lue supplémentaire, pas un nouveau devis.
+    await quotas.reserver(request_id, 0, 1, cu.email)
     import base64
     image_bytes = base64.b64decode(r["file_b64"])
     background.add_task(_run_deep_vision, request_id, cu.tenant_id, image_bytes)
