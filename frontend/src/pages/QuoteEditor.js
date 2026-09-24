@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
+import QuoteClientPanel from '@/components/clients/QuoteClientPanel';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
@@ -486,7 +487,7 @@ export default function QuoteEditor() {
         </div>
 
         <div className="lg:col-span-4">
-          <Card className="card-shadow sticky top-20 border-0 p-5" data-testid="quote-totals-panel">
+          <Card className="card-shadow border-0 p-5" data-testid="quote-totals-panel">
             <div className="space-y-2 text-sm">
               <div className="space-y-1.5">
                 <label className="text-xs uppercase text-muted-foreground">{t('quote.object')}</label>
@@ -535,6 +536,7 @@ export default function QuoteEditor() {
               <p className="mt-1">{t('quote.pricing_note')}</p>
             </div>
           </Card>
+          <QuoteClientPanel quoteId={id} status={q.status} />
         </div>
       </div>
     </div>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-25 — Module Clients (lots 1 à 4)
+
+- **Fiches** : clients (6 types, SIRET unique par entreprise), contacts (contact principal, opposition aux relances, anonymisation RGPD), chantiers, archivage sans suppression. Écrans `/app/clients` et `/app/clients/:id`.
+- **Suggestions IA** : après chaque extraction, donneur d'ordre et client final proposés avec la phrase source comme preuve ; rattachement automatique seulement sur SIRET ou e-mail identique (annulable) ; reprise des noms déjà saisis dans les devis.
+- **Relances** : planifiées à l'envoi du devis (jours ouvrés et fériés, urgence, rappel d'expiration, appel au-delà du seuil), annulées à l'issue, à la remise en brouillon ou à l'archivage ; écran `/app/relances` avec texte proposé, résultat et report ; réglages par entreprise ; badge dans le menu.
+- **Devis** : panneau « Client et suivi » (donneur d'ordre, client final, validité, issue Accepté / Refusé / Sans suite, relances).
+- **Pilotage** : indicateurs de la fiche (devis signés, en attente, taux de transformation, délai de réponse), import et export CSV.
+- Migration `20260926090000_module_clients.sql` (additive). Tests : 11 règles, 7 SQL, 7 de bout en bout sur l'API réelle.
+
 ## 2026-09-23/24 — Catalogue commun, performances, refonte visuelle, tarification
 
 PR #98 à #106 sur `main`.

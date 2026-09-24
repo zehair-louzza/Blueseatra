@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/context/AuthContext';
@@ -11,7 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {
   LayoutDashboard, Inbox, BookOpen, FileText, Users, ScrollText,
-  Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Store, Library,
+  Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Store, Library, Building2, BellRing,
 } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
 import { cn } from '@/lib/utils';
@@ -24,6 +25,10 @@ const navGroups = [
   { key: 'sales', items: [
     { to: '/app/requests', key: 'requests', icon: Inbox },
     { to: '/app/quotes', key: 'quotes', icon: FileText },
+  ] },
+  { key: 'clients', items: [
+    { to: '/app/clients', key: 'clients', icon: Building2 },
+    { to: '/app/relances', key: 'relances', icon: BellRing, badge: true },
   ] },
   { key: 'purchases', items: [
     { to: '/app/catalogs', key: 'catalogs', icon: BookOpen },
@@ -39,13 +44,18 @@ const navGroups = [
 ];
 
 const GROUP_LABELS = {
-  fr: { sales: 'Ventes', purchases: 'Achats et prix', company: 'Entreprise' },
-  en: { sales: 'Sales', purchases: 'Purchasing', company: 'Company' },
+  fr: { sales: 'Ventes', clients: 'Clients', purchases: 'Achats et prix', company: 'Entreprise' },
+  en: { sales: 'Sales', clients: 'Clients', purchases: 'Purchasing', company: 'Company' },
 };
 
 const NavList = ({ onNavigate }) => {
   const { t, i18n } = useTranslation();
   const labels = GROUP_LABELS[i18n.language?.startsWith('en') ? 'en' : 'fr'];
+  const [aRelancer, setARelancer] = useState(0);
+  useEffect(() => {
+    api.get('/relances', { params: { periode: 'aujourdhui' } })
+      .then((r) => setARelancer(r.data?.compte?.aujourdhui + r.data?.compte?.retard || 0)).catch(() => {});
+  }, []);
   return (
     <nav className="flex flex-col gap-5 px-3 py-4">
       {navGroups.map((g) => (
@@ -64,6 +74,9 @@ const NavList = ({ onNavigate }) => {
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
                 <item.icon className="h-[17px] w-[17px] shrink-0" />
                 {t(`nav2.${item.key}`)}
+                {item.badge && aRelancer > 0 && (
+                  <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold leading-none text-primary-foreground" aria-label={`${aRelancer}`}>{aRelancer}</span>
+                )}
               </NavLink>
             ))}
           </div>

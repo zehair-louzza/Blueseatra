@@ -22,6 +22,10 @@ import Members from '@/pages/Members';
 import Audit from '@/pages/Audit';
 import Settings from '@/pages/Settings';
 import Billing from '@/pages/Billing';
+import Clients from '@/pages/Clients';
+import ClientDetail from '@/pages/ClientDetail';
+import Relances from '@/pages/Relances';
+import SuggestionsPage from '@/components/clients/Suggestions';
 
 const Shell = ({ children }) => (
   <ProtectedRoute><AppShell>{children}</AppShell></ProtectedRoute>
@@ -72,6 +76,10 @@ function App() {
             <Route path="/app/audit" element={<Shell><Audit /></Shell>} />
             <Route path="/app/settings" element={<Shell><Settings /></Shell>} />
             <Route path="/app/billing" element={<Shell><Billing /></Shell>} />
+            <Route path="/app/clients" element={<Shell><Clients /></Shell>} />
+            <Route path="/app/clients/suggestions" element={<Shell><SuggestionsPage /></Shell>} />
+            <Route path="/app/clients/:id" element={<Shell><ClientDetail /></Shell>} />
+            <Route path="/app/relances" element={<Shell><Relances /></Shell>} />
           </Routes>
         </BrowserRouter>
         <Toaster position="top-right" richColors />
