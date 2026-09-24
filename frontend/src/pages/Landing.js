@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowRight, Check, Mail, FileText, Camera, Layers, Receipt, ShieldCheck, Search,
   Inbox, ScanText, GitCompareArrows, ClipboardCheck, FileCheck2, FileSpreadsheet,
+  User, UsersRound, Rocket, Building, Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LanguageToggle } from '@/components/LanguageToggle';
@@ -278,62 +279,115 @@ function PriceControl({ t, reduce }) {
 
 function Plans({ t }) {
   // Grille validee le 24/09/2026 : prix HT par entreprise, sieges inclus.
+  // Annuel = 2 mois offerts (10 mois payes sur 12).
+  const [annuel, setAnnuel] = React.useState(false);
   const plans = [
-    { key: 'initial', price: '59 €', items: ['seat1', 'q60', 'p150', 'imp100'] },
-    { key: 'pilotage', price: '149 €', items: ['seat3', 'q250', 'p750', 'imp300'], featured: true },
-    { key: 'performance', price: '399 €', items: ['seat10', 'q1000', 'p3000', 'imp1g'] },
-    { key: 'signature', price: null, items: ['sig_seats', 'sig_vol', 'sig_sla', 'sig_int'] },
+    { key: 'initial', icon: User, mensuel: 59, items: ['seat1', 'q60', 'p150', 'imp100'] },
+    { key: 'pilotage', icon: UsersRound, mensuel: 149, items: ['seat3', 'q250', 'p750', 'imp300'], featured: true },
+    { key: 'performance', icon: Rocket, mensuel: 399, items: ['seat10', 'q1000', 'p3000', 'imp1g'] },
+    { key: 'signature', icon: Building, mensuel: null, items: ['sig_seats', 'sig_vol', 'sig_sla', 'sig_int'] },
   ];
+  const fmt = (n) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(n);
   return (
-    <section id="offres" className="scroll-mt-20">
-      <Container className="py-24">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">{t('lp.nav_plans')}</p>
-        <h2 className="mt-3 font-display text-3xl font-semibold md:text-4xl">{t('lp.plans_title')}</h2>
-        <p className="mt-3 max-w-[62ch] text-[15px] text-muted-foreground">{t('lp.plans_note')}</p>
-
-        <div className="mt-10 grid items-center gap-6 rounded-2xl border border-accent/30 bg-[hsl(185_45%_96%)] p-6 md:grid-cols-12 md:p-8">
-          <div className="md:col-span-8">
-            <h3 className="font-display text-xl font-semibold">{t('lp.trial_t')}</h3>
-            <p className="mt-2 text-[15px] leading-7 text-muted-foreground">{t('lp.trial_d')}</p>
+    <section id="offres" className="relative scroll-mt-20 overflow-hidden bg-[hsl(218_52%_14%)] text-white">
+      <div aria-hidden className="pointer-events-none absolute -left-40 top-0 h-[520px] w-[520px] rounded-full bg-[hsl(var(--brand-teal)/0.22)] blur-3xl" />
+      <div aria-hidden className="pointer-events-none absolute -right-40 bottom-0 h-[520px] w-[520px] rounded-full bg-[hsl(215_62%_40%/0.35)] blur-3xl" />
+      <Container className="relative py-24">
+        <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[hsl(var(--brand-teal))]">{t('lp.nav_plans')}</p>
+            <h2 className="mt-3 max-w-[20ch] font-display text-3xl font-semibold leading-tight md:text-5xl">{t('lp.plans_title')}</h2>
+            <p className="mt-4 max-w-[58ch] text-[15px] leading-7 text-white/70">{t('lp.plans_note')}</p>
           </div>
-          <div className="md:col-span-4 md:text-right">
-            <Link to="/signup"><Button size="lg" className="gap-2">{t('lp.trial_cta')} <ArrowRight className="h-4 w-4" /></Button></Link>
+          <div role="radiogroup" aria-label={t('lp.billing_label')} className="flex shrink-0 rounded-full border border-white/15 bg-white/5 p-1 text-sm">
+            <button type="button" role="radio" aria-checked={!annuel} onClick={() => setAnnuel(false)}
+              className={`rounded-full px-4 py-2 font-medium transition-colors ${!annuel ? 'bg-white text-[hsl(218_52%_14%)]' : 'text-white/75 hover:text-white'}`}>{t('lp.monthly')}</button>
+            <button type="button" role="radio" aria-checked={annuel} onClick={() => setAnnuel(true)}
+              className={`flex items-center gap-2 rounded-full px-4 py-2 font-medium transition-colors ${annuel ? 'bg-white text-[hsl(218_52%_14%)]' : 'text-white/75 hover:text-white'}`}>
+              {t('lp.yearly')}
+              <span className="rounded-full bg-[hsl(var(--brand-teal))] px-2 py-0.5 text-[11px] font-semibold text-[hsl(218_52%_14%)]">{t('lp.two_free')}</span>
+            </button>
           </div>
         </div>
 
-        <div className="mt-6 grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {plans.map((p) => (
-            <article key={p.key} className={`relative flex flex-col rounded-2xl border p-7 ${p.featured ? 'border-primary bg-primary text-primary-foreground shadow-lift' : 'border-border/80 bg-card shadow-soft'}`}>
-              {p.featured && (
-                <span className="absolute right-6 top-6 rounded-full bg-[hsl(var(--brand-teal))] px-2.5 py-1 text-[11px] font-semibold text-[hsl(218_45%_12%)]">{t('lp.popular')}</span>
-              )}
-              <h3 className="font-display text-lg font-semibold">{t(`lp.plan_${p.key}`)}</h3>
-              <p className={`mt-1 text-sm ${p.featured ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{t(`lp.for_${p.key}`)}</p>
-              <p className="tabular mt-5 font-display text-4xl font-semibold">
-                {p.price || t('lp.plan_custom')}
-                {p.price && <span className={`text-sm font-normal ${p.featured ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}> {t('lp.per_month_ht')}</span>}
-              </p>
-              <ul className={`mt-6 flex-1 space-y-3 text-sm ${p.featured ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
-                {p.items.map((k) => (
-                  <li key={k} className="flex gap-2.5">
-                    <Check className={`mt-0.5 h-4 w-4 shrink-0 ${p.featured ? 'text-[hsl(var(--brand-teal))]' : 'text-accent'}`} />
-                    {t(`lp.i_${k}`)}
+        <div className="relative mt-12 overflow-hidden rounded-3xl border border-[hsl(var(--brand-teal)/0.4)] bg-gradient-to-r from-[hsl(185_52%_48%/0.22)] via-white/[0.06] to-transparent p-7 md:p-9">
+          <img aria-hidden src="/brand/blueseatra-mark.png" alt="" width={512} height={512} loading="lazy" className="pointer-events-none absolute -right-6 -top-10 hidden h-56 w-56 object-contain opacity-20 md:block" />
+          <div className="relative grid items-center gap-6 md:grid-cols-12">
+            <div className="md:col-span-8">
+              <span className="inline-flex items-center gap-2 rounded-full bg-[hsl(var(--brand-teal))] px-3 py-1 text-xs font-semibold text-[hsl(218_52%_14%)]">
+                <Sparkles className="h-3.5 w-3.5" /> {t('lp.trial_badge')}
+              </span>
+              <h3 className="mt-4 font-display text-2xl font-semibold md:text-3xl">{t('lp.trial_t')}</h3>
+              <ul className="mt-4 flex flex-wrap gap-2 text-sm">
+                {['trial_i1', 'trial_i2', 'trial_i3', 'trial_i4'].map((k) => (
+                  <li key={k} className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-white/90">
+                    <Check className="h-3.5 w-3.5 text-[hsl(var(--brand-teal))]" />{t(`lp.${k}`)}
                   </li>
                 ))}
               </ul>
-              <Link to="/signup" className="mt-8">
-                <Button className={`w-full ${p.featured ? 'bg-white text-primary hover:bg-white/90' : ''}`} variant={p.featured ? 'default' : 'outline'}>
-                  {p.key === 'signature' ? t('lp.contact_cta') : t('lp.trial_cta')}
+            </div>
+            <div className="md:col-span-4 md:text-right">
+              <Link to="/signup">
+                <Button size="lg" className="h-12 gap-2 bg-[hsl(var(--brand-teal))] px-7 text-[15px] text-[hsl(218_52%_14%)] hover:bg-[hsl(185_52%_56%)]">
+                  {t('lp.trial_cta')} <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
-            </article>
-          ))}
+            </div>
+          </div>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-border/80 bg-card p-6 text-sm text-muted-foreground md:p-7">
-          <p className="font-semibold text-foreground">{t('lp.all_t')}</p>
-          <p className="mt-2 leading-6">{t('lp.all_d')}</p>
-          <p className="mt-3 leading-6">{t('lp.extra_d')}</p>
+        <div className="mt-8 grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-4">
+          {plans.map((p) => {
+            const Icon = p.icon;
+            const prix = p.mensuel && (annuel ? Math.round((p.mensuel * 10) / 12) : p.mensuel);
+            return (
+              <article key={p.key}
+                className={`relative flex flex-col rounded-3xl p-7 transition-transform duration-300 hover:-translate-y-1 ${p.featured
+                  ? 'bg-white text-foreground shadow-[0_30px_80px_-20px_hsl(185_52%_48%/0.55)] ring-2 ring-[hsl(var(--brand-teal))] xl:-mt-4 xl:mb-[-16px]'
+                  : 'border border-white/12 bg-white/[0.06] backdrop-blur-sm'}`}>
+                {p.featured && (
+                  <span className="absolute -top-3.5 left-7 rounded-full bg-[hsl(var(--brand-teal))] px-3 py-1 text-xs font-semibold text-[hsl(218_52%_14%)] shadow-soft">{t('lp.popular')}</span>
+                )}
+                <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${p.featured ? 'bg-primary text-primary-foreground' : 'bg-white/10 text-[hsl(var(--brand-teal))]'}`}>
+                  <Icon className="h-5 w-5" />
+                </span>
+                <h3 className="mt-5 font-display text-xl font-semibold">{t(`lp.plan_${p.key}`)}</h3>
+                <p className={`mt-1 text-sm ${p.featured ? 'text-muted-foreground' : 'text-white/60'}`}>{t(`lp.for_${p.key}`)}</p>
+                <div className="mt-6 min-h-[76px]">
+                  <p className="tabular font-display text-5xl font-semibold tracking-tight">
+                    {prix ? `${fmt(prix)} €` : t('lp.plan_custom')}
+                    {prix && <span className={`ml-1 text-sm font-normal ${p.featured ? 'text-muted-foreground' : 'text-white/60'}`}>{t('lp.per_month_ht')}</span>}
+                  </p>
+                  {prix && annuel && (
+                    <p className={`mt-1 text-xs ${p.featured ? 'text-accent' : 'text-[hsl(var(--brand-teal))]'}`}>{t('lp.billed_year', { n: fmt(p.mensuel * 10) })}</p>
+                  )}
+                </div>
+                <ul className={`mt-5 flex-1 space-y-3 text-sm ${p.featured ? 'text-foreground/80' : 'text-white/80'}`}>
+                  {p.items.map((k) => (
+                    <li key={k} className="flex gap-2.5">
+                      <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${p.featured ? 'bg-accent/15 text-accent' : 'bg-[hsl(var(--brand-teal)/0.2)] text-[hsl(var(--brand-teal))]'}`}>
+                        <Check className="h-3 w-3" />
+                      </span>
+                      {t(`lp.i_${k}`)}
+                    </li>
+                  ))}
+                </ul>
+                <Link to="/signup" className="mt-8">
+                  <Button className={`h-11 w-full ${p.featured ? '' : 'border border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
+                    {p.key === 'signature' ? t('lp.contact_cta') : t('lp.trial_cta')}
+                  </Button>
+                </Link>
+              </article>
+            );
+          })}
+        </div>
+
+        <div className="mt-12 grid gap-6 rounded-3xl border border-white/10 bg-white/[0.04] p-7 md:grid-cols-12">
+          <div className="md:col-span-7">
+            <p className="font-semibold">{t('lp.all_t')}</p>
+            <p className="mt-2 text-sm leading-6 text-white/70">{t('lp.all_d')}</p>
+          </div>
+          <div className="text-sm leading-6 text-white/70 md:col-span-5">{t('lp.extra_d')}</div>
         </div>
       </Container>
     </section>
