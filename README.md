@@ -1,10 +1,51 @@
-# Blueseatra — Plateforme SaaS B2B de devis assistés par IA
+<div align="center">
 
-> Application multi‑tenant (FastAPI + React + **Supabase/PostgreSQL**) qui transforme des demandes clients (« ordres de mission », « demandes de devis » au format PDF / image / texte) en **devis Pro Forma professionnels**, grâce à l'extraction IA, un catalogue de prix flexible et un éditeur de devis avancé avec génération PDF conforme à un gabarit métier.
+<img src="frontend/public/brand/blueseatra-lockup.png" alt="Blueseatra" width="320">
+
+### Des demandes brutes aux devis validés, sur vos prix.
+
+Blueseatra lit les emails, PDF et photos de vos clients, structure le besoin en lots TCE,
+le rapproche de votre catalogue et des tarifs de 9 distributeurs du bâtiment, puis prépare un devis que vous validez.
+
+[![CI infra](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml)
+[![Sécurité](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml)
+![FastAPI](https://img.shields.io/badge/API-FastAPI-1B3F73?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/Front-React-1B3F73?logo=react&logoColor=white)
+![Supabase](https://img.shields.io/badge/Base-Supabase%20PostgreSQL-3AAFB9?logo=supabase&logoColor=white)
+![Render](https://img.shields.io/badge/H%C3%A9bergement-Render%20%C2%B7%20Hostinger-3AAFB9?logo=render&logoColor=white)
+[![Licence](https://img.shields.io/badge/licence-propri%C3%A9taire-555)](./LICENSE)
+
+[**Site**](https://blueseatra.com) · [**Journal des changements**](./CHANGELOG.md) · [**Tarification**](./docs/tarification-2026-09.md) · [**Sécurité**](./SECURITY.md) · [**Contribuer**](./CONTRIBUTING.md)
+
+<img src="docs/assets/screens/accueil.jpg" alt="Page d'accueil de Blueseatra" width="900">
+
+</div>
 
 ---
 
-> 📋 **Journal des changements** : voir **[`CHANGELOG.md`](./CHANGELOG.md)** pour l'historique détaillé PR par PR. Contexte infra IA locale (VPS OVH) et backlog : **[`HANDOFF.md`](./HANDOFF.md)**. Livrables infra dédiés : **[`ovh-ai-stack-corrige/`](./ovh-ai-stack-corrige/)**.
+## En bref
+
+| | |
+|---|---|
+| **Pour qui** | Entreprises TCE, maintenance et second œuvre, du tertiaire au logement |
+| **Ce que ça fait** | Extraction IA des demandes, lots TCE, rapprochement catalogue, devis Pro Forma PDF, TVA bâtiment |
+| **Catalogue** | Environ 967 000 références de 9 distributeurs, partagées entre toutes les entreprises, plus votre propre catalogue sur mesure |
+| **Règle d'or** | L'IA lit et structure ; les prix, remises, marges et TVA sont calculés par des règles fixes, jamais par un modèle |
+| **Multi-entreprises** | Chaque entreprise est isolée (RLS PostgreSQL, schéma `blueseatra`), avec un journal d'audit complet |
+| **Offres** | Essai 14 jours, puis Initial 59 €, Pilotage 149 € et Performance 399 € HT par mois, Signature sur devis |
+
+## Aperçu
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/screens/catalogue-fournisseurs.jpg" alt="Catalogue fournisseurs"><br><sub><b>Catalogue fournisseurs</b> : 9 distributeurs, produits page par page, prix nets</sub></td>
+<td width="50%"><img src="docs/assets/screens/tarifs.jpg" alt="Section Tarifs"><br><sub><b>Tarifs</b> : une offre par entreprise, sièges inclus</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screens/valeurs.jpg" alt="Valeurs BLUE SEA TRA"><br><sub><b>Nos valeurs</b> : BLUE, SEA, TRA</sub></td>
+<td width="50%"><img src="docs/assets/screens/connexion.jpg" alt="Connexion"><br><sub><b>Connexion</b> : écran partagé</sub></td>
+</tr>
+</table>
 
 ---
 
