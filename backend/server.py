@@ -27,6 +27,7 @@ import quote_scenarios
 import pdf_service
 import fournisseur_recherche
 import catalogue_commun
+import catalogue_navigation
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -2070,6 +2071,38 @@ async def fournisseurs_liste(cu: CurrentUser = Depends(get_current)):
     Prolians, La Plateforme et SFIC.
     """
     return await fournisseur_recherche.liste_fournisseurs()
+
+
+# --- Parcours des catalogues fournisseurs (voir catalogue_navigation.py) ---
+@api.get("/fournisseurs/catalogue")
+async def catalogue_fournisseurs(cu: CurrentUser = Depends(get_current)):
+    """Fournisseurs visibles par l'entreprise (siens + catalogue commun non masque)."""
+    return await catalogue_navigation.fournisseurs()
+
+
+@api.get("/fournisseurs/catalogue/{cle}/produits")
+async def catalogue_produits(
+    cle: str,
+    page: int = Query(1, ge=1, le=100000),
+    taille: int = Query(catalogue_navigation.TAILLE_DEFAUT, ge=1, le=catalogue_navigation.TAILLE_MAX),
+    q: str = Query("", max_length=200),
+    famille: str = Query("", max_length=200),
+    cu: CurrentUser = Depends(get_current),
+):
+    """Produits d'un fournisseur, page par page, filtrables par famille ou par mot."""
+    try:
+        return await catalogue_navigation.produits(cle, page=page, taille=taille, q=q, famille=famille)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+
+
+@api.get("/fournisseurs/catalogue/{cle}/familles")
+async def catalogue_familles(cle: str, cu: CurrentUser = Depends(get_current)):
+    """Familles de produits d'un fournisseur, avec leur nombre de produits."""
+    try:
+        return await catalogue_navigation.familles(cle)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
 
 
 # --- Catalogue commun a toutes les entreprises (voir catalogue_commun.py) ---
