@@ -100,6 +100,7 @@ Brouillon de devis ──► Éditeur de devis ──► Devis validé ──►
 - **Catalogue sur mesure** : chaque entreprise importe ses propres tarifs (CSV/Excel), visibles uniquement par elle.
 - **Page Catalogue fournisseurs** (`/app/fournisseurs/catalogue`) : liste des fournisseurs, produits page par page, filtres par famille et par mot.
 - **Comparateur de prix** (`/app/fournisseurs`) : recherche multi-fournisseurs, moins cher par fournisseur, qualifiants isolés.
+- **Module Clients** (`/app/clients`, `/app/relances`) : fiches clients, contacts, chantiers, suggestions IA à valider, relances de devis en jours ouvrés, issue commerciale des devis. Spécification : [`docs/specs/module-clients.md`](./docs/specs/module-clients.md).
 - **Import de catalogues volumineux** (`scripts/fournisseur/import_catalogue_lourd.py`) : analyse, rapport d'anomalies, version inactive puis activation atomique, reprise après coupure (fichier de 144 Mo et 943 681 lignes validé).
 
 ---

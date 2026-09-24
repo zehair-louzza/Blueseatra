@@ -29,6 +29,7 @@ import fournisseur_recherche
 import catalogue_commun
 import catalogue_navigation
 import quotas
+import clients_module
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -667,6 +668,8 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         }})
         await audit(tenant_id, req.get("created_by"), "request.processed", request_id,
                     {"items": len(extracted.get("line_items", [])), "lang": extracted.get("language")})
+        # Module Clients : suggestions à valider (jamais bloquant, ne lève pas)
+        await clients_module.suggerer_depuis_extraction(request_id, extracted, req.get("raw_text") or "")
         await _auto_generate_quote_if_needed(request_id, tenant_id, req.get("created_by"))
     except Exception as e:
         logger.exception("process_request failed")
@@ -1738,6 +1741,10 @@ async def send_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owne
         raise HTTPException(404, "Quote not found")
     await db.quotes.update_one({"id": quote_id}, {"$set": {"status": "sent", "sent_at": now_iso()}})
     await audit(cu.tenant_id, cu.email, "quote.send", quote_id)
+    try:
+        await clients_module.planifier_relances_devis(quote_id, cu.email)
+    except Exception:
+        logger.exception("relances : planification impossible pour le devis %s", quote_id)
     return {"ok": True, "status": "sent"}
 
 
@@ -1753,6 +1760,10 @@ async def reopen_quote(quote_id: str, cu: CurrentUser = Depends(require_role("ow
         {"$set": {"status": "draft", "validated_at": None, "sent_at": None}},
     )
     await audit(cu.tenant_id, cu.email, "quote.reopen", quote_id)
+    try:
+        await clients_module.annuler_relances(devis_id=quote_id, evenement="brouillon")
+    except Exception:
+        logger.exception("relances : annulation impossible pour le devis %s", quote_id)
     q["status"] = "draft"
     return q
 
@@ -2186,6 +2197,7 @@ async def catalogue_commun_afficher_tous(cu: CurrentUser = Depends(require_role(
         raise HTTPException(403, str(exc))
 
 
+api.include_router(clients_module.build_router(get_current, require_role))
 app.include_router(api)
 app.include_router(mcp_bridge.router)
 # Auth uses Bearer tokens (Authorization header), not cookies. The combination

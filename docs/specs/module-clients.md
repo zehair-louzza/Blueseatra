@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Statut** | Proposition à valider (tables, règles de relance et tests préparés ; rien n'est appliqué en production) |
+| **Statut** | Implémenté (lots 1 à 4), 25/09/2026 |
 | **Version** | 1.0, 24/09/2026 |
 | **Langues** | Français et anglais (traductions `i18n.js`, clés `clients.*` et `relances.*`) |
 | **Fichiers préparés** | `supabase/migrations/20260926090000_module_clients.sql`, `backend/relances_regles.py`, `backend/tests_clients/` (18 tests) |
@@ -175,7 +175,7 @@ Une suggestion ne remplace jamais une valeur déjà saisie par un humain : elle 
 - Des champs sont ajoutés : client final, chantier, contact destinataire, date de validité (30 jours par défaut, réglable).
 - Sur un devis envoyé, trois boutons d'issue : **Accepté**, **Refusé** (motif), **Sans suite**.
 
-### 4.6 Paramètres, onglet Relances
+### 4.6 Réglages des relances (bouton « Réglages des relances » de l'écran À relancer, owner/admin)
 
 Relances activées ; délais en jours ouvrés (3, 7, 14) ; délais en cas d'urgence (1, 2, 4) ; nombre maximal (3) ; validité des devis (30 jours) ; rappel avant expiration (3 jours ouvrés) ; seuil d'appel (10 000 € HT) ; heure (9 h) ; fuseau. Un aperçu montre le calendrier calculé pour un devis envoyé aujourd'hui.
 
