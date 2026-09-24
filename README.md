@@ -7,13 +7,7 @@
 Blueseatra lit les emails, PDF et photos de vos clients, structure le besoin en lots TCE,
 le rapproche de votre catalogue et des tarifs de 9 distributeurs du bâtiment, puis prépare un devis que vous validez.
 
-[![CI infra](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml)
-[![Sécurité](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml)
-![FastAPI](https://img.shields.io/badge/API-FastAPI-1B3F73?logo=fastapi&logoColor=white)
-![React](https://img.shields.io/badge/Front-React-1B3F73?logo=react&logoColor=white)
-![Supabase](https://img.shields.io/badge/Base-Supabase%20PostgreSQL-3AAFB9?logo=supabase&logoColor=white)
-![Render](https://img.shields.io/badge/H%C3%A9bergement-Render%20%C2%B7%20Hostinger-3AAFB9?logo=render&logoColor=white)
-[![Licence](https://img.shields.io/badge/licence-propri%C3%A9taire-555)](./LICENSE)
+[![CI infra](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml) [![Sécurité](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml) ![FastAPI](https://img.shields.io/badge/API-FastAPI-1B3F73?logo=fastapi&logoColor=white) ![React](https://img.shields.io/badge/Front-React-1B3F73?logo=react&logoColor=white) ![Supabase](https://img.shields.io/badge/Base-Supabase%20PostgreSQL-3AAFB9?logo=supabase&logoColor=white) ![Render](https://img.shields.io/badge/H%C3%A9bergement-Render%20%C2%B7%20Hostinger-3AAFB9?logo=render&logoColor=white) [![Licence](https://img.shields.io/badge/licence-propri%C3%A9taire-555)](./LICENSE)
 
 [**Site**](https://blueseatra.com) · [**Journal des changements**](./CHANGELOG.md) · [**Tarification**](./docs/tarification-2026-09.md) · [**Sécurité**](./SECURITY.md) · [**Contribuer**](./CONTRIBUTING.md)
 
@@ -25,7 +19,7 @@ le rapproche de votre catalogue et des tarifs de 9 distributeurs du bâtiment, p
 
 ## En bref
 
-| | |
+| Sujet | En pratique |
 |---|---|
 | **Pour qui** | Entreprises TCE, maintenance et second œuvre, du tertiaire au logement |
 | **Ce que ça fait** | Extraction IA des demandes, lots TCE, rapprochement catalogue, devis Pro Forma PDF, TVA bâtiment |
