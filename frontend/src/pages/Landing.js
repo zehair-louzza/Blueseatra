@@ -277,43 +277,63 @@ function PriceControl({ t, reduce }) {
 }
 
 function Plans({ t }) {
+  // Grille validee le 24/09/2026 : prix HT par entreprise, sieges inclus.
   const plans = [
-    { key: 'plan_starter', price: '0 €', items: ['p1', 'p2', 'p3'] },
-    { key: 'plan_pro', price: '49 €', items: ['p1', 'p2', 'p3', 'p4'], featured: true },
-    { key: 'plan_ent', price: t('lp.plan_custom'), items: ['p1', 'p2', 'p3', 'p4'] },
+    { key: 'initial', price: '59 €', items: ['seat1', 'q60', 'p150', 'imp100'] },
+    { key: 'pilotage', price: '149 €', items: ['seat3', 'q250', 'p750', 'imp300'], featured: true },
+    { key: 'performance', price: '399 €', items: ['seat10', 'q1000', 'p3000', 'imp1g'] },
+    { key: 'signature', price: null, items: ['sig_seats', 'sig_vol', 'sig_sla', 'sig_int'] },
   ];
   return (
     <section id="offres" className="scroll-mt-20">
       <Container className="py-24">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-accent">{t('lp.nav_plans')}</p>
         <h2 className="mt-3 font-display text-3xl font-semibold md:text-4xl">{t('lp.plans_title')}</h2>
-        <p className="mt-3 max-w-[56ch] text-[15px] text-muted-foreground">{t('lp.plans_note')}</p>
-        <div className="mt-12 grid items-stretch gap-5 md:grid-cols-3">
+        <p className="mt-3 max-w-[62ch] text-[15px] text-muted-foreground">{t('lp.plans_note')}</p>
+
+        <div className="mt-10 grid items-center gap-6 rounded-2xl border border-accent/30 bg-[hsl(185_45%_96%)] p-6 md:grid-cols-12 md:p-8">
+          <div className="md:col-span-8">
+            <h3 className="font-display text-xl font-semibold">{t('lp.trial_t')}</h3>
+            <p className="mt-2 text-[15px] leading-7 text-muted-foreground">{t('lp.trial_d')}</p>
+          </div>
+          <div className="md:col-span-4 md:text-right">
+            <Link to="/signup"><Button size="lg" className="gap-2">{t('lp.trial_cta')} <ArrowRight className="h-4 w-4" /></Button></Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid items-stretch gap-5 md:grid-cols-2 xl:grid-cols-4">
           {plans.map((p) => (
             <article key={p.key} className={`relative flex flex-col rounded-2xl border p-7 ${p.featured ? 'border-primary bg-primary text-primary-foreground shadow-lift' : 'border-border/80 bg-card shadow-soft'}`}>
               {p.featured && (
                 <span className="absolute right-6 top-6 rounded-full bg-[hsl(var(--brand-teal))] px-2.5 py-1 text-[11px] font-semibold text-[hsl(218_45%_12%)]">{t('lp.popular')}</span>
               )}
-              <h3 className="font-display text-lg font-semibold">{t(`lp.${p.key}`)}</h3>
-              <p className="tabular mt-4 font-display text-4xl font-semibold">
-                {p.price}
-                {p.key !== 'plan_ent' && <span className={`text-sm font-normal ${p.featured ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}> / {t('lp.per_month')}</span>}
+              <h3 className="font-display text-lg font-semibold">{t(`lp.plan_${p.key}`)}</h3>
+              <p className={`mt-1 text-sm ${p.featured ? 'text-primary-foreground/75' : 'text-muted-foreground'}`}>{t(`lp.for_${p.key}`)}</p>
+              <p className="tabular mt-5 font-display text-4xl font-semibold">
+                {p.price || t('lp.plan_custom')}
+                {p.price && <span className={`text-sm font-normal ${p.featured ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}> {t('lp.per_month_ht')}</span>}
               </p>
               <ul className={`mt-6 flex-1 space-y-3 text-sm ${p.featured ? 'text-primary-foreground/90' : 'text-muted-foreground'}`}>
                 {p.items.map((k) => (
                   <li key={k} className="flex gap-2.5">
                     <Check className={`mt-0.5 h-4 w-4 shrink-0 ${p.featured ? 'text-[hsl(var(--brand-teal))]' : 'text-accent'}`} />
-                    {t(`lp.${k}`)}
+                    {t(`lp.i_${k}`)}
                   </li>
                 ))}
               </ul>
               <Link to="/signup" className="mt-8">
                 <Button className={`w-full ${p.featured ? 'bg-white text-primary hover:bg-white/90' : ''}`} variant={p.featured ? 'default' : 'outline'}>
-                  {t('lp.signup')}
+                  {p.key === 'signature' ? t('lp.contact_cta') : t('lp.trial_cta')}
                 </Button>
               </Link>
             </article>
           ))}
+        </div>
+
+        <div className="mt-8 rounded-2xl border border-border/80 bg-card p-6 text-sm text-muted-foreground md:p-7">
+          <p className="font-semibold text-foreground">{t('lp.all_t')}</p>
+          <p className="mt-2 leading-6">{t('lp.all_d')}</p>
+          <p className="mt-3 leading-6">{t('lp.extra_d')}</p>
         </div>
       </Container>
     </section>
@@ -326,7 +346,7 @@ function Faq({ t }) {
       <Container className="grid gap-10 py-24 md:grid-cols-12">
         <h2 className="font-display text-3xl font-semibold md:col-span-4 md:text-4xl">{t('lp.faq_title')}</h2>
         <Accordion type="single" collapsible className="md:col-span-8">
-          {['1', '2', '3', '4'].map((n) => (
+          {['1', '2', '3', '4', '5', '6'].map((n) => (
             <AccordionItem key={n} value={n} className="border-border/80">
               <AccordionTrigger className="py-5 text-left text-[16px] font-medium hover:no-underline">{t(`lp.q${n}`)}</AccordionTrigger>
               <AccordionContent className="pb-5 text-[15px] leading-7 text-muted-foreground">{t(`lp.a${n}`)}</AccordionContent>
