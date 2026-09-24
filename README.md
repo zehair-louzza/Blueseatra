@@ -1,10 +1,45 @@
-# Blueseatra — Plateforme SaaS B2B de devis assistés par IA
+<div align="center">
 
-> Application multi‑tenant (FastAPI + React + **Supabase/PostgreSQL**) qui transforme des demandes clients (« ordres de mission », « demandes de devis » au format PDF / image / texte) en **devis Pro Forma professionnels**, grâce à l'extraction IA, un catalogue de prix flexible et un éditeur de devis avancé avec génération PDF conforme à un gabarit métier.
+<img src="frontend/public/brand/blueseatra-lockup.png" alt="Blueseatra" width="320">
+
+### Des demandes brutes aux devis validés, sur vos prix.
+
+Blueseatra lit les emails, PDF et photos de vos clients, structure le besoin en lots TCE,
+le rapproche de votre catalogue et des tarifs de 9 distributeurs du bâtiment, puis prépare un devis que vous validez.
+
+[![CI infra](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/ci-infra.yml) [![Sécurité](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml) ![FastAPI](https://img.shields.io/badge/API-FastAPI-1B3F73?logo=fastapi&logoColor=white) ![React](https://img.shields.io/badge/Front-React-1B3F73?logo=react&logoColor=white) ![Supabase](https://img.shields.io/badge/Base-Supabase%20PostgreSQL-3AAFB9?logo=supabase&logoColor=white) ![Render](https://img.shields.io/badge/H%C3%A9bergement-Render%20%C2%B7%20Hostinger-3AAFB9?logo=render&logoColor=white) [![Licence](https://img.shields.io/badge/licence-propri%C3%A9taire-555)](./LICENSE)
+
+[**Site**](https://blueseatra.com) · [**Journal des changements**](./CHANGELOG.md) · [**Tarification**](./docs/tarification-2026-09.md) · [**Sécurité**](./SECURITY.md) · [**Contribuer**](./CONTRIBUTING.md)
+
+<img src="docs/assets/screens/accueil.jpg" alt="Page d'accueil de Blueseatra" width="900">
+
+</div>
 
 ---
 
-> 📋 **Journal des changements** : voir **[`CHANGELOG.md`](./CHANGELOG.md)** pour l'historique détaillé PR par PR. Contexte infra IA locale (VPS OVH) et backlog : **[`HANDOFF.md`](./HANDOFF.md)**. Livrables infra dédiés : **[`ovh-ai-stack-corrige/`](./ovh-ai-stack-corrige/)**.
+## En bref
+
+| Sujet | En pratique |
+|---|---|
+| **Pour qui** | Entreprises TCE, maintenance et second œuvre, du tertiaire au logement |
+| **Ce que ça fait** | Extraction IA des demandes, lots TCE, rapprochement catalogue, devis Pro Forma PDF, TVA bâtiment |
+| **Catalogue** | Environ 967 000 références de 9 distributeurs, partagées entre toutes les entreprises, plus votre propre catalogue sur mesure |
+| **Règle d'or** | L'IA lit et structure ; les prix, remises, marges et TVA sont calculés par des règles fixes, jamais par un modèle |
+| **Multi-entreprises** | Chaque entreprise est isolée (RLS PostgreSQL, schéma `blueseatra`), avec un journal d'audit complet |
+| **Offres** | Essai 14 jours, puis Initial 59 €, Pilotage 149 € et Performance 399 € HT par mois, Signature sur devis |
+
+## Aperçu
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/screens/catalogue-fournisseurs.jpg" alt="Catalogue fournisseurs"><br><sub><b>Catalogue fournisseurs</b> : 9 distributeurs, produits page par page, prix nets</sub></td>
+<td width="50%"><img src="docs/assets/screens/tarifs.jpg" alt="Section Tarifs"><br><sub><b>Tarifs</b> : une offre par entreprise, sièges inclus</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/assets/screens/valeurs.jpg" alt="Valeurs BLUE SEA TRA"><br><sub><b>Nos valeurs</b> : BLUE, SEA, TRA</sub></td>
+<td width="50%"><img src="docs/assets/screens/connexion.jpg" alt="Connexion"><br><sub><b>Connexion</b> : écran partagé</sub></td>
+</tr>
+</table>
 
 ---
 
@@ -61,6 +96,11 @@ Brouillon de devis ──► Éditeur de devis ──► Devis validé ──►
 - **Journal d'audit** de toutes les actions sensibles.
 - **Internationalisation** FR / EN (react‑i18next).
 - **Webhook n8n** configurable par tenant pour automatiser les flux post-devis.
+- **Catalogue fournisseurs commun** (sept. 2026) : 9 distributeurs (Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson Matériaux, Icilux), environ 967 000 références visibles par toutes les entreprises, masquable par entreprise, **jamais supprimable** depuis le site.
+- **Catalogue sur mesure** : chaque entreprise importe ses propres tarifs (CSV/Excel), visibles uniquement par elle.
+- **Page Catalogue fournisseurs** (`/app/fournisseurs/catalogue`) : liste des fournisseurs, produits page par page, filtres par famille et par mot.
+- **Comparateur de prix** (`/app/fournisseurs`) : recherche multi-fournisseurs, moins cher par fournisseur, qualifiants isolés.
+- **Import de catalogues volumineux** (`scripts/fournisseur/import_catalogue_lourd.py`) : analyse, rapport d'anomalies, version inactive puis activation atomique, reprise après coupure (fichier de 144 Mo et 943 681 lignes validé).
 
 ---
 
@@ -382,6 +422,20 @@ Toutes les routes sont préfixées par `/api` (routeur `APIRouter(prefix="/api")
 | `DELETE` | `/api/quotes/{id}` | Supprimer un devis |
 | `GET` | `/api/quotes/{id}/pdf` | Générer et télécharger le PDF Pro Forma |
 
+### Fournisseurs (catalogue commun et comparateur)
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| GET | `/api/fournisseurs/catalogue` | Fournisseurs visibles par l'entreprise (les siens et le catalogue commun non masqué), avec leur volume |
+| GET | `/api/fournisseurs/catalogue/{cle}/produits?page&taille&q&famille` | Produits d'une version active, page par page, filtre par mot et par famille |
+| GET | `/api/fournisseurs/catalogue/{cle}/familles` | Familles d'une version (en cache par version) |
+| GET | `/api/fournisseurs/recherche?q=` | Comparaison de prix entre fournisseurs (5 000 candidats triés par prix, moins cher par fournisseur) |
+| GET | `/api/fournisseurs/catalogue-commun` | État du masquage du catalogue commun pour l'entreprise |
+| POST | `/api/fournisseurs/catalogue-commun/masquer` et `/afficher` | Masquer ou réafficher le catalogue commun pour l'entreprise (owner/admin) |
+| POST | `/api/fournisseurs/catalogue-commun/masquer-pour-tous` | Masquage global, réservé au compte Blueseatra |
+
+La clé `cle` est toujours résolue côté serveur contre les versions visibles par l'entreprise ; un identifiant d'un autre tenant est refusé.
+
 ### Paramètres, tableau de bord & audit
 
 | Méthode | Route | Description |
@@ -408,6 +462,8 @@ Routes réelles (`frontend/src/App.js`) :
 | `/app/requests/:id` | `RequestDetail` | Détail + résultat extraction IA + escalade vision approfondie |
 | `/app/catalogs` | `Catalogs` | Gestion des catalogues |
 | `/app/catalogs/import` | `CatalogImport` | Import CSV (aperçu → mapping → validation) |
+| `/app/fournisseurs/catalogue` | `SupplierCatalog` | Catalogue fournisseurs : fournisseurs visibles, produits page par page, familles |
+| `/app/fournisseurs` | `SupplierSearch` | Comparer les prix entre fournisseurs |
 | `/app/quotes` | `Quotes` | Liste des devis |
 | `/app/quotes/:id` | `QuoteEditor` | Éditeur de devis complet (lignes, marge, PDF) |
 | `/app/members` | `Members` | Membres : rôle, modifier le nom, supprimer, changer le mot de passe (owner uniquement) |
@@ -448,9 +504,12 @@ Consultez **`DEPLOIEMENT.md`** pour le guide complet (Hostinger + Render + Supab
 | Composant | Service | Notes |
 |-----------|---------|-------|
 | Backend API | **Render** (Web Service, Python) | `uvicorn server:app --host 0.0.0.0 --port $PORT` |
-| Frontend | **Hostinger** (Static / Node) | `yarn build` → dossier `build/` |
+| Frontend | **Hostinger** (statique, envoi manuel) | `CI=false GENERATE_SOURCEMAP=false npm run build`, puis extraction du zip de `build/` dans `public_html/`. `public/.htaccess` (réécriture SPA) est inclus dans chaque build |
 | Base de données | **Supabase** (PostgreSQL 17) | Transaction Pooler port 6543 |
 | Moteur IA | **VPS OVH** (Ollama + Hermes-3) | Port 11434, accessible depuis Render |
+| Réveil de l'API | **Supabase pg_cron** | Tâche `reveil-api-render` : GET `/api/health` toutes les 13 min (offre gratuite Render). Migration `20260924190000_reveil_api_render.sql` |
+
+> Déploiement Render : seul un changement sous `backend/` déclenche un redéploiement de `blueseatra-api` (rootDir `backend`). Une PR frontend ou migration seule ne redéploie pas l'API.
 
 ### Variables d'environnement Render (backend)
 
@@ -474,6 +533,15 @@ CORS_ORIGINS=https://<votre-domaine-frontend>
 ## 15. Historique des étapes réalisées (changelog)
 
 > Grands jalons ci-dessous. Détail PR par PR depuis août 2026 (rôles IA, gestion des membres, file d'extraction séquentielle, correctifs…) : voir **[`CHANGELOG.md`](./CHANGELOG.md)**.
+
+### Septembre 2026 — Catalogue fournisseurs commun, performances, refonte visuelle, tarification
+
+- ✅ **Catalogue commun** multi-entreprises, masquable, jamais supprimé (PR #100), et import volumineux validé (PR #98, #99, #101).
+- ✅ **Page Catalogue fournisseurs** (PR #102) et 2 index de parcours : page 1 de Rexel servie en 0,16 s au lieu de 20 s.
+- ✅ **Performances** : liste des fournisseurs de 24 s à 24 ms (PR #103), recherche par mot de plus de 60 s à 0,05 s grâce à l'index compact `idx_offers_recherche_prix_v2` et à une lecture en deux temps (PR #104).
+- ✅ **Refonte visuelle** (PR #105) : police Geist auto-hébergée, palette du logo, page d'accueil avec les valeurs BLUE / SEA / TRA, section Tarifs, connexion en écran partagé, menu groupé.
+- ✅ **Tarification validée** : essai de 14 jours, puis Initial 59 €, Pilotage 149 € et Performance 399 € HT par mois, Signature sur devis. Voir [`docs/tarification-2026-09.md`](./docs/tarification-2026-09.md). Les compteurs et Stripe restent à livrer (tickets #89, #90).
+- ✅ **Réveil automatique** de l'API tracé en migration (PR #106).
 
 ### 🔄 Juillet 2026 — Migration Hermes AI / Ollama / OVH VPS
 

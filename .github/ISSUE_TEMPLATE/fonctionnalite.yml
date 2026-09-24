@@ -1,0 +1,26 @@
+name: Fonctionnalité
+description: Proposer une amélioration ou une nouvelle fonction
+labels: [enhancement]
+body:
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Besoin métier
+      description: Quel problème cela résout, pour qui (artisan, chiffreur, gérant…).
+    validations: { required: true }
+  - type: textarea
+    id: proposition
+    attributes:
+      label: Proposition
+  - type: textarea
+    id: criteres
+    attributes:
+      label: Critères d'acceptation
+      placeholder: "- [ ] …"
+  - type: checkboxes
+    id: garde-fous
+    attributes:
+      label: Garde-fous
+      options:
+        - label: Aucune donnée d'une entreprise visible par une autre
+        - label: Les prix restent calculés par des règles fixes, jamais par l'IA

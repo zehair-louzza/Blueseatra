@@ -1,0 +1,29 @@
+name: Anomalie
+description: Signaler un comportement incorrect
+labels: [bug]
+body:
+  - type: textarea
+    id: constat
+    attributes:
+      label: Constat
+      description: Ce qui se passe, sur quelle page, pour quelle entreprise (sans données client sensibles).
+    validations: { required: true }
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Comportement attendu
+    validations: { required: true }
+  - type: textarea
+    id: reproduire
+    attributes:
+      label: Étapes pour reproduire
+      placeholder: "1. Aller sur…\n2. Cliquer sur…"
+  - type: dropdown
+    id: zone
+    attributes:
+      label: Zone
+      options: [Site (accueil, connexion), Demandes et extraction IA, Devis et PDF, Catalogues et fournisseurs, Membres et droits, API ou base de données, Autre]
+  - type: textarea
+    id: capture
+    attributes:
+      label: Capture ou message d'erreur

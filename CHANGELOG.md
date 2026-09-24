@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-09-23/24 — Catalogue commun, performances, refonte visuelle, tarification
+
+PR #98 à #106 sur `main`.
+
+### Catalogue fournisseurs
+- **#98, #99** : import de catalogues volumineux (`scripts/fournisseur/import_catalogue_lourd.py`), avec analyse, rapport d'anomalies, version inactive et activation atomique. Les offres historiques sans catalogue restent visibles, et la commande `nettoyer` est ajoutée.
+- **#100** : catalogue commun à toutes les entreprises (tenant système `00000000-0000-4000-8000-000000000c0d`), en lecture seule, masquable par entreprise, jamais supprimé. Correctif RLS de l'import sous `blueseatra_app`.
+- **#101** : synonymes de colonnes du catalogue TCE 2026 (prix d'achat, prix public, unité). La migration SET ROLE est rendue tolérante à l'absence du rôle `postgres`, et la permission `pull-requests: read` est ajoutée pour gitleaks.
+- **#102** : page Catalogue fournisseurs, avec les routes `GET /api/fournisseurs/catalogue`, `/catalogue/{cle}/produits` et `/catalogue/{cle}/familles`, et deux index de parcours.
+
+### Performances
+- **#103** : la liste des fournisseurs passe de 24 s à 24 ms. La sous-requête lit une seule offre avant le nom du fournisseur ; elle provoquait auparavant des `TimeoutError` (erreurs 500).
+- **#104** : nouvel index compact `idx_offers_recherche_prix_v2`, créé `CONCURRENTLY`, et lecture en deux temps. « disjoncteur » dans Rexel passe de plus de 60 s à 0,05 s une fois l'index en mémoire. Résultats identiques (comparaison automatique ancien/nouveau code).
+- Maintenance : `VACUUM (ANALYZE)` de `supplier_offers` en production.
+
+### Site
+- **#105** : refonte visuelle (Geist, palette du logo, accueil, Tarifs avec bascule mensuel/annuel, connexion, menu groupé, icône de marque). `.htaccess` est inclus dans chaque build.
+
+### Exploitation
+- **#106** : réveil automatique de l'API Render via pg_cron (`reveil-api-render`, toutes les 13 min), migration idempotente et sans effet hors Supabase.
+
+### Tarification (décision)
+- Essai de 14 jours (1 siège, 10 devis assistés, 30 pages lues), puis Initial 59 €, Pilotage 149 € et Performance 399 € HT par mois, Signature sur devis. Devis, PDF et catalogues illimités ; seuls les devis assistés par l'IA et les pages lues sont comptés. Détail et règles multi-entreprises dans `docs/tarification-2026-09.md`.
+
 ## 2026-08-26 — Génération automatique du devis + confirmation directe de suggestion
 
 PR #66 (suggestion) et génération automatique de devis.
