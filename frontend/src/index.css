@@ -1,13 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-    --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
-    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    /* Geist auto-hebergee (@fontsource-variable), aucun appel a Google Fonts. */
+    --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'Geist Mono Variable', ui-monospace, SFMono-Regular, monospace;
 }
 
 body {
@@ -15,39 +14,46 @@ body {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'ss01', 'cv11';
+    text-rendering: optimizeLegibility;
 }
+/* Chiffres alignes dans les tableaux, montants et compteurs. */
+.tabular, table, [data-num] { font-variant-numeric: tabular-nums; }
 
 code { font-family: var(--font-mono); }
-.font-display { font-family: var(--font-display); }
+.font-display { font-family: var(--font-display); letter-spacing: -0.022em; }
 .font-mono { font-family: var(--font-mono); }
 
 @layer base {
     :root {
-        --background: 36 45% 97%;
-        --foreground: 210 22% 14%;
+        /* Palette de marque : marine du logo (#1B3F73) + turquoise (#3AAFB9),
+           neutres froids. Un seul accent, utilise partout. */
+        --background: 220 23% 97.5%;
+        --foreground: 218 38% 13%;
         --card: 0 0% 100%;
-        --card-foreground: 210 22% 14%;
+        --card-foreground: 218 38% 13%;
         --popover: 0 0% 100%;
-        --popover-foreground: 210 22% 14%;
-        --primary: 210 55% 22%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 210 20% 96%;
-        --secondary-foreground: 210 30% 18%;
-        --muted: 210 18% 95%;
-        --muted-foreground: 215 16% 42%;
-        --accent: 186 34% 40%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 72% 52%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 210 18% 88%;
-        --input: 210 18% 88%;
-        --ring: 186 34% 40%;
-        --chart-1: 186 34% 40%;
-        --chart-2: 210 55% 32%;
-        --chart-3: 152 47% 33%;
-        --chart-4: 38 70% 45%;
-        --chart-5: 215 16% 52%;
-        --radius: 0.75rem;
+        --popover-foreground: 218 38% 13%;
+        --primary: 215 62% 27%;
+        --primary-foreground: 0 0% 99%;
+        --secondary: 218 24% 94.5%;
+        --secondary-foreground: 218 38% 16%;
+        --muted: 218 24% 95%;
+        --muted-foreground: 217 14% 40%;
+        --accent: 186 58% 34%;
+        --accent-foreground: 0 0% 99%;
+        --brand-teal: 185 52% 48%;
+        --destructive: 0 68% 50%;
+        --destructive-foreground: 0 0% 99%;
+        --border: 218 22% 89%;
+        --input: 218 20% 85%;
+        --ring: 186 58% 40%;
+        --chart-1: 215 62% 32%;
+        --chart-2: 185 52% 44%;
+        --chart-3: 152 42% 38%;
+        --chart-4: 36 78% 50%;
+        --chart-5: 217 14% 60%;
+        --radius: 0.625rem;
     }
 }
 
@@ -69,9 +75,23 @@ code { font-family: var(--font-mono); }
 }
 
 .hero-ocean {
-    background: linear-gradient(135deg, rgba(26,43,69,0.10) 0%, rgba(63,143,138,0.12) 55%, rgba(251,247,241,0.0) 100%);
+    background:
+      radial-gradient(60% 80% at 85% 10%, hsl(185 52% 48% / 0.14), transparent 60%),
+      radial-gradient(50% 70% at 10% 0%, hsl(215 62% 27% / 0.10), transparent 60%);
 }
-.card-shadow { box-shadow: 0 1px 0 rgba(16,24,40,0.04), 0 8px 24px rgba(16,24,40,0.06); }
+/* Ombres teintees marine, jamais noires. */
+.card-shadow { box-shadow: 0 1px 2px hsl(215 50% 20% / 0.05), 0 8px 24px -8px hsl(215 50% 20% / 0.10); }
+.shadow-soft { box-shadow: 0 1px 2px hsl(215 50% 20% / 0.06), 0 1px 1px hsl(215 50% 20% / 0.03); }
+.shadow-lift { box-shadow: 0 2px 4px hsl(215 50% 20% / 0.04), 0 24px 48px -16px hsl(215 50% 20% / 0.22); }
+.bg-grid {
+    background-image: linear-gradient(hsl(218 22% 89% / 0.55) 1px, transparent 1px),
+                      linear-gradient(90deg, hsl(218 22% 89% / 0.55) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(70% 60% at 50% 0%, #000 30%, transparent 75%);
+}
+@media (prefers-reduced-motion: no-preference) {
+    .press:active { transform: translateY(1px); }
+}
 
 /* Hide Emergent platform branding */
 #emergent-badge,
