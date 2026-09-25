@@ -188,7 +188,15 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 1. Cliquez sur **Télécharger le modèle** pour obtenir un fichier CSV d'exemple, ou utilisez directement votre propre fichier.
 2. Cliquez sur **Importer CSV**. Toutes les colonnes sont acceptées : Blueseatra détecte les champs utiles (désignation, prix, unité, TVA, référence…) et vous pouvez corriger la correspondance.
 3. **Versions :** chaque import crée une version. Vous choisissez celle qui est active ; les anciennes restent consultables.
-4. **Voir les articles**, **Désactiver** : un catalogue désactivé n'est plus utilisé pour les nouveaux devis.
+4. **Contrôle avant activation :** l'import crée une version en brouillon. Blueseatra la compare à la version active (articles nouveaux, retirés, hausses et baisses de prix), puis rend un verdict :
+   - **OK** : rien à signaler ;
+   - **À vérifier** : prix manquants, unités inconnues, fortes variations ;
+   - **Bloquant** : version vide, prix négatifs, trop de rejets, ou beaucoup moins d'articles qu'avant.
+
+   Cliquez ensuite sur **Activer cette version**, ou gardez-la en brouillon. Une version bloquante ne peut être activée que par un propriétaire ou un administrateur, avec **Forcer l'activation**.
+
+   ![Contrôle avant activation](assets/manuel/06b-controle-import.jpg)
+5. **Voir les articles**, **Désactiver** : un catalogue désactivé n'est plus utilisé pour les nouveaux devis.
 
 ## 8. Catalogue fournisseurs et comparateur de prix
 

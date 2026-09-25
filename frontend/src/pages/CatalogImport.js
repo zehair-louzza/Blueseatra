@@ -11,8 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import { Upload, ArrowLeft, ArrowRight, CheckCircle2, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
 
-const STEPS = ['step_upload', 'step_preview', 'step_validate', 'step_done'];
+const STEPS = ['step_upload', 'step_preview', 'step_validate', 'step_control', 'step_done'];
+const TON = { OK: 'border-emerald-300 bg-emerald-50 text-emerald-800', A_VERIFIER: 'border-amber-300 bg-amber-50 text-amber-900', BLOQUANT: 'border-red-300 bg-red-50 text-red-800' };
 
 export default function CatalogImport() {
   const { t } = useTranslation();
@@ -25,6 +27,8 @@ export default function CatalogImport() {
   const [result, setResult] = useState(null);
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
+  const { tenant } = useAuth();
+  const peutForcer = ['owner', 'admin'].includes(tenant?.role);
 
   const doPreview = async () => {
     if (!file) { toast.error(t('wiz.choose_file')); return; }
@@ -44,16 +48,31 @@ export default function CatalogImport() {
     if (!catalogName.trim()) { toast.error(t('wiz.catalog_name')); return; }
     setBusy(true);
     try {
-      const fd = new FormData(); fd.append('file', file); fd.append('catalog_name', catalogName); fd.append('activate', 'true');
+      const fd = new FormData(); fd.append('file', file); fd.append('catalog_name', catalogName); fd.append('activate', 'false');
       fd.append('mapping', JSON.stringify(mapping));
       const { data } = await api.post('/catalogs/import', fd);
       setResult(data);
       if (data.error_rows > 0) { const e = await api.get(`/import-jobs/${data.job_id}/errors`); setErrors(e.data); }
       setStep(3);
-      toast.success(t('wiz.done_msg'));
+      toast.success(t('cl.w_brouillon_ok'));
     } catch (err) { toast.error(apiError(err, 'Import failed')); }
     finally { setBusy(false); }
   };
+
+  const activer = async (force = false) => {
+    setBusy(true);
+    try {
+      await api.post(`/catalogs/${result.catalog_id}/activate/${result.version_id}`, null, { params: force ? { force: true } : {} });
+      setResult({ ...result, activated: true });
+      setStep(4);
+      toast.success(t('wiz.done_msg'));
+    } catch (err) { toast.error(apiError(err, 'Activation failed')); }
+    finally { setBusy(false); }
+  };
+
+  const eur = (v) => (v == null ? '\u2014' : Number(v).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' }));
+  const c = result?.comparaison;
+  const ctl = result?.controle;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -143,29 +162,71 @@ export default function CatalogImport() {
             <div className="flex gap-2">
               <Button variant="secondary" onClick={() => setStep(1)} className="gap-1"><ArrowLeft className="h-4 w-4" />{t('wiz.back')}</Button>
               <Button onClick={doImport} disabled={busy} className="gap-2" data-testid="import-confirm-button">
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{t('wiz.import_btn')}
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{t('cl.w_importer')}
               </Button>
             </div>
           </div>
         )}
 
-        {step === 3 && result && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-6 w-6" /><span className="font-medium">{t('wiz.done_msg')}</span></div>
-            <div className="flex gap-6 text-sm">
+        {step >= 3 && result && (
+          <div className="space-y-4" data-testid="import-control-step">
+            <div className="flex flex-wrap gap-6 text-sm">
               <span>{t('wiz.success_rows')}: <b className="text-emerald-700">{result.success_rows}</b></span>
               <span>{t('wiz.error_rows')}: <b className={result.error_rows ? 'text-rose-600' : ''}>{result.error_rows}</b></span>
               <span>{t('cat.version')}: <b className="font-mono">v{result.version_number}</b></span>
+              <span>{t('cl.w_statut')}: <b>{result.activated ? t('cl.w_active') : t('cl.w_brouillon')}</b></span>
             </div>
+            {ctl && (
+              <div className={cn('rounded-lg border p-3 text-sm', TON[ctl.verdict])} data-testid="import-verdict">
+                <div className="font-semibold">{t(`cl.w_verdict_${ctl.verdict}`)}</div>
+                {ctl.alertes.length > 0 && <ul className="mt-1 list-disc pl-5">{ctl.alertes.map((a) => <li key={a.code}>{a.message}</li>)}</ul>}
+              </div>
+            )}
+            {c ? (
+              <div className="space-y-2 text-sm" data-testid="import-comparison">
+                <div className="font-medium">{t('cl.w_comparaison', { a: c.articles_avant, n: c.articles_apres })}</div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                  {[['ajoutes', 'text-emerald-700'], ['retires', 'text-rose-600'], ['hausses', 'text-amber-700'], ['baisses', 'text-sky-700'], ['inchanges', 'text-muted-foreground']].map(([k, cls]) => (
+                    <div key={k} className="rounded-lg border p-2"><div className="text-xs uppercase text-muted-foreground">{t(`cl.w_${k}`)}</div><div className={cn('text-lg font-semibold', cls)}>{c[k]}</div></div>
+                  ))}
+                </div>
+                {(c.plus_fortes_hausses.length > 0 || c.plus_fortes_baisses.length > 0) && (
+                  <div className="overflow-x-auto rounded-lg border">
+                    <Table>
+                      <TableHeader><TableRow><TableHead>{t('cl.w_article')}</TableHead><TableHead className="text-right">{t('cl.w_avant')}</TableHead><TableHead className="text-right">{t('cl.w_apres')}</TableHead><TableHead className="text-right">%</TableHead></TableRow></TableHeader>
+                      <TableBody>{[...c.plus_fortes_hausses, ...c.plus_fortes_baisses].slice(0, 12).map((x, i) => (
+                        <TableRow key={i}><TableCell>{x.libelle}<span className="ml-1 font-mono text-xs text-muted-foreground">{x.reference}</span></TableCell>
+                          <TableCell className="text-right">{eur(x.avant)}</TableCell><TableCell className="text-right">{eur(x.apres)}</TableCell>
+                          <TableCell className={cn('text-right font-medium', x.variation_pct > 0 ? 'text-amber-700' : 'text-sky-700')}>{x.variation_pct > 0 ? '+' : ''}{x.variation_pct}</TableCell></TableRow>
+                      ))}</TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            ) : <p className="text-sm text-muted-foreground">{t('cl.w_premiere')}</p>}
             {errors.length > 0 && (
               <div className="overflow-x-auto rounded-lg border" data-testid="import-errors-table">
                 <Table>
-                  <TableHeader><TableRow><TableHead>Row</TableHead><TableHead>Error</TableHead></TableRow></TableHeader>
-                  <TableBody>{errors.map((e) => <TableRow key={e.id}><TableCell className="font-mono">{e.row_number}</TableCell><TableCell className="text-rose-600">{e.message}</TableCell></TableRow>)}</TableBody>
+                  <TableHeader><TableRow><TableHead>{t('cl.w_ligne')}</TableHead><TableHead>{t('cl.w_erreur')}</TableHead></TableRow></TableHeader>
+                  <TableBody>{errors.slice(0, 200).map((e) => <TableRow key={e.id}><TableCell className="font-mono">{e.row_number}</TableCell><TableCell className="text-rose-600">{e.message}</TableCell></TableRow>)}</TableBody>
                 </Table>
               </div>
             )}
-            <Button onClick={() => navigate('/app/catalogs')} data-testid="go-catalogs-button">{t('wiz.go_catalogs')}</Button>
+            <div className="flex flex-wrap gap-2">
+              {!result.activated && ctl?.verdict !== 'BLOQUANT' && (
+                <Button onClick={() => activer(false)} disabled={busy} className="gap-2" data-testid="import-activate-button">
+                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}{t('cl.w_activer')}
+                </Button>
+              )}
+              {!result.activated && ctl?.verdict === 'BLOQUANT' && peutForcer && (
+                <Button variant="destructive" onClick={() => activer(true)} disabled={busy} className="gap-2" data-testid="import-force-button">
+                  <AlertTriangle className="h-4 w-4" />{t('cl.w_forcer')}
+                </Button>
+              )}
+              <Button variant={result.activated ? 'default' : 'secondary'} onClick={() => navigate('/app/catalogs')} data-testid="go-catalogs-button">
+                {result.activated ? t('wiz.go_catalogs') : t('cl.w_garder_brouillon')}
+              </Button>
+            </div>
           </div>
         )}
       </Card>

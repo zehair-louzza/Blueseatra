@@ -1,6 +1,6 @@
 # Référence API
 
-Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **104 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
+Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **105 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
 
 - Base : `https://blueseatra-api.onrender.com/api`
 - Authentification : en-tête `Authorization: Bearer <jeton>` obtenu par `POST /api/auth/login`, et en-tête `X-Tenant-Id` pour choisir l'entreprise quand l'utilisateur en a plusieurs.
@@ -74,6 +74,7 @@ Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **
 | `POST` | `/api/catalogs/{catalog_id}/activate/{version_id}` | Activate Version |
 | `POST` | `/api/catalogs/{catalog_id}/deactivate` | Deactivate Catalog |
 | `GET` | `/api/catalogs/{catalog_id}/items` | Catalog Items |
+| `GET` | `/api/catalogs/{catalog_id}/versions/{version_id}/comparaison` | Compare Catalog Version |
 | `GET` | `/api/import-jobs/{job_id}/errors` | Import Errors |
 
 ## Catalogue fournisseurs commun
