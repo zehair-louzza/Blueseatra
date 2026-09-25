@@ -61,7 +61,9 @@ ok "validate-env.sh : aucune valeur de production"
 
 etape "2. Base, cache et migrations"
 ./scripts/bootstrap.sh > /tmp/bs-bootstrap.log 2>&1 || ko "bootstrap.sh (voir /tmp/bs-bootstrap.log)"
-./scripts/healthcheck.sh > /tmp/bs-health.log 2>&1 || ko "healthcheck.sh (voir /tmp/bs-health.log)"
+# Les contrôles de santé Docker mettent quelques secondes à passer à « healthy ».
+sain=0; for i in $(seq 1 30); do ./scripts/healthcheck.sh > /tmp/bs-health.log 2>&1 && { sain=1; break; }; sleep 3; done
+[ "$sain" = 1 ] || ko "healthcheck.sh après 90 s (voir /tmp/bs-health.log)"
 ok "postgres et redis démarrés et sains"
 ./scripts/migrate.sh > /tmp/bs-migrate-dry.log 2>&1 || ko "migrations à blanc (voir /tmp/bs-migrate-dry.log)"
 ok "migrations rejouées à blanc sur une base jetable"
@@ -98,7 +100,8 @@ NOUVEAU_HASH=$(grep '^REDIS_PASSWORD=' .env.preprod | cut -d= -f2- | sha256sum |
 $DC up -d --force-recreate redis > /tmp/bs-rot.log 2>&1 && $DC --profile app up -d --force-recreate api worker >> /tmp/bs-rot.log 2>&1 \
   || { cp ".env.preprod.avant-rotation-$DATE" .env.preprod; $DC --profile app up -d --force-recreate redis api worker >/dev/null 2>&1; ko "redémarrage après rotation : ancien secret restauré (voir /tmp/bs-rot.log)"; }
 for i in $(seq 1 30); do $DC ps api 2>/dev/null | grep -q healthy && break; sleep 4; done
-if ./scripts/healthcheck.sh >/dev/null 2>&1 && ./scripts/smoke-test.sh > /tmp/bs-smoke2.log 2>&1; then
+sain=0; for i in $(seq 1 30); do ./scripts/healthcheck.sh >/dev/null 2>&1 && { sain=1; break; }; sleep 3; done
+if [ "$sain" = 1 ] && ./scripts/smoke-test.sh > /tmp/bs-smoke2.log 2>&1; then
   ok "REDIS_PASSWORD changé (empreinte $ANCIEN_HASH → $NOUVEAU_HASH), redis, api et worker recréés, test de fumée à nouveau vert"
   rm -f ".env.preprod.avant-rotation-$DATE"
 else
