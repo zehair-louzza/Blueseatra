@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-25 — Paiement Stripe en mode test (ticket #90)
+
+- **Catalogue Stripe :** `scripts/stripe/creer_catalogue.py` crée, sans jamais créer de doublon (`lookup_key` stables), les offres Initial, Pilotage et Performance (mensuel et annuel avec 2 mois offerts), le siège supplémentaire et les 3 recharges.
+- **Paiement :**
+  - `POST /api/abonnement/checkout` : Stripe Checkout, avec TVA intracommunautaire et adresse de facturation ;
+  - `POST /api/abonnement/recharge` ;
+  - `POST /api/abonnement/portail` : portail client (changement d'offre, moyens de paiement, factures, annulation) ;
+  - `GET /api/abonnement/stripe`.
+- **Webhook `POST /api/stripe/webhook` :**
+  - signature vérifiée (HMAC SHA-256, tolérance de 5 minutes) ;
+  - **idempotent**, chaque événement étant enregistré par son identifiant avant d'être appliqué (table `stripe_evenements`) ;
+  - traite l'abonnement créé, modifié ou supprimé, la recharge payée (crédit dans le registre) et les factures.
+- **Cycle de vie :**
+  - `active`/`trialing` → actif ;
+  - `past_due` → actif pendant les relances de Stripe ;
+  - `unpaid`/`canceled` → lecture seule ;
+  - `paused` → suspendu ;
+  - **jamais de suppression de données**. Les offres `interne` et Signature ne sont jamais modifiées par Stripe.
+- **Sécurité :** clés et événements live refusés tant que `BLUESEATRA_STRIPE_LIVE=1` n'est pas défini.
+- **Page Offre et consommation :** choix de l'offre (mensuel ou annuel), recharges, accès au portail, badge « mode test ».
+- Migration `20260927090000_facturation_stripe.sql` (additive). 4 tests unitaires et un essai de bout en bout du webhook sur l'API locale.
+
 ## 2026-09-25 — Import de catalogue contrôlé avant activation (ticket #86)
 
 - **Assistant en 5 étapes :** fichier, correspondance des colonnes, import, **contrôle**, activation. L'import crée désormais une version **brouillon** : elle n'est activée qu'après lecture du contrôle.

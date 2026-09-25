@@ -21,7 +21,7 @@ GROUPES = [
     ("dashboard", "Tableau de bord"), ("health", "Supervision"), ("", "Supervision"),
     ("catalog", "Catalogues sur mesure"), ("catalog-template.csv", "Catalogues sur mesure"),
     ("contacts", "Module Clients"), ("chantiers", "Module Clients"), ("mcp", "Pont MCP"),
-    ("rgpd", "RGPD"), ("exploitation", "Supervision"),
+    ("rgpd", "RGPD"), ("exploitation", "Supervision"), ("stripe", "Offre et consommation"),
 ]
 def groupe(path):
     seg = path.removeprefix("/api/").lstrip("/").split("/")[0]

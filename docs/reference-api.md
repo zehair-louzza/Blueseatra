@@ -1,6 +1,6 @@
 # Référence API
 
-Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **105 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
+Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **109 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
 
 - Base : `https://blueseatra-api.onrender.com/api`
 - Authentification : en-tête `Authorization: Bearer <jeton>` obtenu par `POST /api/auth/login`, et en-tête `X-Tenant-Id` pour choisir l'entreprise quand l'utilisateur en a plusieurs.
@@ -134,9 +134,13 @@ Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **
 
 | Méthode | Route | Rôle |
 |---|---|---|
+| `POST` | `/api/abonnement/checkout` | Checkout |
 | `GET` | `/api/abonnement/consommation` | Abonnement Consommation |
 | `GET` | `/api/abonnement/historique` | Abonnement Historique |
+| `POST` | `/api/abonnement/portail` | Portail |
 | `GET` | `/api/abonnement/rapprochement` | Abonnement Rapprochement |
+| `POST` | `/api/abonnement/recharge` | Recharge |
+| `GET` | `/api/abonnement/stripe` | Etat Stripe |
 
 ## Paramètres et intégrations
 

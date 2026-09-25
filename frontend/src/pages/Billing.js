@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import ChoixOffre from '@/components/ChoixOffre';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,13 @@ export default function Billing() {
   const [lignes, setLignes] = useState(null);
   const [erreur, setErreur] = useState('');
   const peutVoirHistorique = ['owner', 'admin', 'billing_admin'].includes(tenant?.role);
+  const peutPayer = ['owner', 'billing_admin'].includes(tenant?.role);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('paiement') === 'ok') toast.success(t('cl.p_retour_ok'));
+    if (q.get('recharge') === 'ok') toast.success(t('cl.p_retour_recharge'));
+  }, [t]);
 
   useEffect(() => {
     api.get('/abonnement/consommation').then((r) => setEtat(r.data)).catch((e) => setErreur(apiError(e, 'Erreur')));
@@ -112,9 +120,9 @@ export default function Billing() {
               </p>
             </div>
           </div>
-          <Link to="/#offres">
+          <a href="#choix-offre">
             <Button className="gap-2">{essai ? t('billing.choose_plan') : t('billing.change_plan')} <ArrowRight className="h-4 w-4" /></Button>
-          </Link>
+          </a>
         </div>
       </Card>
 
@@ -133,6 +141,8 @@ export default function Billing() {
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
         <span>{t('billing.what_counts')} {!etat.application && t('billing.observation')}</span>
       </div>
+
+      <div id="choix-offre"><ChoixOffre offreActuelle={offre.code} peutPayer={peutPayer} /></div>
 
       {peutVoirHistorique && (
         <Card className="card-shadow mt-6 border-0 p-0">
