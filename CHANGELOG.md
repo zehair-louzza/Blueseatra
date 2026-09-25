@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-25 — Quotas : projection, rapprochement, politique de dépassement (ticket #89)
+
+- **Projection :** chaque jauge renvoie son rythme par jour, la projection en fin de période et la date d'épuisement prévue. La page Offre et consommation affiche l'alerte (4 tests).
+- **Rapprochement :** `GET /api/abonnement/rapprochement` compare chaque demande IA au registre. Une demande lue doit avoir consommé 1 devis, une demande échouée doit avoir été remboursée ; tout écart est listé.
+- **Politique de dépassement :** écrite dans [`docs/tarification-2026-09.md`](./docs/tarification-2026-09.md) (§8). Refus en 402 avec un message clair, sans surfacturation silencieuse, et le travail manuel reste toujours possible.
+
 ## 2026-09-25 — Observabilité, alertes et RGPD (ticket #93)
 
 - **Journaux structurés JSON** (par défaut sur Render, sinon `LOG_FORMAT=json`) :

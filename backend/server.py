@@ -316,6 +316,12 @@ async def abonnement_historique(limite: int = Query(50, ge=1, le=200), decalage:
     return {"lignes": await quotas.historique(limite, decalage)}
 
 
+@api.get("/abonnement/rapprochement")
+async def abonnement_rapprochement(cu: CurrentUser = Depends(require_role("owner", "admin", "billing_admin"))):
+    """Chaque demande IA face au registre : lues = 1 devis assisté, échouées = remboursées."""
+    return await quotas.rapprochement()
+
+
 @api.get("/members")
 async def list_members(cu: CurrentUser = Depends(get_current)):
     members = await db.tenant_users.find({"tenant_id": cu.tenant_id}, {"_id": 0}).to_list(500)

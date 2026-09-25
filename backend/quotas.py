@@ -168,6 +168,82 @@ _SQL_SOLDES = """
 """
 
 
+def projeter(utilise: int, inclus, recharge: int, debut, fin, maintenant=None) -> dict:
+    """Projection linéaire à la fin de la période, et date d'épuisement prévue.
+
+    Rythme = consommation depuis le début de la période / jours écoulés
+    (au moins un jour, pour ne pas extrapoler une seule heure d'activité).
+    """
+    from datetime import datetime, timezone
+    maintenant = maintenant or datetime.now(timezone.utc)
+    if not debut or not fin:
+        return {"projection_fin_periode": None, "epuisement_prevu_le": None}
+    ecoules = max((maintenant - debut).total_seconds() / 86400, 1.0)
+    total = max((fin - debut).total_seconds() / 86400, ecoules)
+    rythme = utilise / ecoules
+    projete = int(round(rythme * total))
+    epuise = None
+    if inclus is not None and rythme > 0:
+        from datetime import timedelta
+        restant = max(int(inclus) + int(recharge or 0) - utilise, 0)
+        date = maintenant + timedelta(days=restant / rythme)
+        if date < fin:
+            epuise = date.isoformat()
+    return {"rythme_par_jour": round(rythme, 2), "projection_fin_periode": projete, "epuisement_prevu_le": epuise}
+
+
+_SQL_RAPPROCHEMENT = """
+    WITH net AS (
+        SELECT demande_id, -sum(quantite) AS consomme
+          FROM blueseatra.registre_consommation
+         WHERE tenant_id = :tenant_id AND unite = 'devis_ia' AND demande_id IS NOT NULL
+           AND nature IN ('consommation', 'annulation')
+         GROUP BY demande_id
+    ), debut AS (
+        SELECT min(cree_le) AS le FROM blueseatra.registre_consommation WHERE tenant_id = :tenant_id
+    )
+    SELECT r.id, r.title, r.status, r.created_at, coalesce(n.consomme, 0) AS consomme
+      FROM blueseatra.requests r
+      LEFT JOIN net n ON n.demande_id = r.id
+     WHERE r.tenant_id = :tenant_id
+       AND r.created_at >= coalesce((SELECT to_char(le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') FROM debut), '9999')
+"""
+
+
+async def rapprochement() -> dict:
+    """Compare chaque demande IA au registre (ticket #89).
+
+    Attendu : une demande lue (done, needs_review) a consommé exactement 1
+    devis assisté ; une demande en échec a été remboursée (0) ; une demande en
+    cours est réservée (1) ou pas encore comptée (0). Tout autre cas est un
+    écart à examiner. Lecture seule.
+    """
+    tenant = _tenant()
+    try:
+        async with tenant_session() as s:
+            rows = (await s.execute(text(_SQL_RAPPROCHEMENT), {"tenant_id": tenant})).mappings().all()
+    except Exception as exc:  # noqa: BLE001
+        if _migration_absente(exc):
+            return {"disponible": False}
+        raise
+    ecarts, resume = [], {"lues": 0, "echouees": 0, "en_cours": 0}
+    for r in rows:
+        st, c = r["status"], int(r["consomme"] or 0)
+        if st in ("done", "needs_review"):
+            resume["lues"] += 1
+            ok = c == 1
+        elif st in ("failed", "error"):
+            resume["echouees"] += 1
+            ok = c == 0
+        else:
+            resume["en_cours"] += 1
+            ok = c in (0, 1)
+        if not ok:
+            ecarts.append({"demande_id": r["id"], "titre": r["title"], "statut": st, "consomme": c})
+    return {"disponible": True, "demandes_examinees": len(rows), **resume,
+            "ecarts": ecarts, "conforme": not ecarts}
+
+
 def _iso(v):
     return v.isoformat() if hasattr(v, "isoformat") else v
 
@@ -200,6 +276,9 @@ async def etat(nb_membres: int | None = None) -> dict:
             else max((int(so.get("solde_forfait") or 0) if so.get("dotation") else
                       inclus - int(so.get("utilise_forfait") or 0)), 0) + recharge,
         }
+    for u, j in jauges.items():
+        j.update(projeter(j["utilise"], j["inclus"], j["recharge_restante"],
+                          a["periode_courante"], a["periode_fin"]))
     sieges_inclus = None if a["sieges"] is None else a["sieges"] + int(a["sieges_supplementaires"] or 0)
     return {
         "disponible": True,

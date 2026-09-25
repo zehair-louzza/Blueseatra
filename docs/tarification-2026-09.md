@@ -81,3 +81,21 @@ Ces règles viennent de ce qui est déjà construit et vérifié (catalogue comm
 - **Entrée de gamme :** essai gratuit de 14 jours (1 siège, 10 devis assistés, 30 pages lues), puis choix d'une offre payante.
 - **Prix :** grille haute, soit Initial 59 €, Pilotage 149 €, Performance 399 € et Signature sur devis.
 - **Affichage :** la grille est visible sur la page d'accueil, avec la mention « Paiement en ligne bientôt disponible ».
+
+## 8. Politique de dépassement (ticket #89)
+
+Décision : **refus explicite, jamais de surfacturation silencieuse ni de mode dégradé caché.**
+
+| Situation | Comportement |
+|---|---|
+| Forfait du mois épuisé, recharge disponible | La recharge est consommée ; le forfait l'est toujours en premier |
+| Forfait et recharges épuisés | Nouvelle lecture IA refusée : erreur **402** avec un message clair et un lien vers l'offre, jamais une 500 |
+| Travail manuel (devis, PDF, catalogues, comparateur) | Toujours possible, jamais compté |
+| Essai terminé ou impayé | Lecture seule : les données restent consultables et exportables |
+| Offre `interne` ou Signature | Illimité, mais tout reste compté dans le registre |
+| Extraction en échec | Remboursée par une écriture d'annulation |
+
+**Garde-fous**
+- **Projection :** la page Offre et consommation affiche le rythme actuel et, s'il y a lieu, la date d'épuisement prévue avant la fin de la période.
+- **Rapprochement :** `GET /api/abonnement/rapprochement` (owner, admin, billing_admin) vérifie que chaque demande lue a consommé exactement un devis assisté et que chaque demande en échec a été remboursée. Il sert de contrôle avant l'activation du blocage (`BLUESEATRA_QUOTAS_APPLIQUES=1`).
+- **Registre :** les soldes affichés sont toujours la somme du registre, en ajout seul, et restent donc reproductibles.
