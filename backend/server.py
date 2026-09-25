@@ -33,6 +33,7 @@ import clients_module
 import quote_versions_diff
 import observabilite
 import catalogue_comparaison
+import facturation_stripe
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -2295,6 +2296,7 @@ async def catalogue_commun_afficher_tous(cu: CurrentUser = Depends(require_role(
 
 api.include_router(clients_module.build_router(get_current, require_role))
 app.include_router(observabilite.build_router(get_current, require_role))
+app.include_router(facturation_stripe.build_router(get_current, require_role))
 app.middleware("http")(observabilite.intergiciel)
 app.include_router(api)
 app.include_router(mcp_bridge.router)
