@@ -118,3 +118,30 @@ cd frontend && yarn build
 ```
 
 Uploader le contenu de `frontend/build/` vers `public_html/`.
+
+## Jalons antérieurs
+
+### Juillet 2026 — Migration Hermes AI / Ollama / OVH VPS
+
+**Changements majeurs :**
+- ✅ **Suppression totale du provider Emergent** (`emergentintegrations` désinstallé, `EMERGENT_LLM_KEY` supprimée)
+- ✅ **Hermes-3 via Ollama** sur VPS OVH devient le moteur IA par défaut (`ai_service.py` réécrit)
+- ✅ **litellm mis à jour vers 1.80.0** comme couche d'abstraction pour les fallbacks tenant (OpenAI / Anthropic / Gemini)
+- ✅ Variables d'environnement `HERMES_BASE_URL` et `HERMES_DEFAULT_MODEL` ajoutées
+- ✅ `requirements.txt` mis à jour (suppression `emergentintegrations`, ajout `litellm==1.80.0`)
+
+### Étapes précédentes
+
+| Étape | Description |
+|-------|-------------|
+| Migration MongoDB → Supabase | `pg_adapter.py` + `models_sql.py` + `migrate_mongo_to_supabase.py` |
+| Activation RLS | `enable_rls.py` — policy deny-all sur toutes les tables |
+| Éditeur de devis v2 | Lignes typées, TVA par ligne, marge masquée, sélecteur catalogue |
+| Import CSV universel | Auto-détection colonnes + mapping manuel + attributs dynamiques |
+| Génération PDF Pro Forma | ReportLab — gabarit métier complet avec profil entreprise |
+| Multi-tenant RBAC | Rôles `owner` / `admin` / `operator` / `viewer` / `billing_admin` |
+| Internationalisation | react-i18next — FR / EN |
+| Webhook n8n | Configurable par tenant dans les paramètres d'intégration |
+| Journal d'audit | Table `audit_logs` — toutes les actions sensibles tracées |
+| Profil entreprise PDF | SIRET, IBAN, mentions légales, conditions injectés dans le PDF |
+
