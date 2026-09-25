@@ -31,6 +31,7 @@ import catalogue_navigation
 import quotas
 import clients_module
 import quote_versions_diff
+import observabilite
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -87,6 +88,7 @@ api = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+observabilite.configurer_journaux()
 logger = logging.getLogger("blueseatra")
 
 ROLES = ["owner", "admin", "operator", "viewer", "billing_admin"]
@@ -2243,6 +2245,8 @@ async def catalogue_commun_afficher_tous(cu: CurrentUser = Depends(require_role(
 
 
 api.include_router(clients_module.build_router(get_current, require_role))
+app.include_router(observabilite.build_router(get_current, require_role))
+app.middleware("http")(observabilite.intergiciel)
 app.include_router(api)
 app.include_router(mcp_bridge.router)
 # Auth uses Bearer tokens (Authorization header), not cookies. The combination

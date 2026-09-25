@@ -92,6 +92,9 @@ ollama serve   # écoute sur http://localhost:11434
 | `HERMES_STRUCTURING_MODEL_1..3`, `HERMES_REASONING_EFFORT` | Modèles de structuration en lots et effort de raisonnement |
 | `HERMES_GATEWAY_URL`, `HERMES_GATEWAY_KEY`, `HERMES_GATEWAY_MODEL` | Passerelle IA facultative |
 | `MCP_API_KEY`, `MCP_TENANT_ID` | Pont MCP (`/mcp`), voir [`MCP-PERPLEXITY.md`](./MCP-PERPLEXITY.md) |
+| `LOG_FORMAT` | `json` pour des journaux structurés (automatique sur Render), `texte` sinon |
+| `BLUESEATRA_METRICS_TOKEN` | Active `GET /api/exploitation/mesures` ; à lire avec l'en-tête `X-Metrics-Token` |
+| `LOG_PSEUDO_SEL` | Sel des empreintes d'e-mail et d'entreprise dans les journaux |
 | `RENDER_GIT_COMMIT` | Fourni par Render ; renvoyé par `/api/health` pour savoir quelle version tourne |
 
 ### `frontend/.env`

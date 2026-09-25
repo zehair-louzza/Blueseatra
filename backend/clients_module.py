@@ -251,7 +251,7 @@ def build_router(get_current, require_role) -> APIRouter:
     async def lister(q: str = "", type: str = "", etiquette: str = "", en_attente: bool = False,
                      archives: bool = False, page: int = Query(1, ge=1), taille: int = Query(50, ge=1, le=TAILLE_PAGE_MAX),
                      cu=lecture):
-        cond = ["c.tenant_id = :tenant_id", "c.archive_le IS NOT NULL" if archives else "c.archive_le IS NULL"]
+        cond = ["c.archive_le IS NOT NULL" if archives else "c.archive_le IS NULL"]
         p: dict = {"limite": taille, "decalage": (page - 1) * taille}
         if q.strip():
             cond.append("c.recherche_norm LIKE :motif")
@@ -277,9 +277,9 @@ def build_router(get_current, require_role) -> APIRouter:
                       AND e.client_id = c.id) AS dernier_echange,
                    (SELECT min(x.echeance) FROM blueseatra.relances x WHERE x.tenant_id = c.tenant_id
                       AND x.client_id = c.id AND x.statut IN ('prevue', 'reportee')) AS prochaine_relance
-              FROM blueseatra.clients c WHERE {where}
+              FROM blueseatra.clients c WHERE c.tenant_id = :tenant_id AND {where}
              ORDER BY c.raison_sociale LIMIT :limite OFFSET :decalage""", p)
-        total = (await _q(f"SELECT count(*) AS n FROM blueseatra.clients c WHERE {where}",
+        total = (await _q(f"SELECT count(*) AS n FROM blueseatra.clients c WHERE c.tenant_id = :tenant_id AND {where}",
                           {k: v for k, v in p.items() if k not in ("limite", "decalage")}, un=True))["n"]
         return {"clients": rows, "total": total, "page": page, "taille": taille}
 
@@ -475,12 +475,12 @@ def build_router(get_current, require_role) -> APIRouter:
     # --- Suggestions ------------------------------------------------------
     @r.get("/suggestions-clients")
     async def suggestions(demande_id: Optional[str] = None, cu=lecture):
-        cond = "tenant_id = :tenant_id AND statut = 'a_valider'"
+        cond = "statut = 'a_valider'"
         p: dict = {}
         if demande_id:
             cond += " AND demande_id = :d"
             p["d"] = demande_id
-        rows = await _q(f"""SELECT * FROM blueseatra.suggestions_clients WHERE {cond}
+        rows = await _q(f"""SELECT * FROM blueseatra.suggestions_clients WHERE tenant_id = :tenant_id AND {cond}
                             ORDER BY CASE force WHEN 'exacte' THEN 0 WHEN 'probable' THEN 1 ELSE 2 END, cree_le DESC
                             LIMIT 200""", p)
         auto = []
@@ -841,7 +841,7 @@ async def _prochain_rang_libre(devis_id: str) -> int | None:
 async def annuler_relances(*, devis_id: str | None = None, client_id: str | None = None,
                            contact_id: str | None = None, evenement: str, garder_taches: bool = False) -> int:
     motif = rr.motif_arret(evenement)
-    cond = ["tenant_id = :tenant_id", "statut IN ('prevue', 'reportee')"]
+    cond = ["statut IN ('prevue', 'reportee')"]
     p: dict = {"m": motif}
     if devis_id:
         cond.append("devis_id = :d")
@@ -855,7 +855,7 @@ async def annuler_relances(*, devis_id: str | None = None, client_id: str | None
     if garder_taches:
         cond.append("canal = 'email'")
     rows = await _q(f"""UPDATE blueseatra.relances SET statut = 'annulee', motif_annulation = :m
-                        WHERE {' AND '.join(cond)} RETURNING id""", p, ecrit=True)
+                        WHERE tenant_id = :tenant_id AND {' AND '.join(cond)} RETURNING id""", p, ecrit=True)
     return len(rows)
 
 
