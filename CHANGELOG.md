@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-09-25 — Garde-fous de l'IA en production (ticket #88, partie sans clé)
+
+- **Schéma strict de sortie** (`backend/ia_garde_fous.py`) :
+  - types convertis ;
+  - urgence et confiance normalisées ;
+  - lignes non structurées écartées ;
+  - **tout prix, montant, taux de TVA ou marge produit par l'IA est retiré et signalé** dans `_anomalies_schema`.
+- **Coupure d'urgence** `BLUESEATRA_IA_COUPURE` :
+  - `arret` : refus explicite ; la demande échoue proprement et le devis assisté est remboursé ;
+  - `repli` : bascule vers `BLUESEATRA_IA_REPLI_PROVIDER` / `_MODEL` / `_KEY`.
+- **Journal par appel** `ia_appel` : fournisseur, modèle, rôle, succès, durée, taille des échanges et coût estimé, sans le contenu.
+- **Corpus de test BTP** (`backend/corpus_ia/`) : 8 demandes fictives annotées, dont une tentative d'injection de prompt et une demande en anglais. Le script `scripts/ia/evaluer_corpus.py` mesure le taux de réussite, avec un seuil de bascule à 80 %. Référence mesurée : 54 % pour l'extraction de secours sans IA.
+
 ## 2026-09-25 — Quotas : projection, rapprochement, politique de dépassement (ticket #89)
 
 - **Projection :** chaque jauge renvoie son rythme par jour, la projection en fin de période et la date d'épuisement prévue. La page Offre et consommation affiche l'alerte (4 tests).
