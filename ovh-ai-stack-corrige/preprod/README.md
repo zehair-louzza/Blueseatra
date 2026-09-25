@@ -20,6 +20,22 @@ port is published. The API is bound to `127.0.0.1`
 on the VPS by default — reach it through an SSH tunnel or the existing
 reverse proxy, never expose it directly.
 
+## Validation complète en une commande (tickets #95, #96, #97)
+
+```bash
+cd ~/Blueseatra/ovh-ai-stack-corrige/preprod
+git pull
+# Uniquement si .env.preprod n'existe pas encore : URL de la passerelle IA de PRÉPROD
+HERMES_BASE_URL_PREPROD=<url-preprod> ./scripts/validation-vps.sh
+```
+
+Le script enchaîne les prérequis, `validate-env.sh`, le démarrage, les migrations (à blanc puis appliquées), l'API et le worker, puis :
+- le **test de fumée** ;
+- la **sauvegarde chiffrée et sa restauration** dans une base jetable ;
+- la **rotation de `REDIS_PASSWORD`**, avec un nouveau test de fumée.
+
+À chaque échec, il restaure l'ancien secret. Il écrit un rapport sans secret, `validation-vps-<date>.txt`. Le même script tourne en CI (`preprod-validation.yml`) sur une machine jetable.
+
 ## First start
 
 ```bash
