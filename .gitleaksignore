@@ -1,0 +1,4 @@
+# Faux positifs vérifiés à la main. Chaque entrée doit être justifiée.
+# 2026-09-25 : valeur factice de JWT_SECRET pour un job de CI sans connexion réelle
+# (commit 47960f2, PR #112), remplacée ensuite par un secret généré à l'exécution.
+47960f25e68d7589b30345e866b255d28e52b4f7:.github/workflows/tests-metier.yml:generic-api-key:77
