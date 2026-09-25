@@ -66,10 +66,14 @@ class FormatJSON(logging.Formatter):
 class FiltreMasquage(logging.Filter):
     """En format texte aussi, aucun e-mail en clair."""
     def filter(self, rec: logging.LogRecord) -> bool:
-        try:
-            rec.msg, rec.args = masquer(rec.getMessage()), ()
-        except Exception:
-            pass
+        # Masquer sans aplatir : certains formateurs (uvicorn.access) relisent
+        # rec.args comme un tuple positionnel.
+        if isinstance(rec.msg, str):
+            rec.msg = masquer(rec.msg)
+        if isinstance(rec.args, tuple):
+            rec.args = tuple(masquer(a) if isinstance(a, str) else a for a in rec.args)
+        elif isinstance(rec.args, dict):
+            rec.args = {k: masquer(v) if isinstance(v, str) else v for k, v in rec.args.items()}
         if rec.exc_info and not rec.exc_text:
             rec.exc_text = masquer(logging.Formatter().formatException(rec.exc_info))
         return True
