@@ -12,7 +12,7 @@ const nf = new Intl.NumberFormat('fr-FR');
 const df = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 const dtf = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 
-function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein = false }) {
+function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein = false, projection = null, epuisement = null }) {
   const illimite = inclus === null || inclus === undefined;
   const total = illimite ? 0 : inclus + (recharge || 0);
   const pct = illimite || !total ? 0 : Math.min(100, Math.round((utilise / Math.max(total, 1)) * 100));
@@ -37,6 +37,13 @@ function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein
             {t('billing.remaining', { n: nf.format(restant ?? 0) })}
             {recharge ? ` · ${t('billing.topup_left', { n: nf.format(recharge) })}` : ''}
           </p>
+          {projection != null && utilise > 0 && (
+            <p className={`mt-1 text-xs ${epuisement ? 'font-medium text-amber-700' : 'text-muted-foreground'}`} data-testid="billing-projection">
+              {epuisement
+                ? t('cl.b_epuisement', { d: new Date(epuisement).toLocaleDateString('fr-FR') })
+                : t('cl.b_projection', { n: nf.format(projection) })}
+            </p>
+          )}
         </>
       )}
     </div>
@@ -113,9 +120,11 @@ export default function Billing() {
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">
         <Jauge t={t} icon={FileText} label={t('billing.quotes_ai')} inclus={jauges.devis_ia.inclus} utilise={jauges.devis_ia.utilise}
-          restant={jauges.devis_ia.restant} recharge={jauges.devis_ia.recharge_restante} />
+          restant={jauges.devis_ia.restant} recharge={jauges.devis_ia.recharge_restante}
+          projection={jauges.devis_ia.projection_fin_periode} epuisement={jauges.devis_ia.epuisement_prevu_le} />
         <Jauge t={t} icon={ScanText} label={t('billing.pages_read')} inclus={jauges.page_lue.inclus} utilise={jauges.page_lue.utilise}
-          restant={jauges.page_lue.restant} recharge={jauges.page_lue.recharge_restante} />
+          restant={jauges.page_lue.restant} recharge={jauges.page_lue.recharge_restante}
+          projection={jauges.page_lue.projection_fin_periode} epuisement={jauges.page_lue.epuisement_prevu_le} />
         <Jauge t={t} plein icon={Users} label={t('billing.seats')} inclus={sieges.inclus} utilise={sieges.utilises}
           restant={sieges.inclus == null ? null : Math.max(sieges.inclus - (sieges.utilises || 0), 0)} />
       </div>
