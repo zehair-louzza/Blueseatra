@@ -49,3 +49,10 @@ def test_export_rgpd_exclut_les_secrets():
     assert "ai_key" in o.TABLES_EXPORT["settings_integrations"]
     assert "file_b64" in o.TABLES_EXPORT["requests"]
     assert "users" not in o.TABLES_EXPORT   # jamais les empreintes de mots de passe
+
+
+def test_filtre_garde_les_arguments_positionnels_d_uvicorn():
+    rec = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d',
+                            ("127.0.0.1:1", "GET", "/api/x?mail=a@b.fr", "1.1", 200), None)
+    assert o.FiltreMasquage().filter(rec)
+    assert len(rec.args) == 5 and rec.args[4] == 200 and "a@b.fr" not in rec.getMessage()
