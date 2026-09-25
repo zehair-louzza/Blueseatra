@@ -66,6 +66,6 @@ export const apiError = (err, fallback = 'Something went wrong') => {
   if (Array.isArray(d)) {
     return d.map((e) => (typeof e === 'string' ? e : (e?.msg || JSON.stringify(e)))).join(', ') || fallback;
   }
-  if (typeof d === 'object') return d.msg || JSON.stringify(d);
+  if (typeof d === 'object') return d.message || d.msg || JSON.stringify(d);
   return String(d);
 };

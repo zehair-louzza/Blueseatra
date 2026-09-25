@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-25 — Import de catalogue contrôlé avant activation (ticket #86)
+
+- **Assistant en 5 étapes :** fichier, correspondance des colonnes, import, **contrôle**, activation. L'import crée désormais une version **brouillon** : elle n'est activée qu'après lecture du contrôle.
+- **Comparaison avec la version active** (`backend/catalogue_comparaison.py`, 6 tests) : articles nouveaux, retirés, en hausse, en baisse et inchangés, avec les plus fortes variations. La comparaison se fait par référence ; les codes générés `ART-n` sont comparés par libellé. Nouvelle route `GET /api/catalogs/{id}/versions/{vid}/comparaison`.
+- **Seuils de sécurité :**
+  - BLOQUANT : version vide, prix négatif, au moins 25 % de rejets, chute d'au moins 20 % du nombre d'articles ;
+  - À VÉRIFIER : au moins 10 % de prix manquants (0 € compris), au moins 10 % d'unités inconnues, au moins 5 % de rejets, hausse moyenne d'au moins 15 %, variations de plus de 30 %.
+- **Activation d'une version BLOQUANTE :** refusée (409). Seul un propriétaire ou un administrateur peut la forcer (`?force=true`), et le verdict est inscrit au journal d'audit.
+
 ## 2026-09-25 — Garde-fous de l'IA en production (ticket #88, partie sans clé)
 
 - **Schéma strict de sortie** (`backend/ia_garde_fous.py`) :
