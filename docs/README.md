@@ -26,7 +26,7 @@ Toute la documentation du projet, classée par usage.
 | Document | Contenu |
 |---|---|
 | [Guide développeur](./guide-developpeur.md) | Installation locale, variables, migrations, tests, dépannage |
-| [Référence API](./reference-api.md) | Les 97 routes, générées depuis le code |
+| [Référence API](./reference-api.md) | Les 99 routes, générées depuis le code |
 | [Contrat d'API fournisseurs](./contrat-api-fournisseurs.md) | Recherche et comparaison fournisseurs |
 | [Intégration du module Fournisseur](./integration-module-fournisseur.md) | Lien avec le dépôt Fournisseur-Blueseatra |
 | [Connecteur MCP](./MCP-PERPLEXITY.md) | Pont MCP vers Perplexity Computer |

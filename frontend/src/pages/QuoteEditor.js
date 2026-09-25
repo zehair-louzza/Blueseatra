@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import QuoteClientPanel from '@/components/clients/QuoteClientPanel';
+import QuoteVersions from '@/components/QuoteVersions';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
@@ -242,7 +243,8 @@ export default function QuoteEditor() {
           <Button variant="outline" size="sm" className="gap-1" onClick={async () => {
             try { const { data } = await api.post(`/quotes/${id}/duplicate`); toast.success(t('quote.duplicated')); navigate(`/app/quotes/${data.id}`); }
             catch (err) { toast.error(apiError(err, 'Failed')); }
-          }} data-testid="duplicate-quote-button"><Copy className="h-4 w-4" />{t('quote.duplicate')}</Button>}
+          }} data-testid="duplicate-quote-button"><Copy className="h-4 w-4" />{t('quote.duplicate')}</Button>
+          <QuoteVersions quoteId={id} version={q.version} />
           <Button variant="outline" size="sm" className="gap-1" onClick={downloadPdf} data-testid="download-pdf-button"><Download className="h-4 w-4" />{t('quote.pdf')}</Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>

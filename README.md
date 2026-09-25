@@ -24,7 +24,7 @@
 ![Render](https://img.shields.io/badge/API-Render-3AAFB9?logo=render&logoColor=white)
 ![Ollama](https://img.shields.io/badge/IA-Ollama%20%C2%B7%20OVH-3AAFB9?logo=ollama&logoColor=white)
 
-![Routes API](https://img.shields.io/badge/routes%20API-97-0F2747)
+![Routes API](https://img.shields.io/badge/routes%20API-99-0F2747)
 ![Migrations](https://img.shields.io/badge/migrations-14-0F2747)
 ![Tests](https://img.shields.io/badge/tests%20automatis%C3%A9s-200%2B-0F2747)
 ![Isolation](https://img.shields.io/badge/isolation-RLS%20par%20entreprise-0F2747)

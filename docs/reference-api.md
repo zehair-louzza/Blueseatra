@@ -1,6 +1,6 @@
 # Référence API
 
-Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **97 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
+Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **99 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
 
 - Base : `https://blueseatra-api.onrender.com/api`
 - Authentification : en-tête `Authorization: Bearer <jeton>` obtenu par `POST /api/auth/login`, et en-tête `X-Tenant-Id` pour choisir l'entreprise quand l'utilisateur en a plusieurs.
@@ -56,6 +56,8 @@ Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **
 | `POST` | `/api/quotes/{quote_id}/send` | Send Quote |
 | `GET` | `/api/quotes/{quote_id}/suivi` | Suivi |
 | `POST` | `/api/quotes/{quote_id}/validate` | Validate Quote |
+| `GET` | `/api/quotes/{quote_id}/versions` | List Quote Versions |
+| `GET` | `/api/quotes/{quote_id}/versions/compare` | Compare Quote Versions |
 
 ## Catalogues sur mesure
 

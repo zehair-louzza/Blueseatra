@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-25 — Boîte de réception et versions de devis (ticket #85)
+
+- **Demandes :**
+  - recherche sans accents ;
+  - 7 filtres avec compteurs ;
+  - tri par priorité (à relire, urgentes, sans devis, échéance) ;
+  - colonnes client, date de réponse et devis liés.
+- **Versions de devis :** une remise en brouillon ouvre la version suivante. Nouvelles routes `GET /api/quotes/{id}/versions` et `GET /api/quotes/{id}/versions/compare?de=N`, et bouton « Historique » avec comparaison ligne à ligne (`backend/quote_versions_diff.py`, 5 tests).
+- **Correction :** caractère « } » parasite à côté du bouton Dupliquer.
+- **CI (ticket #84) :** nouveau job « Tests unitaires de l'API » : 56 tests (IA, rapprochement, file, versions, quotas). 4 tests anciens avaient des attentes obsolètes et ont été corrigés.
+
 ## 2026-09-25 — Module Clients (lots 1 à 4)
 
 - **Fiches** : clients (6 types, SIRET unique par entreprise), contacts (contact principal, opposition aux relances, anonymisation RGPD), chantiers, archivage sans suppression. Écrans `/app/clients` et `/app/clients/:id`.
