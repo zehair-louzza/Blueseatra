@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-09-25 — Observabilité, alertes et RGPD (ticket #93)
+
+- **Journaux structurés JSON** (par défaut sur Render, sinon `LOG_FORMAT=json`) :
+  - `request_id` renvoyé dans l'en-tête `X-Request-ID` ;
+  - entreprise pseudonymisée ;
+  - aucun e-mail en clair, y compris dans les traces d'exception ;
+  - requêtes en 5xx ou de plus de 3 s journalisées automatiquement.
+- **Mesures et SLO :** `GET /api/exploitation/mesures` (volume, 5xx, p50/p95 par route, respect des SLO), protégée par `BLUESEATRA_METRICS_TOKEN`. Elle répond 404 tant que la variable n'est pas définie.
+- **Alerte :** nouveau workflow `surveillance.yml`, qui sonde l'API toutes les heures en jours ouvrés. Il ouvre un ticket « Alerte production » en cas de panne et le ferme au retour à la normale.
+- **RGPD :**
+  - `GET /api/rgpd/export` : zip de toutes les données de l'entreprise, sans secret ;
+  - `POST /api/rgpd/personnes/anonymiser` : effacement d'une personne par son e-mail ;
+  - `GET /api/rgpd/echeances` : contacts à anonymiser après 3 ans d'archivage ;
+  - chaque opération est tracée dans `audit_logs` ;
+  - nouvel onglet **Paramètres → Données personnelles**.
+- **Isolation :** le contrôle statique couvre maintenant le SQL écrit dans `clients_module.py` et `observabilite.py`, ainsi que les 7 tables Clients. Sept requêtes à conditions dynamiques ont été réécrites pour que le filtre `tenant_id` soit visible, et la mutation du filtre est détectée.
+- **Documents :** [`docs/conformite-rgpd.md`](./docs/conformite-rgpd.md) (registre des traitements, droits, sous-traitants) et [`docs/runbook-incident.md`](./docs/runbook-incident.md) (SLO, corrélation, déroulé, RACI, post-mortem, incident simulé).
+
 ## 2026-09-25 — Boîte de réception et versions de devis (ticket #85)
 
 - **Demandes :**

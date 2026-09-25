@@ -1,6 +1,6 @@
 # Référence API
 
-Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **99 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
+Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **103 routes**. Ne pas modifier à la main : relancer `python scripts/docs/generer_reference_api.py`.
 
 - Base : `https://blueseatra-api.onrender.com/api`
 - Authentification : en-tête `Authorization: Bearer <jeton>` obtenu par `POST /api/auth/login`, et en-tête `X-Tenant-Id` pour choisir l'entreprise quand l'utilisateur en a plusieurs.
@@ -162,6 +162,7 @@ Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **
 | Méthode | Route | Rôle |
 |---|---|---|
 | `GET` | `/api/` | Root |
+| `GET` | `/api/exploitation/mesures` | Mesures |
 | `GET` | `/api/health` | Health |
 
 ## Pont MCP
@@ -170,3 +171,11 @@ Générée automatiquement depuis le schéma OpenAPI de `backend/server.py` : **
 |---|---|---|
 | `GET` | `/mcp` | Mcp Endpoint |
 | `POST` | `/mcp` | Mcp Endpoint |
+
+## RGPD
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| `GET` | `/api/rgpd/echeances` | Echeances |
+| `GET` | `/api/rgpd/export` | Export |
+| `POST` | `/api/rgpd/personnes/anonymiser` | Anonymiser Personne |

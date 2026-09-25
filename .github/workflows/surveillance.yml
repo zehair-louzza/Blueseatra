@@ -1,0 +1,75 @@
+name: Surveillance production
+
+# Alerte (ticket #93) : vérifie l'API toutes les heures, de 7 h à 21 h (heure de
+# Paris, jours ouvrés). Environ 330 minutes d'Actions par mois, dans le quota
+# gratuit des dépôts privés (2 000 minutes). En cas d'échec
+# répété, ouvre ou complète un ticket « Alerte production », ce qui envoie une
+# notification GitHub au propriétaire. Le ticket est fermé automatiquement au
+# retour à la normale. Aucun secret n'est nécessaire : seules des routes
+# publiques sont appelées.
+
+on:
+  schedule:
+    - cron: "7 5-19 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: surveillance
+  cancel-in-progress: false
+
+jobs:
+  sonde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Sondes
+        id: sonde
+        run: |
+          set -u
+          API=https://blueseatra-api.onrender.com
+          ok=0; detail=""
+          for essai in 1 2 3; do
+            # L'offre gratuite Render peut mettre jusqu'à une minute à se réveiller.
+            h=$(curl -s -m 90 -o /tmp/h.json -w '%{http_code} %{time_total}' "$API/api/health" || echo "000 0")
+            p=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$API/api/clients" || echo 000)
+            code=${h%% *}; duree=${h##* }
+            detail="santé=$code en ${duree}s, route protégée=$p (401 attendu)"
+            if [ "$code" = "200" ] && grep -q '"healthy"' /tmp/h.json && [ "$p" = "401" ]; then ok=1; break; fi
+            sleep 60
+          done
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+          echo "detail=$detail" >> "$GITHUB_OUTPUT"
+          echo "commit=$(grep -oE '"commit":"[^"]*"' /tmp/h.json 2>/dev/null | cut -d'"' -f4)" >> "$GITHUB_OUTPUT"
+          echo "$detail"
+
+      - name: Ouvrir ou compléter l'alerte
+        if: steps.sonde.outputs.ok != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DETAIL: ${{ steps.sonde.outputs.detail }}
+        run: |
+          n=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label alerte-production --json number --jq '.[0].number // empty')
+          corps="$(date -u '+%d/%m/%Y %H:%M UTC') : $DETAIL. Runbook : docs/runbook-incident.md"
+          if [ -n "$n" ]; then
+            gh issue comment "$n" -R "$GITHUB_REPOSITORY" --body "$corps"
+          else
+            gh label create alerte-production -R "$GITHUB_REPOSITORY" --color B60205 --description "Alerte automatique de surveillance" 2>/dev/null || true
+            gh issue create -R "$GITHUB_REPOSITORY" --title "Alerte production : API Blueseatra indisponible" \
+              --label alerte-production --body "$corps"
+          fi
+          exit 1
+
+      - name: Fermer l'alerte au retour à la normale
+        if: steps.sonde.outputs.ok == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DETAIL: ${{ steps.sonde.outputs.detail }}
+          COMMIT: ${{ steps.sonde.outputs.commit }}
+        run: |
+          for n in $(gh issue list -R "$GITHUB_REPOSITORY" --state open --label alerte-production --json number --jq '.[].number'); do
+            gh issue close "$n" -R "$GITHUB_REPOSITORY" --comment "Rétabli : $DETAIL (commit $COMMIT)."
+          done

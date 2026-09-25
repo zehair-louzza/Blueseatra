@@ -86,6 +86,8 @@ Les demandes sont lues l'une après l'autre. Quand plusieurs sont en cours, la l
 
 ### Trier et filtrer la boîte de réception
 
+![Boîte de réception](assets/manuel/02b-boite-reception.jpg)
+
 - **Recherche :** par titre, client, site, numéro de demande ou numéro de devis, avec ou sans accents.
 - **Filtres :** Toutes, À relire, En cours, Terminées, En échec, Urgentes et Sans devis, avec le nombre de demandes pour chacun.
 - **Tri par priorité (par défaut) :**
@@ -148,6 +150,8 @@ La liste affiche le numéro, le client, le total TTC et le statut : **Brouillon*
 **Taux de TVA bâtiment disponibles :** 20 %, 10 %, 5,5 % et 0 %.
 
 ### Historique des versions
+
+![Historique des versions](assets/manuel/05b-versions-devis.jpg)
 
 - **Création des versions :** chaque **validation** fige une version du devis (v1, v2…). **Remettre en brouillon** ouvre la version suivante ; la version précédente reste consultable et n'est jamais écrasée.
 - **Bouton « Historique » :** il liste les versions avec leur date, le nombre de lignes et les totaux HT et TTC.
@@ -309,6 +313,13 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
 - **Moteur IA :** Blueseatra utilise par défaut son propre moteur, hébergé sur un serveur OVH. Vous pouvez choisir un autre fournisseur et ajouter votre clé ; elle est chiffrée avant d'être enregistrée.
 - **Modèle OCR préféré :** le mode « Automatique » est conseillé.
 - **Webhook n8n :** une adresse appelée après les étapes clés, pour automatiser la suite (e-mail, tableur, CRM).
+![Données personnelles](assets/manuel/13-donnees-personnelles.jpg)
+
+- **Données personnelles** (propriétaire et administrateurs) :
+  - **Télécharger l'export** : toutes les données de l'entreprise dans un fichier zip ;
+  - **Anonymiser** une personne à partir de son adresse e-mail (droit à l'effacement) ;
+  - liste des contacts dont le client est archivé depuis plus de 3 ans.
+  Chaque opération est inscrite au journal d'audit.
 - **Société & PDF devis :** raison sociale, SIRET, TVA intracommunautaire, adresse, IBAN, logo, mentions et conditions de paiement. Ces informations sont imprimées sur chaque PDF ; renseignez-les avant votre premier envoi.
 
 ## 13. Offre et consommation
@@ -346,7 +357,7 @@ Non. Les prix viennent uniquement de vos catalogues et du catalogue fournisseurs
 Non. Seuls les photos et les PDF scannés comptent.
 
 **Puis-je supprimer un client ?**
-Non : vous pouvez l'archiver, puis le restaurer à tout moment. Pour les données personnelles d'un contact, utilisez **Anonymiser**.
+Non : vous pouvez l'archiver, puis le restaurer à tout moment. Pour les données personnelles d'un contact, utilisez **Anonymiser** sur la fiche, ou **Paramètres → Données personnelles** pour toutes les fiches d'une même adresse e-mail.
 
 **Mes données sont-elles visibles par d'autres entreprises ?**
 Non. Chaque entreprise est isolée au niveau de la base de données. Seul le catalogue fournisseurs commun est partagé.

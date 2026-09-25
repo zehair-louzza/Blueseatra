@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api , apiError } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import DonneesPersonnelles from '@/components/DonneesPersonnelles';
+import { ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -165,9 +167,11 @@ export default function Settings() {
         <TabsList>
           <TabsTrigger value="ai" className="gap-1.5" data-testid="tab-ai"><Sparkles className="h-4 w-4" />{t('settings.tab_ai')}</TabsTrigger>
           <TabsTrigger value="company" className="gap-1.5" data-testid="tab-company"><Building2 className="h-4 w-4" />{t('settings.tab_company')}</TabsTrigger>
+          <TabsTrigger value="rgpd" className="gap-1.5" data-testid="tab-rgpd"><ShieldCheck className="h-4 w-4" />{t('cl.g_onglet')}</TabsTrigger>
         </TabsList>
         <TabsContent value="ai" className="mt-4"><AiSettings canManage={canManage} /></TabsContent>
         <TabsContent value="company" className="mt-4"><CompanyProfile canManage={canManage} /></TabsContent>
+        <TabsContent value="rgpd" className="mt-4"><DonneesPersonnelles canManage={canManage} /></TabsContent>
       </Tabs>
     </div>
   );
