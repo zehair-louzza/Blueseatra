@@ -2,6 +2,7 @@
 Default engine: Hermes AI (Ollama) running locally on OVH VPS.
 A tenant can override provider/model/key via Settings (Integrations).
 """
+import ia_garde_fous
 import os
 import io
 import json
@@ -1032,6 +1033,10 @@ async def extract_request_data(
     """
     role = "file" if (image_bytes or from_file) else "extract"
     provider, model, api_key = await resolve_ai_config(tenant_settings, role=role)
+    # Coupure d'urgence (#88) : hors du try ci-dessous, pour qu'un arrêt fasse
+    # échouer la demande proprement (statut failed + remboursement du quota)
+    # au lieu de basculer sur l'extraction heuristique.
+    provider, model, api_key = ia_garde_fous.appliquer_coupure(provider, model, api_key)
 
     image_b64 = None
     if image_bytes:
@@ -1126,6 +1131,8 @@ async def extract_request_data(
             cleaned = cleaned.split("\n", 1)[1]
             cleaned = cleaned.rsplit("```", 1)[0]
         parsed = _normalize_extracted(_parse_json_object(cleaned))
+        # Schéma strict (#88) : types vérifiés, aucun prix/TVA/marge venu de l'IA.
+        parsed = ia_garde_fous.valider_extraction(parsed)
         if structuring_engine:
             parsed["_structuring_engine"] = structuring_engine
         return await expand_work_into_materials(parsed, tenant_settings)
@@ -1558,6 +1565,9 @@ async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_
     Vision 3.2-2B ont ete evalues et rejetes (invention de contenu et/ou
     degenerescence en boucle sur ce type de document dense).
     """
+    if ia_garde_fous.mode_coupure() == "arret":
+        ia_garde_fous.appliquer_coupure("", "", "")
+
     last_ocr_text = None
     errors = []
     for label, model, timeout in _ocr_cascade_stages(preferred=(tenant_settings or {}).get("ocr_model_preference")):
@@ -1603,6 +1613,9 @@ async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> 
     modeles vision restants. Le resultat doit etre presente comme un
     complement a comparer, jamais comme un remplacement silencieux de
     l'extraction automatique existante."""
+    if ia_garde_fous.mode_coupure() == "arret":
+        ia_garde_fous.appliquer_coupure("", "", "")
+
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     payload = {
         "model": HERMES_ESCALATION_VISION_MODEL,
@@ -1690,6 +1703,9 @@ async def extract_from_pdf_pages(pages: list[bytes], tenant_settings: dict, sess
     UNE SEULE fois via la cascade de structuration (evite de payer N fois
     le cout de structuration).
     """
+    if ia_garde_fous.mode_coupure() == "arret":
+        ia_garde_fous.appliquer_coupure("", "", "")
+
     page_texts = []
     engines_used = []
     fallback_pages = []
@@ -1974,3 +1990,12 @@ def extract_plain_text(content: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return content.decode("utf-8", errors="replace").strip()
+
+
+# --- Journal par appel IA (#88) : durée, modèle, succès, coût estimé ----------
+# Réaffectation en fin de module : les appels internes résolvent ces noms au
+# moment de l'exécution, ils passent donc tous par le journal.
+_call_hermes_ollama = ia_garde_fous.journaliser("hermes")(_call_hermes_ollama)
+_call_hermes_gateway = ia_garde_fous.journaliser("hermes_gateway")(_call_hermes_gateway)
+_call_openai = ia_garde_fous.journaliser("openai")(_call_openai)
+_call_ocr_model = ia_garde_fous.journaliser("hermes_ocr")(_call_ocr_model)
