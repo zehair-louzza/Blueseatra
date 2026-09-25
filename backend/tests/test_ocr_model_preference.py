@@ -26,7 +26,7 @@ class TestOcrCascadePreferenceReordering:
         assert labels[0] == "GLM-OCR"
         # every stage is still present -- reordering, not replacement.
         assert set(labels) == {"PaddleOCR-VL-1.6", "GLM-OCR", "LightOnOCR-2-1B", "Qwen2.5-VL-7B", "olmOCR-2-7B"}
-        assert labels[1:] == ["PaddleOCR-VL-1.6", "LightOnOCR-2-1B", "Qwen2.5-VL-7B"]
+        assert labels[1:] == ["PaddleOCR-VL-1.6", "LightOnOCR-2-1B", "Qwen2.5-VL-7B", "olmOCR-2-7B"]
 
     def test_preferred_olmocr2_moves_to_front(self):
         labels = _labels(ai_service._ocr_cascade_stages(preferred="olmocr2"))

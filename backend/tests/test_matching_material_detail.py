@@ -126,4 +126,8 @@ class TestBuildQuoteLinesNeverPricedByAI:
         line = next(l for l in lines if l.get("request_label") == "Fournitures de pose et consommables")
         assert line["unit_price_ht"] is None
         assert line["line_type"] == "installation_supplies"
-        assert total_ht == 0
+        assert line.get("line_ht") is None
+        # Le total ne compte que les lignes réellement chiffrées (déplacement et
+        # main-d'œuvre ajoutés d'office) : la ligne hors catalogue n'y ajoute rien.
+        chiffrees = sum(l.get("line_ht") or 0 for l in lines if l.get("unit_price_ht") is not None)
+        assert total_ht == chiffrees

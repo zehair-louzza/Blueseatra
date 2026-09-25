@@ -30,6 +30,7 @@ import catalogue_commun
 import catalogue_navigation
 import quotas
 import clients_module
+import quote_versions_diff
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -1757,15 +1758,59 @@ async def reopen_quote(quote_id: str, cu: CurrentUser = Depends(require_role("ow
         raise HTTPException(400, "Only validated or sent quotes can be reopened")
     await db.quotes.update_one(
         {"id": quote_id},
-        {"$set": {"status": "draft", "validated_at": None, "sent_at": None}},
+        {"$set": {"status": "draft", "validated_at": None, "sent_at": None,
+                  "version": int(q.get("version") or 1) + 1}},
     )
-    await audit(cu.tenant_id, cu.email, "quote.reopen", quote_id)
+    await audit(cu.tenant_id, cu.email, "quote.reopen", quote_id,
+                {"nouvelle_version": int(q.get("version") or 1) + 1})
     try:
         await clients_module.annuler_relances(devis_id=quote_id, evenement="brouillon")
     except Exception:
         logger.exception("relances : annulation impossible pour le devis %s", quote_id)
     q["status"] = "draft"
+    q["version"] = int(q.get("version") or 1) + 1
     return q
+
+
+# --- Historique des versions (ticket #85) -------------------------------------
+# Chaque validation fige un instantané dans quote_versions ; une remise en
+# brouillon ouvre la version suivante. Rien n'est jamais écrasé.
+
+async def _versions_du_devis(quote_id: str, tenant_id: str):
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    vs = await db.quote_versions.find({"tenant_id": tenant_id, "quote_id": quote_id}, {"_id": 0}) \
+        .sort("created_at", 1).to_list(200)
+    return q, vs
+
+
+@api.get("/quotes/{quote_id}/versions")
+async def list_quote_versions(quote_id: str, cu: CurrentUser = Depends(get_current)):
+    q, vs = await _versions_du_devis(quote_id, cu.tenant_id)
+    out = [{"version": v.get("version"), "created_at": v.get("created_at"), "figee": True,
+            **quote_versions_diff.resume_version(v.get("snapshot") or {})} for v in vs]
+    figees = {v["version"] for v in out}
+    if q.get("status") == "draft" or q.get("version") not in figees:
+        out.append({"version": q.get("version", 1), "created_at": None, "figee": False, "actuelle": True,
+                    **quote_versions_diff.resume_version(q)})
+    return {"numero": q.get("number"), "version_actuelle": q.get("version", 1), "versions": out}
+
+
+@api.get("/quotes/{quote_id}/versions/compare")
+async def compare_quote_versions(quote_id: str, de: int, a: Optional[int] = None,
+                                 cu: CurrentUser = Depends(get_current)):
+    """Compare la version figée `de` à la version `a` (ou à l'état actuel si `a` est omis)."""
+    q, vs = await _versions_du_devis(quote_id, cu.tenant_id)
+    par = {}
+    for v in vs:
+        par[v.get("version")] = v.get("snapshot") or {}   # la dernière validation d'un numéro l'emporte
+    if de not in par:
+        raise HTTPException(404, "Version introuvable")
+    cible = q if a is None or (a == q.get("version") and q.get("status") == "draft") else par.get(a)
+    if cible is None:
+        raise HTTPException(404, "Version introuvable")
+    return {"de": de, "a": a if a is not None else q.get("version"), **quote_versions_diff.comparer(par[de], cible)}
 
 
 @api.post("/quotes/{quote_id}/duplicate")

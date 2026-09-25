@@ -84,6 +84,18 @@ En haut à droite : le choix de la langue (**FR** ou **EN**) et votre menu perso
 
 Les demandes sont lues l'une après l'autre. Quand plusieurs sont en cours, la liste affiche leur position dans la file.
 
+### Trier et filtrer la boîte de réception
+
+- **Recherche :** par titre, client, site, numéro de demande ou numéro de devis, avec ou sans accents.
+- **Filtres :** Toutes, À relire, En cours, Terminées, En échec, Urgentes et Sans devis, avec le nombre de demandes pour chacun.
+- **Tri par priorité (par défaut) :**
+  1. les demandes à relire ou en échec ;
+  2. puis les demandes urgentes ;
+  3. puis les demandes terminées sans devis ;
+  4. puis celles dont la date de réponse approche.
+- **Autres tris :** plus récentes, ou échéance la plus proche.
+- **Colonnes :** client, date de réponse attendue et devis déjà créés (un clic ouvre le devis).
+
 ### Lire le résultat
 
 ![Détail d'une demande](assets/manuel/03-demande-detail.jpg)
@@ -134,6 +146,12 @@ La liste affiche le numéro, le client, le total TTC et le statut : **Brouillon*
 - **Source tarifaire :** le catalogue et la version utilisés. Les prix sont figés dans le devis au moment du calcul.
 
 **Taux de TVA bâtiment disponibles :** 20 %, 10 %, 5,5 % et 0 %.
+
+### Historique des versions
+
+- **Création des versions :** chaque **validation** fige une version du devis (v1, v2…). **Remettre en brouillon** ouvre la version suivante ; la version précédente reste consultable et n'est jamais écrasée.
+- **Bouton « Historique » :** il liste les versions avec leur date, le nombre de lignes et les totaux HT et TTC.
+- **Comparer :** affiche l'écart des totaux, les champs d'en-tête modifiés, ainsi que les lignes modifiées (avant → après), ajoutées et retirées.
 
 ### Client et suivi
 

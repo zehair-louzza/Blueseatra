@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api , apiError } from '@/lib/api';
@@ -12,9 +12,34 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { toast } from 'sonner';
-import { Inbox, Plus, Upload, Loader2, FileText, Trash2 } from 'lucide-react';
+import { Inbox, Plus, Upload, Loader2, FileText, Trash2, Search, Flame } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { setFilePreview } from '@/lib/filePreviewCache';
+
+// --- Boîte de réception (ticket #85) : filtres, recherche et priorité -------
+const GROUPES = {
+  a_relire: ['needs_review'], en_cours: ['received', 'queued', 'processing'],
+  terminees: ['done'], echec: ['failed', 'error'],
+};
+const sansAccent = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const client = (r) => r.extracted?.donneur_d_ordre || r.extracted?.client_name || r.extracted?.client_final || '';
+const urgence = (r) => sansAccent(r.extracted?.urgency);
+const echeance = (r) => {
+  const v = r.extracted?.requested_date; if (!v) return null;
+  const m = String(v).match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/);
+  const d = m ? new Date(Number(m[3].length === 2 ? `20${m[3]}` : m[3]), Number(m[2]) - 1, Number(m[1])) : new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+// Priorité : à relire ou en échec d'abord, puis urgentes, puis échéance la plus proche.
+const score = (r) => {
+  let s = 0;
+  if (['needs_review', 'failed', 'error'].includes(r.status)) s += 1000;
+  if (urgence(r) === 'urgent') s += 500;
+  if (!(r.quotes || []).length && r.status === 'done') s += 200;
+  const e = echeance(r);
+  if (e) s += Math.max(0, 150 - Math.round((e - new Date()) / 86400000) * 10);
+  return s;
+};
 
 export default function Requests() {
   const { t } = useTranslation();
@@ -25,6 +50,35 @@ export default function Requests() {
   const [text, setText] = useState('');
   const [file, setFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [recherche, setRecherche] = useState('');
+  const [filtre, setFiltre] = useState('tous');
+  const [tri, setTri] = useState('priorite');
+
+  const compte = useMemo(() => {
+    const c = { tous: 0, a_relire: 0, en_cours: 0, terminees: 0, echec: 0, urgentes: 0, sans_devis: 0 };
+    (rows || []).forEach((r) => {
+      c.tous += 1;
+      Object.entries(GROUPES).forEach(([k, st]) => { if (st.includes(r.status)) c[k] += 1; });
+      if (urgence(r) === 'urgent') c.urgentes += 1;
+      if (r.status === 'done' && !(r.quotes || []).length) c.sans_devis += 1;
+    });
+    return c;
+  }, [rows]);
+
+  const visibles = useMemo(() => {
+    const q = sansAccent(recherche.trim());
+    let out = (rows || []).filter((r) => {
+      if (filtre === 'urgentes' && urgence(r) !== 'urgent') return false;
+      if (filtre === 'sans_devis' && !(r.status === 'done' && !(r.quotes || []).length)) return false;
+      if (GROUPES[filtre] && !GROUPES[filtre].includes(r.status)) return false;
+      if (!q) return true;
+      const x = r.extracted || {};
+      return sansAccent([r.title, client(r), x.client_final, x.location, x.di_number, x.request_number, ...(r.quotes || []).map((d) => d.number)].join(' ')).includes(q);
+    });
+    if (tri === 'priorite') out = [...out].sort((a, b) => score(b) - score(a) || String(b.created_at).localeCompare(String(a.created_at)));
+    if (tri === 'echeance') out = [...out].sort((a, b) => (echeance(a) || 8.64e15) - (echeance(b) || 8.64e15));
+    return out;
+  }, [rows, recherche, filtre, tri]);
 
   const load = () => api.get('/requests').then((r) => setRows(r.data)).catch((err) => { setRows([]); toast.error(apiError(err, 'Failed')); });
   useEffect(() => { load(); }, []);
@@ -105,27 +159,63 @@ export default function Requests() {
         </Dialog>
       </div>
 
-      <div className="mt-5">
+      {rows && rows.length > 0 && (
+        <div className="mt-5 space-y-3" data-testid="requests-filters">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[240px] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input className="pl-9" value={recherche} onChange={(e) => setRecherche(e.target.value)} placeholder={t('cl.r_rech')} data-testid="requests-search" />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">{t('cl.r_tri')}
+              <select className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground" value={tri} onChange={(e) => setTri(e.target.value)} data-testid="requests-sort">
+                <option value="priorite">{t('cl.r_tri_priorite')}</option>
+                <option value="recent">{t('cl.r_tri_recent')}</option>
+                <option value="echeance">{t('cl.r_tri_echeance')}</option>
+              </select>
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {['tous', 'a_relire', 'en_cours', 'terminees', 'echec', 'urgentes', 'sans_devis'].map((k) => (
+              <button key={k} type="button" onClick={() => setFiltre(k)} data-testid={`requests-filter-${k}`}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${filtre === k ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-muted-foreground hover:text-foreground'}`}>
+                {t(k === 'tous' ? 'cl.r_tous' : `cl.r_${k}`)} <span className="opacity-70">{compte[k]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4">
         {!rows ? <Spinner /> : rows.length === 0 ? (
           <EmptyState icon={Inbox} title={t('req.no_requests')} action={<Button onClick={() => setOpen(true)} className="gap-2"><Plus className="h-4 w-4" />{t('req.new')}</Button>} />
+        ) : visibles.length === 0 ? (
+          <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">{t('cl.r_aucun_resultat')}</p>
         ) : (
           <Card className="card-shadow overflow-hidden border-0">
             <Table data-testid="requests-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('req.name_field')}</TableHead>
-                  <TableHead>{t('req.lang')}</TableHead>
+                  <TableHead>{t('cl.r_client')}</TableHead>
+                  <TableHead>{t('cl.r_echeance')}</TableHead>
                   <TableHead>{t('req.line_items')}</TableHead>
+                  <TableHead>{t('cl.r_devis')}</TableHead>
                   <TableHead>{t('common.status')}</TableHead>
                   <TableHead className="text-right">{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((r) => (
+                {visibles.map((r) => (
                   <TableRow key={r.id} className="cursor-pointer" onClick={() => navigate(`/app/requests/${r.id}`)} data-testid="requests-table-row">
-                    <TableCell className="font-medium"><span className="flex items-center gap-2"><FileText className="h-4 w-4 text-muted-foreground" />{r.title}</span></TableCell>
-                    <TableCell className="uppercase">{r.language || '\u2014'}</TableCell>
+                    <TableCell className="font-medium"><span className="flex items-center gap-2"><FileText className="h-4 w-4 shrink-0 text-muted-foreground" />{r.title}
+                      {urgence(r) === 'urgent' && <span className="inline-flex items-center gap-0.5 rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-red-200"><Flame className="h-3 w-3" />{t('cl.r_urgent')}</span>}
+                      {r.language && <span className="text-xs uppercase text-muted-foreground">{r.language}</span>}</span></TableCell>
+                    <TableCell className="max-w-[220px] truncate">{client(r) || '\u2014'}</TableCell>
+                    <TableCell className="whitespace-nowrap">{echeance(r) ? echeance(r).toLocaleDateString('fr-FR') : '\u2014'}</TableCell>
                     <TableCell>{r.extracted?.line_items?.length ?? '\u2014'}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>{(r.quotes || []).length ? (r.quotes || []).slice(0, 2).map((d) => (
+                      <button key={d.id} type="button" className="mr-1 whitespace-nowrap font-mono text-xs text-primary hover:underline" onClick={() => navigate(`/app/quotes/${d.id}`)}>{d.number}</button>
+                    )) : <span className="text-xs text-muted-foreground">{'\u2014'}</span>}</TableCell>
                     <TableCell><StatusBadge status={r.status} queuePosition={r.queue_position} /></TableCell>
                     <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">

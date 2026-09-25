@@ -67,3 +67,39 @@ jobs:
             echo "::error::Seulement $PASSES tests réussis (30 attendus au minimum)."
             exit 1
           fi
+
+  unitaires-api:
+    name: Tests unitaires de l'API (IA, rapprochement, file, versions)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Aucun test de ce job n'ouvre de connexion réelle.
+      DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:1/ci
+      REACT_APP_BACKEND_URL: http://127.0.0.1:1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Secret JWT jetable, généré pour cette exécution
+        run: echo "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" >> "$GITHUB_ENV"
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Dépendances de l'API
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt "pytest-asyncio==1.4.0"
+      - name: Tests
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          python -m pytest \
+            tests/test_ai_service_unit.py tests/test_description_role_isolation.py \
+            tests/test_matching_material_detail.py tests/test_ocr_model_preference.py \
+            tests/test_queue_watchdog.py tests_clients/test_versions_devis.py \
+            tests_quotas/test_quotas_branchement.py \
+            -v --tb=short | tee resultat.txt
+          PASSES=$(grep -oE '[0-9]+ passed' resultat.txt | grep -oE '[0-9]+' || echo 0)
+          echo "Tests réussis : $PASSES"
+          [ "$PASSES" -ge 45 ] || { echo "::error::Seulement $PASSES tests réussis (45 attendus au minimum)."; exit 1; }
