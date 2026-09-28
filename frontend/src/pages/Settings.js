@@ -15,6 +15,13 @@ import { Spinner } from '@/components/Spinner';
 import { toast } from 'sonner';
 import { Save, Loader2, KeyRound, CheckCircle2, Building2, Sparkles } from 'lucide-react';
 
+// « mistral:<id> » sous le moteur intégré = API Mistral interrogée par l'agent Hermès (#88).
+function nomModele(m) {
+  if (!m.startsWith('mistral:')) return m;
+  const id = m.slice(8).replace(/-latest$/, '').replace(/^mistral-/, '');
+  return `Mistral ${id.charAt(0).toUpperCase()}${id.slice(1)} (via Hermès)`;
+}
+
 function AiSettings({ canManage }) {
   const { t } = useTranslation();
   const [providerModels, setProviderModels] = useState({});
@@ -62,6 +69,7 @@ function AiSettings({ canManage }) {
   };
 
   if (!form) return <Spinner />;
+  const mistralHermes = form.ai_provider === 'hermes' && (form.ai_model || '').startsWith('mistral:');
   const mistral = form.ai_provider === 'mistral';
   const models = providerModels[form.ai_provider] || [];
   return (
@@ -78,13 +86,13 @@ function AiSettings({ canManage }) {
           <Label>{t('settings.ai_model')}</Label>
           <Select value={form.ai_model} onValueChange={(v) => setForm({ ...form, ai_model: v })} disabled={!canManage}>
             <SelectTrigger data-testid="ai-model-select"><SelectValue placeholder="..." /></SelectTrigger>
-            <SelectContent>{models.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            <SelectContent>{models.map((m) => <SelectItem key={m} value={m}>{nomModele(m)}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
           <Label className="flex items-center gap-1.5"><KeyRound className="h-3.5 w-3.5" />{t('settings.ai_key')}</Label>
-          <Input type="password" autoComplete="off" placeholder={keySet ? (apercu || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') : (mistral ? t('settings.mistral_placeholder') : '')} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />
-          <p className="text-xs text-muted-foreground">{mistral ? t('settings.mistral_hint') : t('settings.ai_key_hint')}</p>
+          {!mistralHermes && <Input type="password" autoComplete="off" placeholder={keySet ? (apercu || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') : (mistral ? t('settings.mistral_placeholder') : '')} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />}
+          {!mistralHermes && <p className="text-xs text-muted-foreground">{mistral ? t('settings.mistral_hint') : t('settings.ai_key_hint')}</p>}
           {keySet && (
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <span className="flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />{t('settings.key_set')}{apercu ? ` (${apercu})` : ''}</span>
@@ -93,7 +101,8 @@ function AiSettings({ canManage }) {
             </div>
           )}
           {mistral && !keySet && clePlateforme && <p className="text-xs text-muted-foreground">{t('settings.mistral_platform')}</p>}
-          {mistral && canManage && (
+          {mistralHermes && <p className="text-xs text-muted-foreground">{t('settings.mistral_hermes_hint')}</p>}
+          {(mistral || mistralHermes) && canManage && (
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <Button type="button" variant="outline" size="sm" onClick={tester} disabled={test?.enCours} data-testid="ai-test-button">
                 {test?.enCours ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-1 h-4 w-4" />}{t('settings.test_connection')}

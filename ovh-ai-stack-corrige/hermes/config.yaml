@@ -9,11 +9,31 @@ model:
   api_key: ollama-local
   api_mode: chat_completions
 
+# Mistral AI (API, hébergée dans l'UE) — ticket #88, remplace Cerebras.
+# Le SaaS choisit ce fournisseur requête par requête (champ "provider":
+# "custom:mistral" + "model": "mistral-medium-latest"). La clé reste sur le
+# VPS : variable MISTRAL_API_KEY du fichier .env, jamais dans ce fichier.
+providers:
+  mistral:
+    name: Mistral AI
+    api: https://api.mistral.ai/v1
+    key_env: MISTRAL_API_KEY
+    transport: chat_completions
+    default_model: mistral-medium-latest
+    models:
+      mistral-medium-latest:
+        context_length: 128000
+      mistral-large-latest:
+        context_length: 128000
+      mistral-small-latest:
+        context_length: 128000
+
 # Pas de mode raisonnement lourd sur CPU.
 agent:
   reasoning_effort: none
 
-# Secours local uniquement (jamais provider: auto -> sortie UE interdite).
+# Secours local uniquement (jamais provider: auto -> sortie UE interdite ; Mistral est
+# hébergé dans l'UE et n'est utilisé que sur demande explicite du SaaS).
 fallback_providers:
   - provider: custom
     model: hermes3
@@ -43,3 +63,5 @@ gateway:
     host: "0.0.0.0"
     port: 8642
     max_concurrent_runs: 2
+    # Honorer le modèle demandé par le SaaS (sinon ignoré sans "provider").
+    direct_model_requests: true

@@ -186,7 +186,7 @@ def appliquer_coupure(provider: str, model: str, api_key: str) -> tuple[str, str
 # Coût indicatif en euros pour 1 000 caractères échangés (entrée + sortie).
 # Le VPS OVH est un coût fixe : 0 par appel. Mistral : estimation prudente
 # (≈ 4 caractères par jeton, tarif mistral-medium), à ajuster sur facture réelle.
-COUT_PAR_1000_CAR = {"hermes": 0.0, "ollama": 0.0, "openai": 0.002, "mistral": 0.0008}
+COUT_PAR_1000_CAR = {"hermes": 0.0, "ollama": 0.0, "openai": 0.002, "mistral": 0.0008, "mistral_hermes": 0.0008}
 
 
 def journaliser(fournisseur: str):

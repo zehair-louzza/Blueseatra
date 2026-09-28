@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-09-29 — Mistral interrogeable par l'agent Hermès (ticket #88)
+
+- **Agent Hermès** (`ovh-ai-stack-corrige/hermes/config.yaml`) :
+  - nouveau fournisseur nommé `mistral` (`https://api.mistral.ai/v1`, clé `MISTRAL_API_KEY` du `.env` du VPS) ;
+  - `direct_model_requests: true`, pour que le modèle demandé par le SaaS soit respecté ;
+  - `compose.yaml` transmet `MISTRAL_API_KEY` au conteneur `hermes`.
+- **SaaS :**
+  - Paramètres → Moteur IA → « Moteur intégré (Hermès) » propose désormais Mistral Medium, Large et Small (via Hermès), en plus des modèles locaux ;
+  - chaque appel envoie `provider: custom:mistral` et le modèle choisi ;
+  - images prises en charge ;
+  - le test de connexion fait un petit appel réel par Hermès.
+- **Repli :** sans passerelle Hermès configurée, appel direct à l'API Mistral avec la clé de la plateforme.
+
 ## 2026-09-29 — Mistral remplace Cerebras (ticket #88)
 
 - **Nouveau fournisseur « Mistral AI (API) »** pour l'extraction des demandes (texte, PDF et images), la décomposition en fournitures et la rédaction du descriptif de travaux.
