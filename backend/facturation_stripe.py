@@ -15,12 +15,15 @@ n'est pas défini explicitement.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
 import logging
 import os
+import ssl
 import time
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -76,15 +79,30 @@ def _aplatir(d, prefixe=""):
     return out
 
 
+def _tls():
+    """Vérification TLS normale ; derrière un proxy d'entreprise (SSL_CERT_FILE défini),
+    le contrôle X.509 « strict » de Python 3.13+ est relâché, la vérification reste active."""
+    cafile = os.environ.get("SSL_CERT_FILE")
+    if not cafile:
+        return True
+    ctx = ssl.create_default_context(cafile=cafile)
+    ctx.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    return ctx
+
+
 async def stripe(methode: str, chemin: str, donnees: dict | None = None, idempotence: str | None = None) -> dict:
     h = {"Authorization": f"Bearer {_cle()}", "Stripe-Version": "2024-06-20"}
     if idempotence:
         h["Idempotency-Key"] = idempotence
-    async with httpx.AsyncClient(timeout=20) as c:
-        if methode == "GET":
-            r = await c.get(API + chemin, params=_aplatir(donnees or {}), headers=h)
-        else:
-            r = await c.post(API + chemin, data=_aplatir(donnees or {}), headers=h)
+    def _appel():
+        with httpx.Client(timeout=20, verify=_tls()) as c:
+            if methode == "GET":
+                return c.get(API + chemin, params=_aplatir(donnees or {}), headers=h)
+            return c.post(API + chemin, content=urlencode(_aplatir(donnees or {})),
+                          headers={**h, "Content-Type": "application/x-www-form-urlencoded"})
+
+    # Client synchrone exécuté dans un fil : compatible avec tous les proxys HTTPS.
+    r = await asyncio.to_thread(_appel)
     corps = r.json()
     if r.status_code >= 400:
         msg = (corps.get("error") or {}).get("message", "erreur Stripe")
@@ -132,7 +150,8 @@ async def _enregistrer(s, evt: dict, tenant: str | None) -> bool:
 def _tenant_de(obj: dict) -> str | None:
     md = obj.get("metadata") or {}
     return md.get("tenant_id") or obj.get("client_reference_id") or (
-        (obj.get("subscription_details") or {}).get("metadata") or {}).get("tenant_id")
+        (obj.get("subscription_details") or {}).get("metadata") or {}).get("tenant_id") or (
+        ((obj.get("parent") or {}).get("subscription_details") or {}).get("metadata") or {}).get("tenant_id")
 
 
 async def _maj_abonnement(s, tenant: str, sub: dict):
@@ -260,7 +279,8 @@ def build_router(get_current, require_role) -> APIRouter:
             "subscription_data": {"metadata": {"tenant_id": cu.tenant_id, "offre": b.offre}},
             "metadata": {"tenant_id": cu.tenant_id, "offre": b.offre},
             "allow_promotion_codes": True, "billing_address_collection": "required",
-            "tax_id_collection": {"enabled": True}, "locale": "fr",
+            "tax_id_collection": {"enabled": True}, "customer_update": {"name": "auto", "address": "auto"},
+            "locale": "fr",
             "success_url": _url_retour() + "?paiement=ok", "cancel_url": _url_retour() + "?paiement=annule",
         })
         return {"url": session["url"], "mode_test": mode_test()}

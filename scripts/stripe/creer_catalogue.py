@@ -6,7 +6,7 @@ n'est jamais recréé. Refuse une clé live sans --live explicite.
     STRIPE_SECRET_KEY=sk_test_... python scripts/stripe/creer_catalogue.py
 Grille validée le 24/09/2026 (docs/tarification-2026-09.md). Montants HT, EUR.
 """
-import os, sys
+import os, ssl, sys
 import httpx
 
 API = "https://api.stripe.com/v1"
@@ -30,9 +30,19 @@ def main(live: bool = False) -> int:
     h = {"Stripe-Version": "2024-06-20"}
     if cle:
         h["Authorization"] = f"Bearer {cle}"      # sinon : authentification injectée par le proxy
-    c = httpx.Client(base_url=API, headers=h, timeout=30)
+    # Vérification TLS conservée ; seul le contrôle X.509 « strict » de Python 3.13+
+    # est relâché, car certains proxys d'entreprise signent sans « key usage ».
+    ctx = ssl.create_default_context(cafile=os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE"))
+    ctx.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    c = httpx.Client(base_url=API, headers=h, timeout=30, verify=ctx)
     cles = [lk for _, _, prix in PRODUITS for lk, _, _ in prix]
-    existants = {p["lookup_key"]: p for p in c.get("/prices", params=[("lookup_keys[]", k) for k in cles] + [("limit", 100)]).json().get("data", [])}
+    existants = {}
+    for i in range(0, len(cles), 10):            # Stripe : 10 lookup_keys au plus par requête
+        r = c.get("/prices", params=[("lookup_keys[]", k) for k in cles[i:i + 10]] + [("limit", 100)]).json()
+        if "error" in r:
+            print("Erreur Stripe :", r["error"].get("message"))
+            return 1
+        existants.update({p["lookup_key"]: p for p in r.get("data", [])})
     produits = {p["metadata"].get("blueseatra_code"): p for p in c.get("/products", params={"limit": 100}).json().get("data", [])
                 if p.get("metadata", {}).get("blueseatra_code")}
     for code, nom, prix in PRODUITS:

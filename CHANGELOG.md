@@ -20,7 +20,17 @@
   - **jamais de suppression de données**. Les offres `interne` et Signature ne sont jamais modifiées par Stripe.
 - **Sécurité :** clés et événements live refusés tant que `BLUESEATRA_STRIPE_LIVE=1` n'est pas défini.
 - **Page Offre et consommation :** choix de l'offre (mensuel ou annuel), recharges, accès au portail, badge « mode test ».
-- Migration `20260927090000_facturation_stripe.sql` (additive). 4 tests unitaires et un essai de bout en bout du webhook sur l'API locale.
+- Migration `20260927090000_facturation_stripe.sql` (additive). 5 tests unitaires.
+- **Recette réelle en mode test Stripe :**
+  - catalogue créé dans le compte de test (7 produits, 11 prix ; un second passage ne crée rien) ;
+  - abonnement Pilotage + 1 siège payé par la carte de test 4242 ;
+  - les 4 événements Stripe réels sont appliqués, puis ignorés au rejeu ;
+  - le portail client s'ouvre.
+- Corrections trouvées pendant la recette :
+  - encodage du formulaire envoyé à Stripe ;
+  - lot de 10 `lookup_keys` au plus ;
+  - `customer_update[name]` requis avec la collecte de n° de TVA ;
+  - métadonnées des factures au format Stripe récent.
 
 ## 2026-09-25 — Import de catalogue contrôlé avant activation (ticket #86)
 

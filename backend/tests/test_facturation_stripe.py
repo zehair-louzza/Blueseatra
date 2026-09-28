@@ -40,3 +40,11 @@ def test_cle_live_refusee_sans_bascule(monkeypatch):
         fs._cle()
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_x")
     assert fs._cle() == "sk_test_x" and fs.mode_test()
+
+
+def test_entreprise_retrouvee_dans_les_factures_recentes():
+    # Format Stripe 2025+ : la facture porte les métadonnées sous parent.subscription_details.
+    facture = {"parent": {"subscription_details": {"metadata": {"tenant_id": "t-1"}}}}
+    assert fs._tenant_de(facture) == "t-1"
+    assert fs._tenant_de({"client_reference_id": "t-2"}) == "t-2"
+    assert fs._tenant_de({}) is None
