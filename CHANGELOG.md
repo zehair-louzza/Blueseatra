@@ -1,5 +1,83 @@
 # Changelog
 
+## 2026-09-25 — Paiement Stripe en mode test (ticket #90)
+
+- **Catalogue Stripe :** `scripts/stripe/creer_catalogue.py` crée, sans jamais créer de doublon (`lookup_key` stables), les offres Initial, Pilotage et Performance (mensuel et annuel avec 2 mois offerts), le siège supplémentaire et les 3 recharges.
+- **Paiement :**
+  - `POST /api/abonnement/checkout` : Stripe Checkout, avec TVA intracommunautaire et adresse de facturation ;
+  - `POST /api/abonnement/recharge` ;
+  - `POST /api/abonnement/portail` : portail client (changement d'offre, moyens de paiement, factures, annulation) ;
+  - `GET /api/abonnement/stripe`.
+- **Webhook `POST /api/stripe/webhook` :**
+  - signature vérifiée (HMAC SHA-256, tolérance de 5 minutes) ;
+  - **idempotent**, chaque événement étant enregistré par son identifiant avant d'être appliqué (table `stripe_evenements`) ;
+  - traite l'abonnement créé, modifié ou supprimé, la recharge payée (crédit dans le registre) et les factures.
+- **Cycle de vie :**
+  - `active`/`trialing` → actif ;
+  - `past_due` → actif pendant les relances de Stripe ;
+  - `unpaid`/`canceled` → lecture seule ;
+  - `paused` → suspendu ;
+  - **jamais de suppression de données**. Les offres `interne` et Signature ne sont jamais modifiées par Stripe.
+- **Sécurité :** clés et événements live refusés tant que `BLUESEATRA_STRIPE_LIVE=1` n'est pas défini.
+- **Page Offre et consommation :** choix de l'offre (mensuel ou annuel), recharges, accès au portail, badge « mode test ».
+- Migration `20260927090000_facturation_stripe.sql` (additive). 5 tests unitaires.
+- **Recette réelle en mode test Stripe :**
+  - catalogue créé dans le compte de test (7 produits, 11 prix ; un second passage ne crée rien) ;
+  - abonnement Pilotage + 1 siège payé par la carte de test 4242 ;
+  - les 4 événements Stripe réels sont appliqués, puis ignorés au rejeu ;
+  - le portail client s'ouvre.
+- Corrections trouvées pendant la recette :
+  - encodage du formulaire envoyé à Stripe ;
+  - lot de 10 `lookup_keys` au plus ;
+  - `customer_update[name]` requis avec la collecte de n° de TVA ;
+  - métadonnées des factures au format Stripe récent.
+
+## 2026-09-25 — Import de catalogue contrôlé avant activation (ticket #86)
+
+- **Assistant en 5 étapes :** fichier, correspondance des colonnes, import, **contrôle**, activation. L'import crée désormais une version **brouillon** : elle n'est activée qu'après lecture du contrôle.
+- **Comparaison avec la version active** (`backend/catalogue_comparaison.py`, 6 tests) : articles nouveaux, retirés, en hausse, en baisse et inchangés, avec les plus fortes variations. La comparaison se fait par référence ; les codes générés `ART-n` sont comparés par libellé. Nouvelle route `GET /api/catalogs/{id}/versions/{vid}/comparaison`.
+- **Seuils de sécurité :**
+  - BLOQUANT : version vide, prix négatif, au moins 25 % de rejets, chute d'au moins 20 % du nombre d'articles ;
+  - À VÉRIFIER : au moins 10 % de prix manquants (0 € compris), au moins 10 % d'unités inconnues, au moins 5 % de rejets, hausse moyenne d'au moins 15 %, variations de plus de 30 %.
+- **Activation d'une version BLOQUANTE :** refusée (409). Seul un propriétaire ou un administrateur peut la forcer (`?force=true`), et le verdict est inscrit au journal d'audit.
+
+## 2026-09-25 — Garde-fous de l'IA en production (ticket #88, partie sans clé)
+
+- **Schéma strict de sortie** (`backend/ia_garde_fous.py`) :
+  - types convertis ;
+  - urgence et confiance normalisées ;
+  - lignes non structurées écartées ;
+  - **tout prix, montant, taux de TVA ou marge produit par l'IA est retiré et signalé** dans `_anomalies_schema`.
+- **Coupure d'urgence** `BLUESEATRA_IA_COUPURE` :
+  - `arret` : refus explicite ; la demande échoue proprement et le devis assisté est remboursé ;
+  - `repli` : bascule vers `BLUESEATRA_IA_REPLI_PROVIDER` / `_MODEL` / `_KEY`.
+- **Journal par appel** `ia_appel` : fournisseur, modèle, rôle, succès, durée, taille des échanges et coût estimé, sans le contenu.
+- **Corpus de test BTP** (`backend/corpus_ia/`) : 8 demandes fictives annotées, dont une tentative d'injection de prompt et une demande en anglais. Le script `scripts/ia/evaluer_corpus.py` mesure le taux de réussite, avec un seuil de bascule à 80 %. Référence mesurée : 54 % pour l'extraction de secours sans IA.
+
+## 2026-09-25 — Quotas : projection, rapprochement, politique de dépassement (ticket #89)
+
+- **Projection :** chaque jauge renvoie son rythme par jour, la projection en fin de période et la date d'épuisement prévue. La page Offre et consommation affiche l'alerte (4 tests).
+- **Rapprochement :** `GET /api/abonnement/rapprochement` compare chaque demande IA au registre. Une demande lue doit avoir consommé 1 devis, une demande échouée doit avoir été remboursée ; tout écart est listé.
+- **Politique de dépassement :** écrite dans [`docs/tarification-2026-09.md`](./docs/tarification-2026-09.md) (§8). Refus en 402 avec un message clair, sans surfacturation silencieuse, et le travail manuel reste toujours possible.
+
+## 2026-09-25 — Observabilité, alertes et RGPD (ticket #93)
+
+- **Journaux structurés JSON** (par défaut sur Render, sinon `LOG_FORMAT=json`) :
+  - `request_id` renvoyé dans l'en-tête `X-Request-ID` ;
+  - entreprise pseudonymisée ;
+  - aucun e-mail en clair, y compris dans les traces d'exception ;
+  - requêtes en 5xx ou de plus de 3 s journalisées automatiquement.
+- **Mesures et SLO :** `GET /api/exploitation/mesures` (volume, 5xx, p50/p95 par route, respect des SLO), protégée par `BLUESEATRA_METRICS_TOKEN`. Elle répond 404 tant que la variable n'est pas définie.
+- **Alerte :** nouveau workflow `surveillance.yml`, qui sonde l'API toutes les heures en jours ouvrés. Il ouvre un ticket « Alerte production » en cas de panne et le ferme au retour à la normale.
+- **RGPD :**
+  - `GET /api/rgpd/export` : zip de toutes les données de l'entreprise, sans secret ;
+  - `POST /api/rgpd/personnes/anonymiser` : effacement d'une personne par son e-mail ;
+  - `GET /api/rgpd/echeances` : contacts à anonymiser après 3 ans d'archivage ;
+  - chaque opération est tracée dans `audit_logs` ;
+  - nouvel onglet **Paramètres → Données personnelles**.
+- **Isolation :** le contrôle statique couvre maintenant le SQL écrit dans `clients_module.py` et `observabilite.py`, ainsi que les 7 tables Clients. Sept requêtes à conditions dynamiques ont été réécrites pour que le filtre `tenant_id` soit visible, et la mutation du filtre est détectée.
+- **Documents :** [`docs/conformite-rgpd.md`](./docs/conformite-rgpd.md) (registre des traitements, droits, sous-traitants) et [`docs/runbook-incident.md`](./docs/runbook-incident.md) (SLO, corrélation, déroulé, RACI, post-mortem, incident simulé).
+
 ## 2026-09-25 — Boîte de réception et versions de devis (ticket #85)
 
 - **Demandes :**

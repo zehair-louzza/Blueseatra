@@ -1,0 +1,39 @@
+name: Préproduction (validation complète)
+
+# Exécute scripts/validation-vps.sh sur une machine GitHub jetable, dans les
+# mêmes conditions que sur le VPS OVH : pile préprod, migrations, test de
+# fumée, sauvegarde/restauration et rotation de REDIS_PASSWORD (#95, #96, #97).
+# Cela garantit que le script fonctionne avant de le lancer sur le VPS.
+
+on:
+  pull_request:
+    paths: ["ovh-ai-stack-corrige/preprod/**", "supabase/migrations/**", "backend/**", ".github/workflows/preprod-validation.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preprod-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validation préproduction
+        working-directory: ovh-ai-stack-corrige/preprod
+        env:
+          # Passerelle IA volontairement injoignable : la lecture IA échoue
+          # proprement, ce que le test de fumée tolère (seule la consommation
+          # du travail par le worker est vérifiée).
+          HERMES_BASE_URL_PREPROD: http://127.0.0.1:9/preprod-ci
+        run: ./scripts/validation-vps.sh
+      - name: Rapport
+        if: always()
+        working-directory: ovh-ai-stack-corrige/preprod
+        run: |
+          cat validation-vps-*.txt 2>/dev/null || true
+          for f in /tmp/bs-*.log; do echo "::group::$f"; tail -60 "$f"; echo "::endgroup::"; done

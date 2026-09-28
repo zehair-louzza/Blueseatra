@@ -97,9 +97,9 @@ jobs:
           python -m pytest \
             tests/test_ai_service_unit.py tests/test_description_role_isolation.py \
             tests/test_matching_material_detail.py tests/test_ocr_model_preference.py \
-            tests/test_queue_watchdog.py tests_clients/test_versions_devis.py \
-            tests_quotas/test_quotas_branchement.py \
+            tests/test_queue_watchdog.py tests/test_ia_garde_fous.py tests/test_corpus_ia.py tests/test_catalogue_comparaison.py tests/test_facturation_stripe.py tests_clients/test_versions_devis.py \
+            tests_quotas/test_quotas_branchement.py tests_quotas/test_projection.py tests_security/test_observabilite.py \
             -v --tb=short | tee resultat.txt
           PASSES=$(grep -oE '[0-9]+ passed' resultat.txt | grep -oE '[0-9]+' || echo 0)
           echo "Tests réussis : $PASSES"
-          [ "$PASSES" -ge 45 ] || { echo "::error::Seulement $PASSES tests réussis (45 attendus au minimum)."; exit 1; }
+          [ "$PASSES" -ge 60 ] || { echo "::error::Seulement $PASSES tests réussis (60 attendus au minimum)."; exit 1; }

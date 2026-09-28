@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import ChoixOffre from '@/components/ChoixOffre';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -12,7 +13,7 @@ const nf = new Intl.NumberFormat('fr-FR');
 const df = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 const dtf = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 
-function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein = false }) {
+function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein = false, projection = null, epuisement = null }) {
   const illimite = inclus === null || inclus === undefined;
   const total = illimite ? 0 : inclus + (recharge || 0);
   const pct = illimite || !total ? 0 : Math.min(100, Math.round((utilise / Math.max(total, 1)) * 100));
@@ -37,6 +38,13 @@ function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein
             {t('billing.remaining', { n: nf.format(restant ?? 0) })}
             {recharge ? ` · ${t('billing.topup_left', { n: nf.format(recharge) })}` : ''}
           </p>
+          {projection != null && utilise > 0 && (
+            <p className={`mt-1 text-xs ${epuisement ? 'font-medium text-amber-700' : 'text-muted-foreground'}`} data-testid="billing-projection">
+              {epuisement
+                ? t('cl.b_epuisement', { d: new Date(epuisement).toLocaleDateString('fr-FR') })
+                : t('cl.b_projection', { n: nf.format(projection) })}
+            </p>
+          )}
         </>
       )}
     </div>
@@ -50,6 +58,13 @@ export default function Billing() {
   const [lignes, setLignes] = useState(null);
   const [erreur, setErreur] = useState('');
   const peutVoirHistorique = ['owner', 'admin', 'billing_admin'].includes(tenant?.role);
+  const peutPayer = ['owner', 'billing_admin'].includes(tenant?.role);
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get('paiement') === 'ok') toast.success(t('cl.p_retour_ok'));
+    if (q.get('recharge') === 'ok') toast.success(t('cl.p_retour_recharge'));
+  }, [t]);
 
   useEffect(() => {
     api.get('/abonnement/consommation').then((r) => setEtat(r.data)).catch((e) => setErreur(apiError(e, 'Erreur')));
@@ -105,17 +120,19 @@ export default function Billing() {
               </p>
             </div>
           </div>
-          <Link to="/#offres">
+          <a href="#choix-offre">
             <Button className="gap-2">{essai ? t('billing.choose_plan') : t('billing.change_plan')} <ArrowRight className="h-4 w-4" /></Button>
-          </Link>
+          </a>
         </div>
       </Card>
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">
         <Jauge t={t} icon={FileText} label={t('billing.quotes_ai')} inclus={jauges.devis_ia.inclus} utilise={jauges.devis_ia.utilise}
-          restant={jauges.devis_ia.restant} recharge={jauges.devis_ia.recharge_restante} />
+          restant={jauges.devis_ia.restant} recharge={jauges.devis_ia.recharge_restante}
+          projection={jauges.devis_ia.projection_fin_periode} epuisement={jauges.devis_ia.epuisement_prevu_le} />
         <Jauge t={t} icon={ScanText} label={t('billing.pages_read')} inclus={jauges.page_lue.inclus} utilise={jauges.page_lue.utilise}
-          restant={jauges.page_lue.restant} recharge={jauges.page_lue.recharge_restante} />
+          restant={jauges.page_lue.restant} recharge={jauges.page_lue.recharge_restante}
+          projection={jauges.page_lue.projection_fin_periode} epuisement={jauges.page_lue.epuisement_prevu_le} />
         <Jauge t={t} plein icon={Users} label={t('billing.seats')} inclus={sieges.inclus} utilise={sieges.utilises}
           restant={sieges.inclus == null ? null : Math.max(sieges.inclus - (sieges.utilises || 0), 0)} />
       </div>
@@ -124,6 +141,8 @@ export default function Billing() {
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
         <span>{t('billing.what_counts')} {!etat.application && t('billing.observation')}</span>
       </div>
+
+      <div id="choix-offre"><ChoixOffre offreActuelle={offre.code} peutPayer={peutPayer} /></div>
 
       {peutVoirHistorique && (
         <Card className="card-shadow mt-6 border-0 p-0">

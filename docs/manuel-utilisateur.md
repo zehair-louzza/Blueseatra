@@ -86,6 +86,8 @@ Les demandes sont lues l'une après l'autre. Quand plusieurs sont en cours, la l
 
 ### Trier et filtrer la boîte de réception
 
+![Boîte de réception](assets/manuel/02b-boite-reception.jpg)
+
 - **Recherche :** par titre, client, site, numéro de demande ou numéro de devis, avec ou sans accents.
 - **Filtres :** Toutes, À relire, En cours, Terminées, En échec, Urgentes et Sans devis, avec le nombre de demandes pour chacun.
 - **Tri par priorité (par défaut) :**
@@ -149,6 +151,8 @@ La liste affiche le numéro, le client, le total TTC et le statut : **Brouillon*
 
 ### Historique des versions
 
+![Historique des versions](assets/manuel/05b-versions-devis.jpg)
+
 - **Création des versions :** chaque **validation** fige une version du devis (v1, v2…). **Remettre en brouillon** ouvre la version suivante ; la version précédente reste consultable et n'est jamais écrasée.
 - **Bouton « Historique » :** il liste les versions avec leur date, le nombre de lignes et les totaux HT et TTC.
 - **Comparer :** affiche l'écart des totaux, les champs d'en-tête modifiés, ainsi que les lignes modifiées (avant → après), ajoutées et retirées.
@@ -184,7 +188,15 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 1. Cliquez sur **Télécharger le modèle** pour obtenir un fichier CSV d'exemple, ou utilisez directement votre propre fichier.
 2. Cliquez sur **Importer CSV**. Toutes les colonnes sont acceptées : Blueseatra détecte les champs utiles (désignation, prix, unité, TVA, référence…) et vous pouvez corriger la correspondance.
 3. **Versions :** chaque import crée une version. Vous choisissez celle qui est active ; les anciennes restent consultables.
-4. **Voir les articles**, **Désactiver** : un catalogue désactivé n'est plus utilisé pour les nouveaux devis.
+4. **Contrôle avant activation :** l'import crée une version en brouillon. Blueseatra la compare à la version active (articles nouveaux, retirés, hausses et baisses de prix), puis rend un verdict :
+   - **OK** : rien à signaler ;
+   - **À vérifier** : prix manquants, unités inconnues, fortes variations ;
+   - **Bloquant** : version vide, prix négatifs, trop de rejets, ou beaucoup moins d'articles qu'avant.
+
+   Cliquez ensuite sur **Activer cette version**, ou gardez-la en brouillon. Une version bloquante ne peut être activée que par un propriétaire ou un administrateur, avec **Forcer l'activation**.
+
+   ![Contrôle avant activation](assets/manuel/06b-controle-import.jpg)
+5. **Voir les articles**, **Désactiver** : un catalogue désactivé n'est plus utilisé pour les nouveaux devis.
 
 ## 8. Catalogue fournisseurs et comparateur de prix
 
@@ -309,6 +321,13 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
 - **Moteur IA :** Blueseatra utilise par défaut son propre moteur, hébergé sur un serveur OVH. Vous pouvez choisir un autre fournisseur et ajouter votre clé ; elle est chiffrée avant d'être enregistrée.
 - **Modèle OCR préféré :** le mode « Automatique » est conseillé.
 - **Webhook n8n :** une adresse appelée après les étapes clés, pour automatiser la suite (e-mail, tableur, CRM).
+![Données personnelles](assets/manuel/13-donnees-personnelles.jpg)
+
+- **Données personnelles** (propriétaire et administrateurs) :
+  - **Télécharger l'export** : toutes les données de l'entreprise dans un fichier zip ;
+  - **Anonymiser** une personne à partir de son adresse e-mail (droit à l'effacement) ;
+  - liste des contacts dont le client est archivé depuis plus de 3 ans.
+  Chaque opération est inscrite au journal d'audit.
 - **Société & PDF devis :** raison sociale, SIRET, TVA intracommunautaire, adresse, IBAN, logo, mentions et conditions de paiement. Ces informations sont imprimées sur chaque PDF ; renseignez-les avant votre premier envoi.
 
 ## 13. Offre et consommation
@@ -346,7 +365,7 @@ Non. Les prix viennent uniquement de vos catalogues et du catalogue fournisseurs
 Non. Seuls les photos et les PDF scannés comptent.
 
 **Puis-je supprimer un client ?**
-Non : vous pouvez l'archiver, puis le restaurer à tout moment. Pour les données personnelles d'un contact, utilisez **Anonymiser**.
+Non : vous pouvez l'archiver, puis le restaurer à tout moment. Pour les données personnelles d'un contact, utilisez **Anonymiser** sur la fiche, ou **Paramètres → Données personnelles** pour toutes les fiches d'une même adresse e-mail.
 
 **Mes données sont-elles visibles par d'autres entreprises ?**
 Non. Chaque entreprise est isolée au niveau de la base de données. Seul le catalogue fournisseurs commun est partagé.

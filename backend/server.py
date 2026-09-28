@@ -31,6 +31,9 @@ import catalogue_navigation
 import quotas
 import clients_module
 import quote_versions_diff
+import observabilite
+import catalogue_comparaison
+import facturation_stripe
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
 from pg_adapter import PGDatabase
@@ -87,6 +90,7 @@ api = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+observabilite.configurer_journaux()
 logger = logging.getLogger("blueseatra")
 
 ROLES = ["owner", "admin", "operator", "viewer", "billing_admin"]
@@ -312,6 +316,12 @@ async def abonnement_consommation(cu: CurrentUser = Depends(get_current)):
 async def abonnement_historique(limite: int = Query(50, ge=1, le=200), decalage: int = Query(0, ge=0),
                                 cu: CurrentUser = Depends(require_role("owner", "admin", "billing_admin"))):
     return {"lignes": await quotas.historique(limite, decalage)}
+
+
+@api.get("/abonnement/rapprochement")
+async def abonnement_rapprochement(cu: CurrentUser = Depends(require_role("owner", "admin", "billing_admin"))):
+    """Chaque demande IA face au registre : lues = 1 devis assisté, échouées = remboursées."""
+    return await quotas.rapprochement()
 
 
 @api.get("/members")
@@ -1280,8 +1290,11 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
         "error_rows": len(errors), "status": "completed", "created_at": now_iso(),
     })
 
+    # Comparaison avec la version active et seuils de sécurité (#86) : une
+    # version BLOQUANTE n'est jamais activée automatiquement.
+    comparaison, controle = await _comparer_version(cu.tenant_id, cat_id, ver_id, items, len(errors), len(df))
     activated = False
-    if activate.lower() == "true" and items:
+    if activate.lower() == "true" and items and controle["verdict"] != "BLOQUANT":
         await db.catalog_versions.update_many(
             {"tenant_id": cu.tenant_id, "catalog_id": cat_id}, {"$set": {"status": "archived"}})
         await db.catalog_versions.update_one({"id": ver_id}, {"$set": {"status": "active", "activated_at": now_iso()}})
@@ -1293,7 +1306,40 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
     await audit(cu.tenant_id, cu.email, "catalog.import", cat_id,
                 {"version": version_number, "success": len(items), "errors": len(errors), "activated": activated})
     return {"catalog_id": cat_id, "version_id": ver_id, "version_number": version_number,
-            "job_id": job_id, "success_rows": len(items), "error_rows": len(errors), "activated": activated}
+            "job_id": job_id, "success_rows": len(items), "error_rows": len(errors), "activated": activated,
+            "comparaison": comparaison, "controle": controle}
+
+
+async def _articles_version(tenant_id: str, version_id: str) -> list:
+    return await db.pricing_items.find(
+        {"tenant_id": tenant_id, "version_id": version_id},
+        {"_id": 0, "item_code": 1, "item_label": 1, "label_norm": 1, "unit_price_ht": 1, "unit": 1},
+    ).to_list(200000)
+
+
+async def _comparer_version(tenant_id, catalog_id, version_id, items=None, erreurs=0, lignes=None):
+    cat = await db.catalogs.find_one({"id": catalog_id, "tenant_id": tenant_id}, {"_id": 0})
+    actif_id = (cat or {}).get("active_version_id")
+    nouveaux = items if items is not None else await _articles_version(tenant_id, version_id)
+    comparaison = None
+    if actif_id and actif_id != version_id:
+        comparaison = catalogue_comparaison.comparer(await _articles_version(tenant_id, actif_id), nouveaux)
+    if lignes is None:
+        ver = await db.catalog_versions.find_one({"id": version_id, "tenant_id": tenant_id}, {"_id": 0}) or {}
+        erreurs = int(ver.get("error_count") or 0)
+        lignes = int(ver.get("item_count") or 0) + erreurs
+    return comparaison, catalogue_comparaison.controler(nouveaux, erreurs, lignes, comparaison)
+
+
+@api.get("/catalogs/{catalog_id}/versions/{version_id}/comparaison")
+async def compare_catalog_version(catalog_id: str, version_id: str, cu: CurrentUser = Depends(get_current)):
+    """Nouvelle version face à la version active : ajouts, retraits, hausses, baisses et verdict."""
+    ver = await db.catalog_versions.find_one({"id": version_id, "catalog_id": catalog_id, "tenant_id": cu.tenant_id})
+    if not ver:
+        raise HTTPException(404, "Version not found")
+    comparaison, controle = await _comparer_version(cu.tenant_id, catalog_id, version_id)
+    return {"version_number": ver.get("version_number"), "status": ver.get("status"),
+            "comparaison": comparaison, "controle": controle}
 
 
 @api.get("/import-jobs/{job_id}/errors")
@@ -1302,19 +1348,25 @@ async def import_errors(job_id: str, cu: CurrentUser = Depends(get_current)):
 
 
 @api.post("/catalogs/{catalog_id}/activate/{version_id}")
-async def activate_version(catalog_id: str, version_id: str,
+async def activate_version(catalog_id: str, version_id: str, force: bool = False,
                            cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
     ver = await db.catalog_versions.find_one(
         {"id": version_id, "catalog_id": catalog_id, "tenant_id": cu.tenant_id})
     if not ver:
         raise HTTPException(404, "Version not found")
+    _, controle = await _comparer_version(cu.tenant_id, catalog_id, version_id)
+    if controle["verdict"] == "BLOQUANT" and not (force and cu.role in ("owner", "admin")):
+        raise HTTPException(409, {"message": "Activation refusée : cette version déclenche un contrôle bloquant. "
+                                             "Un propriétaire ou un administrateur peut forcer l'activation.",
+                                  "controle": controle})
     await db.catalog_versions.update_many(
         {"tenant_id": cu.tenant_id, "catalog_id": catalog_id}, {"$set": {"status": "archived"}})
     await db.catalog_versions.update_one({"id": version_id}, {"$set": {"status": "active", "activated_at": now_iso()}})
     await db.catalogs.update_one({"id": catalog_id}, {"$set": {"active_version_id": version_id}})
     await _deactivate_other_catalogs(cu.tenant_id, catalog_id)
     await _evict_catalog_cache(cu.tenant_id)
-    await audit(cu.tenant_id, cu.email, "catalog.activate", catalog_id, {"version_id": version_id})
+    await audit(cu.tenant_id, cu.email, "catalog.activate", catalog_id,
+                {"version_id": version_id, "verdict": controle["verdict"], "force": bool(force)})
     return {"ok": True}
 
 
@@ -2255,6 +2307,9 @@ async def catalogue_commun_afficher_tous(cu: CurrentUser = Depends(require_role(
 
 
 api.include_router(clients_module.build_router(get_current, require_role))
+app.include_router(observabilite.build_router(get_current, require_role))
+app.include_router(facturation_stripe.build_router(get_current, require_role))
+app.middleware("http")(observabilite.intergiciel)
 app.include_router(api)
 app.include_router(mcp_bridge.router)
 # Auth uses Bearer tokens (Authorization header), not cookies. The combination

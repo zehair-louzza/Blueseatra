@@ -26,7 +26,7 @@ Toute la documentation du projet, classée par usage.
 | Document | Contenu |
 |---|---|
 | [Guide développeur](./guide-developpeur.md) | Installation locale, variables, migrations, tests, dépannage |
-| [Référence API](./reference-api.md) | Les 99 routes, générées depuis le code |
+| [Référence API](./reference-api.md) | Les 109 routes, générées depuis le code |
 | [Contrat d'API fournisseurs](./contrat-api-fournisseurs.md) | Recherche et comparaison fournisseurs |
 | [Intégration du module Fournisseur](./integration-module-fournisseur.md) | Lien avec le dépôt Fournisseur-Blueseatra |
 | [Connecteur MCP](./MCP-PERPLEXITY.md) | Pont MCP vers Perplexity Computer |
@@ -41,6 +41,8 @@ Toute la documentation du projet, classée par usage.
 | [Runbook DATABASE_URL_APP](./runbook-render-database-url-app.md) | Passage au rôle non propriétaire sur Render |
 | [Checklist des secrets Render](../render-secrets-checklist.md) | Variables à renseigner à la main |
 | [Audit d'isolation](./audit-isolation-tenants-2026-09-12.md) | Audit RLS du 12/09/2026 |
+| [Runbook incident](./runbook-incident.md) | SLO, corrélation par `request_id`, déroulé, RACI, post-mortem |
+| [Conformité RGPD](./conformite-rgpd.md) | Registre des traitements, droits des personnes, sous-traitants |
 | [SECURITY.md](../SECURITY.md) | Politique de sécurité et signalement |
 
 ## Historique

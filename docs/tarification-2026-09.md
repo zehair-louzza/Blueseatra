@@ -81,3 +81,37 @@ Ces règles viennent de ce qui est déjà construit et vérifié (catalogue comm
 - **Entrée de gamme :** essai gratuit de 14 jours (1 siège, 10 devis assistés, 30 pages lues), puis choix d'une offre payante.
 - **Prix :** grille haute, soit Initial 59 €, Pilotage 149 €, Performance 399 € et Signature sur devis.
 - **Affichage :** la grille est visible sur la page d'accueil, avec la mention « Paiement en ligne bientôt disponible ».
+
+## 8. Politique de dépassement (ticket #89)
+
+Décision : **refus explicite, jamais de surfacturation silencieuse ni de mode dégradé caché.**
+
+| Situation | Comportement |
+|---|---|
+| Forfait du mois épuisé, recharge disponible | La recharge est consommée ; le forfait l'est toujours en premier |
+| Forfait et recharges épuisés | Nouvelle lecture IA refusée : erreur **402** avec un message clair et un lien vers l'offre, jamais une 500 |
+| Travail manuel (devis, PDF, catalogues, comparateur) | Toujours possible, jamais compté |
+| Essai terminé ou impayé | Lecture seule : les données restent consultables et exportables |
+| Offre `interne` ou Signature | Illimité, mais tout reste compté dans le registre |
+| Extraction en échec | Remboursée par une écriture d'annulation |
+
+**Garde-fous**
+- **Projection :** la page Offre et consommation affiche le rythme actuel et, s'il y a lieu, la date d'épuisement prévue avant la fin de la période.
+- **Rapprochement :** `GET /api/abonnement/rapprochement` (owner, admin, billing_admin) vérifie que chaque demande lue a consommé exactement un devis assisté et que chaque demande en échec a été remboursée. Il sert de contrôle avant l'activation du blocage (`BLUESEATRA_QUOTAS_APPLIQUES=1`).
+- **Registre :** les soldes affichés sont toujours la somme du registre, en ajout seul, et restent donc reproductibles.
+
+## 9. Mise en service du paiement Stripe (ticket #90)
+
+1. **Mode test :**
+   - lancer `STRIPE_SECRET_KEY=sk_test_… python scripts/stripe/creer_catalogue.py` ;
+   - dans Stripe, **Développeurs → Webhooks**, ajouter `https://blueseatra-api.onrender.com/api/stripe/webhook` avec les événements `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid` et `invoice.payment_failed` ;
+   - activer le portail client (**Paramètres → Portail client**).
+2. **Render :** définir `STRIPE_SECRET_KEY` (clé test) et `STRIPE_WEBHOOK_SECRET`, puis appliquer la migration `20260927090000_facturation_stripe.sql` sur Supabase.
+3. **Recette en mode test :**
+   - paiement réussi avec la carte `4242 4242 4242 4242` ;
+   - paiement refusé avec `4000 0000 0000 0341` ;
+   - webhook rejoué depuis le tableau de bord Stripe : un seul effet ;
+   - changement d'offre en cours de mois, avec prorata calculé par Stripe ;
+   - recharge ;
+   - annulation.
+4. **Bascule live :** seulement après la validation de la facturation électronique (#91). Clé live et `BLUESEATRA_STRIPE_LIVE=1` sur Render, nouveau secret webhook live.

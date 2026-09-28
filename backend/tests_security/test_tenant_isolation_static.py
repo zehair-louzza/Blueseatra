@@ -314,6 +314,9 @@ def test_sql_brut_filtre_toujours_le_tenant():
         "audit_logs", "company_profiles", "import_jobs", "import_errors",
         "quote_versions", "settings_integrations",
         "registre_consommation", "abonnements",
+        # Module Clients (migration 20260926090000)
+        "clients", "contacts", "chantiers", "suggestions_clients",
+        "echanges_clients", "regles_relance", "relances",
     )
 
     manquants = []
@@ -323,7 +326,10 @@ def test_sql_brut_filtre_toujours_le_tenant():
         txt = fichier.read_text(encoding="utf-8", errors="ignore")
 
         # Blocs text("""...""") ou text('...') : le SQL ecrit a la main.
-        for m in re.finditer(r'text\(\s*(?:f?"""(.*?)"""|f?"(.*?)")\s*[,)]',
+        # Aussi les assistants _q(...) (clients_module) et _lire(s, ...)
+        # (observabilite), qui enveloppent text() : sans cela leur SQL
+        # echapperait au controle.
+        for m in re.finditer(r'(?:text|_q|_lire)\(\s*(?:s,\s*)?(?:f?"""(.*?)"""|f?"(.*?)")\s*[,)]',
                              txt, re.S):
             sql = next((g for g in m.groups() if g), "")
             bas = sql.lower()
@@ -346,6 +352,11 @@ def test_sql_brut_filtre_toujours_le_tenant():
             # `AND f.tenant_id = o.tenant_id`. Verifie par mutation.
             filtre = re.search(
                 r"tenant_id\s*=\s*(?::\w+|current_tenant\(\))", bas)
+            # Un INSERT n'a pas de WHERE : il doit fournir tenant_id
+            # explicitement dans sa liste de colonnes.
+            if not filtre and bas.lstrip().startswith("insert"):
+                entete = bas.split("values", 1)[0]
+                filtre = re.search(r"\(\s*[^)]*\btenant_id\b", entete)
             if not filtre:
                 ligne = txt[: m.start()].count("\n") + 1
                 manquants.append(
