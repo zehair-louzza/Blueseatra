@@ -200,6 +200,15 @@ async def _call_structuring_cascade(system_prompt: str, user_message: str) -> tu
     les etages echouent, avec le detail de chaque echec."""
     errors = []
     for label, model, timeout in _structuring_cascade_stages():
+        if IA_VIA_HERMES:
+            try:
+                sp = system_prompt + (_THINK_BREVITY_HINT if _wants_think(model) else "")
+                return await _hermes_chat(model, sp, user_message, timeout=max(timeout, 60.0), role="structuration"), label
+            except HermesIndisponible:
+                raise
+            except Exception as exc:
+                errors.append(f"{label}: {type(exc).__name__}: {exc or repr(exc)}")
+                continue
         effective_system_prompt = system_prompt
         if _wants_think(model):
             effective_system_prompt = system_prompt + _THINK_BREVITY_HINT
@@ -428,6 +437,11 @@ DEFAULT_PROVIDER = (os.environ.get("BLUESEATRA_IA_FOURNISSEUR_DEFAUT") or "herme
 MISTRAL_API_URL = os.environ.get("MISTRAL_API_URL", "https://api.mistral.ai/v1/chat/completions")
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 MISTRAL_DEFAULT_MODEL = os.environ.get("MISTRAL_MODEL", "mistral-medium-latest")
+MISTRAL_RELANCES = int(os.environ.get("MISTRAL_RELANCES", "4"))
+# OCR toujours local (VPS, PaddleOCR-VL par défaut) : une image n'est jamais
+# envoyée à un fournisseur externe, seul le texte lu part vers Mistral/OpenAI.
+OCR_LOCAL_UNIQUEMENT = os.environ.get("BLUESEATRA_OCR_LOCAL_UNIQUEMENT", "1") != "0"
+FOURNISSEURS_LOCAUX = ("hermes", "ollama")
 DEFAULT_MODEL = (os.environ.get("BLUESEATRA_IA_MODELE_DEFAUT")
                  or (MISTRAL_DEFAULT_MODEL if DEFAULT_PROVIDER == "mistral" else HERMES_DEFAULT_MODEL))
 
@@ -754,6 +768,7 @@ async def _call_hermes_ollama(
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
     last_err = None
     models = []
+    via_hermes = IA_VIA_HERMES
     # Avec une image, ne jamais retomber sur un modele texte-seul (qwen2.5,
     # hermes3/hermes-3) : ils renvoient HTTP 400 "model does not support
     # multimodal requests" au lieu d'une vraie erreur reseau/timeout, ce qui
@@ -768,6 +783,21 @@ async def _call_hermes_ollama(
         alias = MODEL_ALIASES.get((m or "").strip(), m)
         if alias and alias not in models:
             models.append(alias)
+    if via_hermes:
+        for current in models:
+            try:
+                return await _hermes_chat(
+                    current, system_prompt, user_message, image_b64=image_b64,
+                    timeout=900.0 if _wants_think(current) else 360.0,
+                    reasoning_effort=(reasoning_effort or HERMES_REASONING_EFFORT) if _has_graduated_think(current) else None,
+                    role=role,
+                )
+            except HermesIndisponible:
+                raise  # passerelle absente : inutile d'essayer les autres modèles
+            except Exception as exc:
+                last_err = f"{type(exc).__name__} ({current}): {exc or repr(exc)}"
+        logger.warning("ai_call_failed via=hermes role=%s tried=%s last_err=%s", role, models, last_err)
+        raise RuntimeError(last_err or "aucun modèle n'a répondu par Hermès")
     for current in models:
         payload["model"] = current
         # Recalcule a chaque candidat de la liste de repli : un repli peut
@@ -841,6 +871,73 @@ def _looks_like_wrong_server(response) -> bool:
         return False
     body_start = (response.text or "").lstrip()[:100].lower()
     return body_start.startswith("<!doctype html") or body_start.startswith("<html")
+
+
+# ---------------------------------------------------------------------------
+# Tout par Hermès (29/09/2026, demande explicite) : plus aucun appel direct du
+# SaaS vers Ollama. OCR, extraction, décomposition, rédaction et Mistral passent
+# par l'API de l'agent Hermès (POST /v1/chat/completions), qui choisit le
+# fournisseur par requête : custom:ollama (modèles locaux du VPS) ou
+# custom:mistral. BLUESEATRA_IA_VIA_HERMES=0 rétablit l'ancien chemin direct,
+# uniquement comme retour arrière d'urgence.
+# ---------------------------------------------------------------------------
+IA_VIA_HERMES = os.environ.get("BLUESEATRA_IA_VIA_HERMES", "1") != "0"
+HERMES_OLLAMA_PROVIDER = os.environ.get("HERMES_OLLAMA_PROVIDER", "custom:ollama")
+
+
+class HermesIndisponible(RuntimeError):
+    pass
+
+
+async def _hermes_chat(
+    model: str,
+    system_prompt: str | None,
+    user_message: str,
+    image_b64: str | None = None,
+    provider: str | None = None,
+    timeout: float = 360.0,
+    reasoning_effort: str | None = None,
+    role: str = "-",
+) -> str:
+    """Unique point d'entrée IA du SaaS vers le VPS : l'agent Hermès.
+
+    provider par défaut = custom:ollama (modèles locaux). Chaque appel porte
+    un X-Hermes-Session-Id neuf (voir _call_hermes_gateway, ADR-005)."""
+    if not HERMES_GATEWAY_URL:
+        raise HermesIndisponible("Passerelle Hermès non configurée (HERMES_GATEWAY_URL vide sur Render).")
+    contenu: list | str = user_message
+    if image_b64:
+        contenu = [{"type": "text", "text": user_message},
+                   {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}", "detail": "high"}}]
+    messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+    messages.append({"role": "user", "content": contenu})
+    payload = {"model": MODEL_ALIASES.get((model or "").strip(), model), "provider": provider or HERMES_OLLAMA_PROVIDER,
+               "messages": messages, "stream": False}
+    if reasoning_effort in _VALID_REASONING_EFFORTS:
+        payload["model_options"] = {"reasoning_effort": reasoning_effort}
+    headers = {"Content-Type": "application/json", "X-Hermes-Session-Id": str(uuid.uuid4())}
+    if HERMES_GATEWAY_KEY:
+        headers["Authorization"] = f"Bearer {HERMES_GATEWAY_KEY}"
+    if HERMES_API_KEY:
+        headers["X-Api-Key"] = HERMES_API_KEY
+    url = f"{HERMES_GATEWAY_URL}/v1/chat/completions"
+    async with _OLLAMA_SEMAPHORE:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=payload, headers=headers)
+    if _looks_like_wrong_server(response):
+        raise HermesIndisponible(f"Réponse HTML au lieu de JSON : routage incorrect vers {HERMES_GATEWAY_URL}")
+    if response.status_code >= 400:
+        raise RuntimeError(f"Hermès HTTP {response.status_code} ({payload['provider']}/{payload['model']}): "
+                           f"{(response.text or '')[:180]}")
+    data = response.json()
+    content = (((data.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+    if isinstance(content, list):
+        content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    content = content.strip()
+    if not content:
+        raise RuntimeError(f"Hermès : réponse vide ({payload['provider']}/{payload['model']})")
+    logger.info("ai_call_success via=hermes role=%s provider=%s model=%s", role, payload["provider"], payload["model"])
+    return content
 
 
 async def _call_hermes_gateway(
@@ -924,7 +1021,7 @@ async def _call_reason(
     agent.reasoning_effort (hermes/config.yaml, ovh-ai-stack), non
     controlable depuis cet appel.
     """
-    if HERMES_GATEWAY_URL:
+    if HERMES_GATEWAY_URL and not IA_VIA_HERMES:
         try:
             return await _call_hermes_gateway(system_prompt, user_message)
         except Exception:
@@ -995,9 +1092,9 @@ async def _call_mistral_via_hermes(
     pas besoin. Sans passerelle Hermès configurée, repli direct sur l'API
     Mistral si la plateforme a une clé, sinon erreur explicite."""
     modele = (model or "")[len(MISTRAL_PREFIXE_HERMES):] or MISTRAL_DEFAULT_MODEL
-    if HERMES_GATEWAY_URL:
-        return await _call_hermes_gateway(system_prompt, user_message, model=modele,
-                                          provider=HERMES_MISTRAL_PROVIDER, image_b64=image_b64)
+    if HERMES_GATEWAY_URL or IA_VIA_HERMES:
+        return await _hermes_chat(modele, system_prompt, user_message, image_b64=image_b64,
+                                  provider=HERMES_MISTRAL_PROVIDER, timeout=180.0, role=role)
     if MISTRAL_API_KEY:
         return await _call_mistral(api_key=MISTRAL_API_KEY, model=modele, system_prompt=system_prompt,
                                    user_message=user_message, image_b64=image_b64, role=role)
@@ -1016,6 +1113,10 @@ async def _call_mistral(
 
     Les modèles mistral-medium / mistral-small lisent aussi les images.
     Aucun prix n'est demandé ; ia_garde_fous retire tout prix renvoyé."""
+    if IA_VIA_HERMES:
+        # Tout par Hermès : la clé Mistral est celle du VPS (MISTRAL_API_KEY du .env Hermès).
+        return await _hermes_chat(model or MISTRAL_DEFAULT_MODEL, system_prompt, user_message, image_b64=image_b64,
+                                  provider=HERMES_MISTRAL_PROVIDER, timeout=180.0, role=role)
     if not api_key:
         raise RuntimeError("Mistral : aucune clé API (page Paramètres ou MISTRAL_API_KEY).")
     content: list | str = user_message
@@ -1041,11 +1142,20 @@ async def _call_mistral(
         with httpx.Client(timeout=120.0, verify=facturation_stripe._tls()) as client:
             return client.post(MISTRAL_API_URL, headers=headers, json=payload)
 
-    for tentative in range(2):
+    # 429 : l'offre gratuite de Mistral limite le débit ; relance avec délai
+    # exponentiel (2, 4, 8, 16 s) en respectant Retry-After s'il est fourni.
+    for tentative in range(MISTRAL_RELANCES + 1):
             response = await asyncio.to_thread(_poster)
-            if response.status_code == 429 and tentative == 0:
-                await asyncio.sleep(2)
+            if response.status_code in (429, 503) and tentative < MISTRAL_RELANCES:
+                try:
+                    attente = float(response.headers.get("retry-after") or 0)
+                except (TypeError, ValueError):
+                    attente = 0
+                await asyncio.sleep(min(max(attente, 2 ** (tentative + 1)), 30))
                 continue
+            if response.status_code == 429:
+                raise RuntimeError("Mistral : limite de débit atteinte (429) après plusieurs relances. "
+                                   "Réessayez dans une minute ou passez à une offre Mistral supérieure.")
             if response.status_code >= 400:
                 raise RuntimeError(f"Mistral HTTP {response.status_code} : {response.text[:200]}")
             data = response.json()
@@ -1053,11 +1163,13 @@ async def _call_mistral(
             if isinstance(texte, list):   # modèles de raisonnement : blocs typés
                 texte = "".join(b.get("text", "") for b in texte if isinstance(b, dict) and b.get("type") == "text")
             return texte
-    raise RuntimeError("Mistral : limite de débit atteinte")
+    raise RuntimeError("Mistral : limite de débit atteinte (429)")
 
 
 async def tester_mistral_via_hermes(model: str | None) -> dict:
     """Petit appel réel à Mistral par Hermès (quelques jetons)."""
+    if model and not model.startswith(MISTRAL_PREFIXE_HERMES):
+        model = MISTRAL_PREFIXE_HERMES + model
     try:
         sortie = await _call_mistral_via_hermes(model=model or "", system_prompt="Réponds uniquement par le JSON demandé.",
                                                 user_message='Renvoie exactement {"ok": true}', role="test")
@@ -1180,6 +1292,10 @@ async def extract_request_data(
     image_b64 = None
     if image_bytes:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        if OCR_LOCAL_UNIQUEMENT and (provider not in FOURNISSEURS_LOCAUX or est_mistral_via_hermes(provider, model)):
+            # Lecture d'image = toujours sur le VPS (modèle vision local).
+            logger.info("ocr_local image routee vers %s au lieu de %s/%s", HERMES_VISION_MODEL, provider, model)
+            provider, model, role = "hermes", HERMES_VISION_MODEL, "vision"
 
     web_ctx = await _web_context_sans_prix(raw_text)
     user_message = f"Extract structured data from this quote request:\n\n{raw_text}"
@@ -1602,6 +1718,13 @@ async def _call_ocr_model(image_bytes: bytes, model: str, timeout: float = 240.0
     Leve une exception sur tout echec (reseau, HTTP, reponse vide) ; c'est
     au niveau appelant (extract_from_image) de decider du secours."""
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    if IA_VIA_HERMES:
+        return await _hermes_chat(
+            model, None,
+            "Transcribe all text from this document image exactly as written, preserving layout, tables "
+            "and reading order. Do not summarize, translate, or add any text that is not visible in the image.",
+            image_b64=image_b64, timeout=timeout, role="ocr",
+        )
     payload = {
         "model": model,
         "messages": [{
@@ -1791,6 +1914,22 @@ async def escalate_to_deep_vision(image_bytes: bytes, tenant_settings: dict) -> 
     headers = {}
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
+    if IA_VIA_HERMES:
+        content = await _hermes_chat(
+            HERMES_ESCALATION_VISION_MODEL, None,
+            "Extract all text and structured information from this document image. "
+            "Do not invent content that is not visible in the image.",
+            image_b64=image_b64, timeout=1200.0, role="vision_approfondie",
+        )
+        return {
+            "engine": HERMES_ESCALATION_VISION_MODEL,
+            "content": content,
+            "warning": (
+                "Analyse approfondie generee par un modele vision lent, specialise dans la "
+                "fidelite des tableaux — a comparer avec l'extraction principale, ne pas "
+                "utiliser seule comme source de verite."
+            ),
+        }
     url = f"{HERMES_BASE_URL.rstrip('/')}/api/chat"
     # 2026-08-23 : alignee sur _OLLAMA_SEMAPHORE comme le reste du fichier
     # (voir _call_ocr_model). Ce bouton est declenche manuellement, donc
@@ -2155,6 +2294,7 @@ def extract_plain_text(content: bytes) -> str:
 # moment de l'exécution, ils passent donc tous par le journal.
 _call_hermes_ollama = ia_garde_fous.journaliser("hermes")(_call_hermes_ollama)
 _call_hermes_gateway = ia_garde_fous.journaliser("hermes_gateway")(_call_hermes_gateway)
+_hermes_chat = ia_garde_fous.journaliser("hermes_agent")(_hermes_chat)
 _call_openai = ia_garde_fous.journaliser("openai")(_call_openai)
 _call_mistral = ia_garde_fous.journaliser("mistral")(_call_mistral)
 _call_mistral_via_hermes = ia_garde_fous.journaliser("mistral_hermes")(_call_mistral_via_hermes)

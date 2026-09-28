@@ -91,8 +91,8 @@ services:
     cpus: "1"
     security_opt: ["no-new-privileges:true"]
 
-  # OPTIONNEL — lancé seulement avec `docker compose --profile hermes up -d`.
-  # Hors du chemin critique du SaaS (FastAPI appelle directement /api/chat).
+  # PASSERELLE IA UNIQUE du SaaS (29/09/2026) — lancer avec `docker compose --profile hermes up -d`.
+  # Le SaaS n'appelle plus Ollama directement : tout passe par ce conteneur.
   hermes:
     image: nousresearch/hermes-agent:latest
     profiles: ["hermes"]
@@ -116,3 +116,8 @@ services:
       ollama: { condition: service_healthy }
     mem_limit: 2g
     security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -H \"Authorization: Bearer $$API_SERVER_KEY\" http://localhost:8642/v1/models >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5

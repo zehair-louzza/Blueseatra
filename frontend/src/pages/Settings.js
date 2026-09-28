@@ -31,6 +31,7 @@ function AiSettings({ canManage }) {
   const [apercu, setApercu] = useState(null);
   const [labels, setLabels] = useState({});
   const [clePlateforme, setClePlateforme] = useState(false);
+  const [viaHermes, setViaHermes] = useState(true);
   const [test, setTest] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -40,11 +41,12 @@ function AiSettings({ canManage }) {
       setProviderModels(r.data.provider_models);
       setLabels(r.data.provider_labels || {});
       setClePlateforme(!!r.data.mistral_cle_plateforme);
+      setViaHermes(r.data.ia_via_hermes !== false);
       setApercu(s.ai_key_apercu || null);
       setOcrModelChoices(r.data.ocr_model_choices || {});
       setForm({
         ai_provider: s.ai_provider || 'hermes', ai_model: s.ai_model || '', ai_key: '',
-        n8n_webhook_url: s.n8n_webhook_url || '', ocr_model_preference: s.ocr_model_preference || 'auto',
+        n8n_webhook_url: s.n8n_webhook_url || '', ocr_model_preference: s.ocr_model_preference || 'paddleocr',
       });
       setKeySet(!!s.ai_key_set);
     });
@@ -55,8 +57,12 @@ function AiSettings({ canManage }) {
     try {
       await api.put('/settings/integrations', form); toast.success(t('settings.saved'));
       const r = await api.get('/settings/integrations');
-      setKeySet(!!r.data.settings.ai_key_set); setApercu(r.data.settings.ai_key_apercu || null);
-      setForm({ ...form, ai_key: '', effacer_cle: false }); setTest(null);
+      const e = r.data.settings;
+      setKeySet(!!e.ai_key_set); setApercu(e.ai_key_apercu || null);
+      // Le formulaire affiche ce qui est réellement enregistré, pas la saisie locale.
+      setForm({ ai_provider: e.ai_provider || 'hermes', ai_model: e.ai_model || '', ai_key: '', effacer_cle: false,
+        n8n_webhook_url: e.n8n_webhook_url || '', ocr_model_preference: e.ocr_model_preference || 'paddleocr' });
+      setTest(null);
     }
     catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
@@ -69,7 +75,8 @@ function AiSettings({ canManage }) {
   };
 
   if (!form) return <Spinner />;
-  const mistralHermes = form.ai_provider === 'hermes' && (form.ai_model || '').startsWith('mistral:');
+  const mistralHermes = (form.ai_provider === 'hermes' && (form.ai_model || '').startsWith('mistral:'))
+    || (form.ai_provider === 'mistral' && viaHermes);
   const mistral = form.ai_provider === 'mistral';
   const models = providerModels[form.ai_provider] || [];
   return (
@@ -100,7 +107,7 @@ function AiSettings({ canManage }) {
               {form.effacer_cle && <span className="text-amber-700">{t('settings.key_remove_pending')}</span>}
             </div>
           )}
-          {mistral && !keySet && clePlateforme && <p className="text-xs text-muted-foreground">{t('settings.mistral_platform')}</p>}
+          {mistral && !mistralHermes && !keySet && clePlateforme && <p className="text-xs text-muted-foreground">{t('settings.mistral_platform')}</p>}
           {mistralHermes && <p className="text-xs text-muted-foreground">{t('settings.mistral_hermes_hint')}</p>}
           {(mistral || mistralHermes) && canManage && (
             <div className="flex flex-wrap items-center gap-3 pt-1">

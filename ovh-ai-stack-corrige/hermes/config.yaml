@@ -1,6 +1,10 @@
-# Hermes Agent — config OPTIONNELLE (profil "hermes"), modèles locaux légers uniquement.
-# Hermes est HORS du chemin critique du SaaS (FastAPI appelle directement Ollama /api/chat).
-# Ne l'activez que si vous utilisez réellement l'orchestration d'agents.
+# Hermes Agent — PASSERELLE IA UNIQUE du SaaS Blueseatra (29/09/2026).
+# Le SaaS n'appelle plus jamais Ollama directement : OCR (PaddleOCR-VL par défaut),
+# extraction, décomposition, rédaction et Mistral passent tous par
+# POST /v1/chat/completions de cet agent, avec "provider" + "model" par requête :
+#   custom:ollama  -> modèles locaux du VPS (conteneur ollama)
+#   custom:mistral -> API Mistral (UE), clé MISTRAL_API_KEY du .env
+# Le profil "hermes" de compose.yaml doit donc être démarré en production.
 # Tous les slots pointent vers le MÊME petit modèle -> aucun thrashing (MAX_LOADED_MODELS).
 model:
   provider: custom
@@ -14,6 +18,13 @@ model:
 # "custom:mistral" + "model": "mistral-medium-latest"). La clé reste sur le
 # VPS : variable MISTRAL_API_KEY du fichier .env, jamais dans ce fichier.
 providers:
+  # Modèles locaux du VPS (OCR PaddleOCR-VL, GLM-OCR, LightOnOCR, qwen2.5vl, qwen2.5, gpt-oss…).
+  ollama:
+    name: Ollama (VPS)
+    api: http://ollama:11434/v1
+    api_key: ollama-local
+    transport: chat_completions
+    default_model: qwen2.5:7b
   mistral:
     name: Mistral AI
     api: https://api.mistral.ai/v1
@@ -29,8 +40,36 @@ providers:
         context_length: 128000
 
 # Pas de mode raisonnement lourd sur CPU.
+# Mode « passerelle » : le SaaS envoie des documents clients (contenu non fiable).
+# Aucun outil n'est laissé à l'agent (pas de terminal, fichiers, web, mémoire…),
+# il ne fait que transmettre au modèle choisi et renvoyer sa réponse.
+# Vérifier après démarrage : curl -H "Authorization: Bearer $API_SERVER_KEY" http://hermes:8642/v1/toolsets
 agent:
   reasoning_effort: none
+  disabled_toolsets:
+    - terminal
+    - file
+    - web
+    - search
+    - x_search
+    - browser
+    - code_execution
+    - delegation
+    - cronjob
+    - memory
+    - session_search
+    - skills
+    - todo
+    - vision
+    - video
+    - image_gen
+    - video_gen
+    - tts
+    - computer_use
+    - connections
+    - homeassistant
+    - kanban
+    - spotify
 
 # Secours local uniquement (jamais provider: auto -> sortie UE interdite ; Mistral est
 # hébergé dans l'UE et n'est utilisé que sur demande explicite du SaaS).

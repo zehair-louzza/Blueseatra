@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-09-29 — Toute l'IA passe par l'agent Hermès, OCR local PaddleOCR par défaut
+
+- **Plus aucun appel direct du SaaS vers Ollama.** Tous les appels vont à `POST /v1/chat/completions` de l'agent Hermès, qui choisit le fournisseur à chaque requête : `custom:ollama` pour les modèles du VPS, `custom:mistral` pour l'API Mistral. Cela couvre l'OCR, la cascade de structuration, l'extraction, la décomposition, la rédaction, la vision approfondie et Mistral.
+  - `BLUESEATRA_IA_VIA_HERMES=0` sert uniquement de retour arrière d'urgence.
+  - Sans `HERMES_GATEWAY_URL`, l'erreur est explicite ; il n'y a pas de repli silencieux vers Ollama.
+- **Hermès** (`hermes/config.yaml`) :
+  - fournisseurs nommés `ollama` et `mistral` ;
+  - tous les jeux d'outils de l'agent désactivés (terminal, fichiers, web, mémoire…) : il ne fait que relayer les documents clients au modèle choisi ;
+  - contrôle de santé ajouté dans `compose.yaml`.
+- **OCR toujours local, PaddleOCR-VL par défaut :**
+  - une image n'est jamais envoyée à Mistral ou OpenAI ; seul le texte lu sur le VPS part vers le fournisseur choisi ;
+  - le choix « Modèle OCR préféré » est enfin enregistré : la colonne manquait, et le choix revenait à « Automatique » après chaque enregistrement (migration `20260929010000_settings_ocr_preference.sql`).
+- **Page Paramètres :** après « Enregistrer », le formulaire se recharge avec les valeurs réellement enregistrées.
+- **Mistral :** relances en cas de limite de débit (429) avec délai exponentiel (2, 4, 8, 16 s), en respectant `Retry-After`.
+
 ## 2026-09-29 — Mistral interrogeable par l'agent Hermès (ticket #88)
 
 - **Agent Hermès** (`ovh-ai-stack-corrige/hermes/config.yaml`) :

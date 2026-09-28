@@ -429,7 +429,7 @@ class IntegrationSettings(BaseModel):
     effacer_cle: bool = False
 
 
-PROVIDER_LABELS = {"mistral": "Mistral AI (API directe)", "hermes": "Moteur intégré (Hermès)", "openai": "OpenAI",
+PROVIDER_LABELS = {"mistral": "Mistral AI (via Hermès)", "hermes": "Moteur intégré (Hermès)", "openai": "OpenAI",
                    "gemini": "Google Gemini", "anthropic": "Anthropic"}
 
 
@@ -452,8 +452,8 @@ def _apercu_cle(chiffree: Optional[str]) -> Optional[str]:
 # traitement initial -- ne s'applique jamais retroactivement (un PDF n'est
 # jamais conserve, voir create_request).
 OCR_MODEL_CHOICES = {
+    "paddleocr": "PaddleOCR-VL-1.6 — local sur le VPS, par défaut (le plus rapide, ~110s/page)",
     "auto": "Automatique (ordre par défaut, priorité vitesse)",
-    "paddleocr": "PaddleOCR-VL-1.6 (le plus rapide, ~110s/page)",
     "glm-ocr": "GLM-OCR (~183s/page)",
     "lightonocr": "LightOnOCR-2-1B (français, ~200s/page)",
     "qwen25vl": "Qwen2.5-VL-7B (~246s/page)",
@@ -486,21 +486,23 @@ async def get_settings(cu: CurrentUser = Depends(get_current)):
     s = await db.settings_integrations.find_one({"tenant_id": cu.tenant_id}, {"_id": 0})
     if not s:
         s = {"tenant_id": cu.tenant_id, "ai_provider": ai_service.DEFAULT_PROVIDER, "ai_model": ai_service.DEFAULT_MODEL,
-             "n8n_webhook_url": None, "ocr_model_preference": "auto"}
+             "n8n_webhook_url": None, "ocr_model_preference": "paddleocr"}
     s = dict(s)
     s["ai_key_set"] = bool(s.get("ai_key"))
     s["ai_key_apercu"] = _apercu_cle(s.get("ai_key"))
     s.pop("ai_key", None)
-    s.setdefault("ocr_model_preference", "auto")
+    if not s.get("ocr_model_preference"):
+        s["ocr_model_preference"] = "paddleocr"
     return {"settings": s, "provider_models": PROVIDER_MODELS, "provider_labels": PROVIDER_LABELS,
             "ocr_model_choices": OCR_MODEL_CHOICES,
-            "mistral_cle_plateforme": bool(ai_service.MISTRAL_API_KEY)}
+            "mistral_cle_plateforme": bool(ai_service.MISTRAL_API_KEY),
+            "ia_via_hermes": ai_service.IA_VIA_HERMES}
 
 
 @api.put("/settings/integrations")
 async def update_settings(body: IntegrationSettings,
                           cu: CurrentUser = Depends(require_role("owner", "admin"))):
-    ocr_pref = (body.ocr_model_preference or "auto").strip()
+    ocr_pref = (body.ocr_model_preference or "paddleocr").strip()
     if ocr_pref not in OCR_MODEL_CHOICES:
         raise HTTPException(400, f"ocr_model_preference invalide. Valeurs acceptees : {', '.join(OCR_MODEL_CHOICES)}")
     doc = {"tenant_id": cu.tenant_id, "ai_provider": body.ai_provider,
@@ -523,7 +525,7 @@ async def tester_integration(cu: CurrentUser = Depends(require_role("owner", "ad
     """Vérifie la clé du fournisseur choisi, sans consommer de jeton."""
     s = await get_tenant_ai_settings(cu.tenant_id)
     fournisseur = (s.get("ai_provider") or ai_service.DEFAULT_PROVIDER).lower()
-    if ai_service.est_mistral_via_hermes(fournisseur, s.get("ai_model")):
+    if ai_service.est_mistral_via_hermes(fournisseur, s.get("ai_model")) or (fournisseur == "mistral" and ai_service.IA_VIA_HERMES):
         res = await ai_service.tester_mistral_via_hermes(s.get("ai_model"))
         await audit(cu.tenant_id, cu.email, "settings.test_ia", None, {"fournisseur": "mistral_hermes", "ok": res["ok"]})
         return res

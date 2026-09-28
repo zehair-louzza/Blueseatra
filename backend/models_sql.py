@@ -223,6 +223,8 @@ class SettingsIntegration(Base):
     # Enforcement is application-level (see ai_service.py encrypt/decrypt helpers).
     ai_key = Column(Text, nullable=True)
     n8n_webhook_url = Column(Text, nullable=True)
+    # Choix « Modèle OCR préféré » (migration 20260929010000). Défaut PaddleOCR-VL local.
+    ocr_model_preference = Column(String(40), default="paddleocr")
     updated_at = Column(String(40))
 
 
