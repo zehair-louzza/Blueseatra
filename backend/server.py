@@ -1988,15 +1988,27 @@ async def quote_pdf(quote_id: str, token: Optional[str] = None,
         payload = jwt.decode(raw, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid token")
-    tenant_id = payload["tenant_id"]
-    q = await db.quotes.find_one({"id": quote_id, "tenant_id": tenant_id}, {"_id": 0})
-    if not q:
-        raise HTTPException(404, "Quote not found")
-    tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
-    profile = await get_company_profile(tenant_id)
-    pdf_bytes = pdf_service.generate_quote_pdf(q, tenant["name"] if tenant else "Blueseatra", profile)
-    return StreamingResponse(io.BytesIO(pdf_bytes), media_type="application/pdf",
-                             headers={"Content-Disposition": f"attachment; filename=devis_{q['number']}.pdf"})
+    tenant_id = payload.get("tenant_id")
+    if not tenant_id:
+        raise HTTPException(401, "Invalid token")
+
+    async with tenant_context(tenant_id):
+        q = await db.quotes.find_one(
+            {"id": quote_id, "tenant_id": tenant_id}, {"_id": 0}
+        )
+        if not q:
+            raise HTTPException(404, "Quote not found")
+        tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
+        profile = await get_company_profile(tenant_id)
+        pdf_bytes = pdf_service.generate_quote_pdf(
+            q, tenant["name"] if tenant else "Blueseatra", profile
+        )
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=devis_{q['number']}.pdf"},
+    )
 
 
 # ===========================================================================
