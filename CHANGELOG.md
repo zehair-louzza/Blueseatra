@@ -5,10 +5,7 @@
 - **Plus aucun appel direct du SaaS vers Ollama.** Tous les appels vont à `POST /v1/chat/completions` de l'agent Hermès, qui choisit le fournisseur à chaque requête : `custom:ollama` pour les modèles du VPS, `custom:mistral` pour l'API Mistral. Cela couvre l'OCR, la cascade de structuration, l'extraction, la décomposition, la rédaction, la vision approfondie et Mistral.
   - `BLUESEATRA_IA_VIA_HERMES=0` sert uniquement de retour arrière d'urgence.
   - Sans `HERMES_GATEWAY_URL`, l'erreur est explicite ; il n'y a pas de repli silencieux vers Ollama.
-- **Hermès** (`hermes/config.yaml`) :
-  - fournisseurs nommés `ollama` et `mistral` ;
-  - tous les jeux d'outils de l'agent désactivés (terminal, fichiers, web, mémoire…) : il ne fait que relayer les documents clients au modèle choisi ;
-  - contrôle de santé ajouté dans `compose.yaml`.
+- **Hermès :** la passerelle est le service `hermes-passerelle` du dépôt `ovh-ai-stack` (PR #30, ADR-009), sans aucun outil, avec les fournisseurs `ollama` et `mistral`. Elle est joignable sur `https://hermes.blueseatra.com` avec l'en-tête `X-Api-Key`.
 - **OCR toujours local, PaddleOCR-VL par défaut :**
   - une image n'est jamais envoyée à Mistral ou OpenAI ; seul le texte lu sur le VPS part vers le fournisseur choisi ;
   - le choix « Modèle OCR préféré » est enfin enregistré : la colonne manquait, et le choix revenait à « Automatique » après chaque enregistrement (migration `20260929010000_settings_ocr_preference.sql`).
