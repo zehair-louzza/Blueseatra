@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 import os
 import time
@@ -183,18 +184,25 @@ def appliquer_coupure(provider: str, model: str, api_key: str) -> tuple[str, str
 # --- Journal par appel -----------------------------------------------------------
 
 # Coût indicatif en euros pour 1 000 caractères échangés (entrée + sortie).
-# Le VPS OVH est un coût fixe : 0 par appel. À ajuster quand #88 basculera sur Cerebras.
-COUT_PAR_1000_CAR = {"hermes": 0.0, "ollama": 0.0, "openai": 0.002, "cerebras": 0.0005}
+# Le VPS OVH est un coût fixe : 0 par appel. Mistral : estimation prudente
+# (≈ 4 caractères par jeton, tarif mistral-medium), à ajuster sur facture réelle.
+COUT_PAR_1000_CAR = {"hermes": 0.0, "ollama": 0.0, "openai": 0.002, "mistral": 0.0008}
 
 
 def journaliser(fournisseur: str):
     def deco(fn):
         @functools.wraps(fn)
         async def enveloppe(*args, **kwargs):
-            modele = kwargs.get("model") or next((a for a in args[:2] if isinstance(a, str) and len(a) < 80
-                                                   and "\n" not in a and not a.startswith("sk-")), "?")
+            # Le modèle est lu par son nom de paramètre : une clé API passée en
+            # premier argument ne doit jamais finir dans les journaux.
+            try:
+                lies = inspect.signature(fn).bind_partial(*args, **kwargs).arguments
+            except TypeError:
+                lies = dict(kwargs)
+            modele = lies.get("model") or "?"
+            args_texte = [v for k, v in lies.items() if k not in ("api_key",) and isinstance(v, str)]
             role = kwargs.get("role") or ("vision" if kwargs.get("image_b64") else "-")
-            taille_in = sum(len(x) for x in list(args) + list(kwargs.values()) if isinstance(x, str))
+            taille_in = sum(len(x) for x in args_texte)
             t0 = time.perf_counter()
             ok, taille_out = False, 0
             try:

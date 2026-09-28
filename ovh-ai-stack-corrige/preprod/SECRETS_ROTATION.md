@@ -1,6 +1,6 @@
 # Rotation des secrets Blueseatra
 
-Ce runbook couvre Render, Supabase, Hermès/Cerebras, Stripe et la préproduction
+Ce runbook couvre Render, Supabase, Hermès/Mistral, Stripe et la préproduction
 OVH. Il décrit la séquence à suivre, mais n'autorise pas une rotation
 automatique en production. Les nouveaux secrets sont générés et conservés
 dans un gestionnaire de secrets, jamais dans Git, une issue, les logs ou une
@@ -28,7 +28,7 @@ commande dont l'historique shell est partagé.
 | `DATABASE_URL`, `DATABASE_URL_APP` | Render API/worker ; Supabase pour production, PostgreSQL OVH pour préprod | Nouveau rôle/mot de passe, mise à jour API et worker, test authentification + RLS, puis révocation de l'ancien rôle. Ne jamais inverser le rôle privilégié (`DATABASE_URL`) et le rôle métier (`DATABASE_URL_APP`). |
 | Clés Supabase publishable / service role | Configuration serveur et frontend selon l'usage | La clé publishable peut être diffusée au client ; la clé service role est exclusivement serveur. Créer/remplacer selon les contrôles Supabase et vérifier Storage/RLS avant révocation. Ne jamais mettre une service role dans le frontend. |
 | `HERMES_API_KEY` / gateway key | Render API/worker et passerelle Hermès | Créer une seconde clé, basculer API/worker, vérifier une requête de test et les erreurs 401/403, révoquer l'ancienne. Garder préprod et production séparées. |
-| Clé Cerebras | Passerelle Hermès uniquement | Créer une nouvelle clé avec plafond de consommation, mettre à jour Hermès, tester l'inférence de contrôle, puis révoquer l'ancienne. Ne jamais exposer la clé au frontend. |
+| Clé Mistral | Render (`MISTRAL_API_KEY`) et page Paramètres de chaque entreprise | Créer une nouvelle clé sur console.mistral.ai avec plafond de dépenses, la saisir dans Paramètres → Moteur IA (ou sur Render), cliquer « Tester la connexion », puis révoquer l'ancienne. Ne jamais l'exposer au frontend ni la coller dans un ticket ou une conversation. |
 | Clés Stripe et secrets de signature webhook | Backend billing quand l'intégration sera effectivement déployée | Distinguer `sk_test_` / `sk_live_` ; faire chevaucher l'ancien et le nouveau secret webhook selon les capacités Stripe, vérifier un événement signé et son idempotence, puis révoquer. Ne pas considérer Stripe live comme activé par ce runbook. |
 | `POSTGRES_PASSWORD`, `PREPROD_APP_DB_PASSWORD`, `REDIS_PASSWORD` | `.env.preprod` sur OVH | Modifier un service à la fois. Changer le mot de passe du rôle PostgreSQL dans la base avant de basculer l'API/worker ; changer Redis côté service puis côté clients ; redémarrer et vérifier. `POSTGRES_PASSWORD` dans Compose ne modifie pas à lui seul un volume PostgreSQL déjà initialisé. |
 | `BACKUP_ENCRYPTION_PASSPHRASE` | Gestionnaire de secrets + `.env.preprod` | Avant rotation, restaurer/vérifier un ancien backup, le déchiffrer et le rechiffrer avec le nouveau secret si la rétention doit se poursuivre. Garder l'ancien secret jusqu'à expiration ou migration de tous ses backups. |

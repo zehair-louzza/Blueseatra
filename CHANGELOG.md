@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-09-29 — Mistral remplace Cerebras (ticket #88)
+
+- **Nouveau fournisseur « Mistral AI (API) »** pour l'extraction des demandes (texte, PDF et images), la décomposition en fournitures et la rédaction du descriptif de travaux.
+  - Modèles proposés : `mistral-medium-latest` (par défaut), `mistral-large-latest` et `mistral-small-latest`.
+  - Réponse JSON imposée à chaque appel ; les garde-fous IA retirent toujours tout prix renvoyé.
+- **Page Paramètres → Moteur IA :**
+  - la clé est enregistrée chiffrée, puis seuls ses 4 derniers caractères restent affichés ;
+  - un bouton « Tester la connexion » vérifie la clé sans consommer de jeton ;
+  - la clé peut être supprimée ;
+  - sans clé propre, la clé de la plateforme `MISTRAL_API_KEY` est utilisée.
+- **Variables d'environnement :**
+  - `BLUESEATRA_IA_FOURNISSEUR_DEFAUT=mistral` bascule toutes les entreprises sans réglage propre ;
+  - `MISTRAL_MODEL` choisit le modèle par défaut ;
+  - la coupure d'urgence accepte `BLUESEATRA_IA_REPLI_PROVIDER=mistral`.
+- **Sécurité :** le journal `ia_appel` lit le modèle par son nom de paramètre, pour qu'une clé API ne puisse plus jamais y apparaître.
+- 4 tests unitaires, sans appel réseau.
+
 ## 2026-09-25 — Paiement Stripe en mode test (ticket #90)
 
 - **Catalogue Stripe :** `scripts/stripe/creer_catalogue.py` crée, sans jamais créer de doublon (`lookup_key` stables), les offres Initial, Pilotage et Performance (mensuel et annuel avec 2 mois offerts), le siège supplémentaire et les 3 recharges.
