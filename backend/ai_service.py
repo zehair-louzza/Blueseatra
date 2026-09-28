@@ -628,7 +628,9 @@ async def resolve_ai_config(
     # Hermes/Ollama: tenant key unused; gateway auth is HERMES_API_KEY.
     if provider == "hermes":
         model = model or HERMES_DEFAULT_MODEL
-        if (model or "").lower().startswith("hermes"):
+        if est_mistral_via_hermes(provider, model):
+            pass  # modèle Mistral choisi dans Paramètres : routé par l'agent Hermès
+        elif (model or "").lower().startswith("hermes"):
             if role in ("vision", "file"):
                 model = HERMES_VISION_MODEL
             elif role == "extract":
@@ -844,6 +846,9 @@ def _looks_like_wrong_server(response) -> bool:
 async def _call_hermes_gateway(
     system_prompt: str,
     user_message: str,
+    model: str | None = None,
+    provider: str | None = None,
+    image_b64: str | None = None,
 ) -> str:
     """Call Hermes Agent via POST /v1/chat/completions behind Caddy.
 
@@ -874,14 +879,22 @@ async def _call_hermes_gateway(
         headers["X-Api-Key"] = HERMES_API_KEY
     if HERMES_GATEWAY_KEY:
         headers["Authorization"] = f"Bearer {HERMES_GATEWAY_KEY}"
+    contenu: list | str = user_message
+    if image_b64:
+        contenu = [{"type": "text", "text": user_message},
+                   {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}]
     payload = {
-        "model": HERMES_GATEWAY_MODEL,
+        "model": model or HERMES_GATEWAY_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
+            {"role": "user", "content": contenu},
         ],
         "stream": False,
     }
+    # Sélection par requête (doc Hermès « Per-request model selection ») :
+    # un provider explicite fait toujours respecter le modèle demandé.
+    if provider:
+        payload["provider"] = provider
     url = f"{HERMES_GATEWAY_URL}/v1/chat/completions"
     async with httpx.AsyncClient(timeout=360.0) as client:
         response = await client.post(url, json=payload, headers=headers)
@@ -960,6 +973,37 @@ async def _call_openai(
         return data["choices"][0]["message"]["content"]
 
 
+MISTRAL_PREFIXE_HERMES = "mistral:"
+HERMES_MISTRAL_PROVIDER = os.environ.get("HERMES_MISTRAL_PROVIDER", "custom:mistral")
+
+
+def est_mistral_via_hermes(provider: str, model: str | None) -> bool:
+    """Modèle « mistral:<id> » choisi sous le moteur intégré (Hermès)."""
+    return (provider or "").lower() == "hermes" and (model or "").lower().startswith(MISTRAL_PREFIXE_HERMES)
+
+
+async def _call_mistral_via_hermes(
+    model: str,
+    system_prompt: str,
+    user_message: str,
+    image_b64: str | None = None,
+    role: str = "-",
+) -> str:
+    """Mistral interrogé par l'agent Hermès (fournisseur nommé custom:mistral).
+
+    Hermès garde la clé Mistral (MISTRAL_API_KEY sur le VPS) : Render n'en a
+    pas besoin. Sans passerelle Hermès configurée, repli direct sur l'API
+    Mistral si la plateforme a une clé, sinon erreur explicite."""
+    modele = (model or "")[len(MISTRAL_PREFIXE_HERMES):] or MISTRAL_DEFAULT_MODEL
+    if HERMES_GATEWAY_URL:
+        return await _call_hermes_gateway(system_prompt, user_message, model=modele,
+                                          provider=HERMES_MISTRAL_PROVIDER, image_b64=image_b64)
+    if MISTRAL_API_KEY:
+        return await _call_mistral(api_key=MISTRAL_API_KEY, model=modele, system_prompt=system_prompt,
+                                   user_message=user_message, image_b64=image_b64, role=role)
+    raise RuntimeError("Mistral via Hermès : HERMES_GATEWAY_URL et MISTRAL_API_KEY sont vides.")
+
+
 async def _call_mistral(
     api_key: str,
     model: str,
@@ -1010,6 +1054,17 @@ async def _call_mistral(
                 texte = "".join(b.get("text", "") for b in texte if isinstance(b, dict) and b.get("type") == "text")
             return texte
     raise RuntimeError("Mistral : limite de débit atteinte")
+
+
+async def tester_mistral_via_hermes(model: str | None) -> dict:
+    """Petit appel réel à Mistral par Hermès (quelques jetons)."""
+    try:
+        sortie = await _call_mistral_via_hermes(model=model or "", system_prompt="Réponds uniquement par le JSON demandé.",
+                                                user_message='Renvoie exactement {"ok": true}', role="test")
+    except Exception as e:
+        return {"ok": False, "message": f"Échec par Hermès : {str(e)[:160]}"}
+    via = "l'agent Hermès" if HERMES_GATEWAY_URL else "l'API Mistral directe (Hermès non configuré)"
+    return {"ok": '"ok"' in sortie or "ok" in sortie.lower(), "message": f"Mistral répond par {via}."}
 
 
 def tester_mistral(api_key: str) -> dict:
@@ -1143,6 +1198,7 @@ async def extract_request_data(
     # sont des modeles TEXTE SEUL, sans capacite multimodale.
     use_structuring_cascade = (
         from_file and image_b64 is None and provider in ("hermes", "ollama")
+        and not est_mistral_via_hermes(provider, model)
     )
 
     structuring_engine = None
@@ -1159,6 +1215,11 @@ async def extract_request_data(
                 user_message=user_message,
                 image_b64=image_b64,
                 role=role,
+            )
+        elif est_mistral_via_hermes(provider, model):
+            raw_response = await _call_mistral_via_hermes(
+                model=model, system_prompt=EXTRACTION_SYSTEM, user_message=user_message,
+                image_b64=image_b64, role=role,
             )
         elif provider == "mistral":
             raw_response = await _call_mistral(
@@ -1381,7 +1442,9 @@ async def generate_ai_works_narrative(extracted: dict, tenant_settings: dict) ->
         )
     try:
         provider, model, api_key = await resolve_ai_config(tenant_settings, role="describe")
-        if provider == "mistral":
+        if est_mistral_via_hermes(provider, model):
+            raw = await _call_mistral_via_hermes(model=model, system_prompt=DESCRIPTION_SYSTEM, user_message=user, role="describe")
+        elif provider == "mistral":
             raw = await _call_mistral(api_key=api_key, model=model, system_prompt=DESCRIPTION_SYSTEM, user_message=user, role="describe")
         elif provider == "openai":
             raw = await _call_openai(api_key or OPENAI_API_KEY, model, DESCRIPTION_SYSTEM, user)
@@ -1455,7 +1518,9 @@ async def expand_work_into_materials(extracted: dict, tenant_settings: dict, cat
         user += "Articles catalogue (libellés seulement, SANS prix):\n- " + "\n- ".join(labels)
     try:
         provider, model, api_key = await resolve_ai_config(tenant_settings, role="reason")
-        if provider == "mistral":
+        if est_mistral_via_hermes(provider, model):
+            raw = await _call_mistral_via_hermes(model=model, system_prompt=EXPAND_SYSTEM, user_message=user, role="reason")
+        elif provider == "mistral":
             raw = await _call_mistral(api_key=api_key, model=model, system_prompt=EXPAND_SYSTEM, user_message=user, role="reason")
         elif provider == "openai":
             raw = await _call_openai(api_key or OPENAI_API_KEY, model, EXPAND_SYSTEM, user)
@@ -2092,4 +2157,5 @@ _call_hermes_ollama = ia_garde_fous.journaliser("hermes")(_call_hermes_ollama)
 _call_hermes_gateway = ia_garde_fous.journaliser("hermes_gateway")(_call_hermes_gateway)
 _call_openai = ia_garde_fous.journaliser("openai")(_call_openai)
 _call_mistral = ia_garde_fous.journaliser("mistral")(_call_mistral)
+_call_mistral_via_hermes = ia_garde_fous.journaliser("mistral_hermes")(_call_mistral_via_hermes)
 _call_ocr_model = ia_garde_fous.journaliser("hermes_ocr")(_call_ocr_model)

@@ -48,3 +48,33 @@ def test_cle_manquante_et_refus():
 def test_prix_renvoye_par_mistral_retire():
     r = g.valider_extraction({"description": "x", "line_items": [{"label": "pompe", "qty": 1, "unit": "u", "prix": 120}]})
     assert "prix" not in r["line_items"][0]
+
+
+def test_mistral_via_hermes_envoie_provider_et_modele(monkeypatch):
+    vu = {}
+    class _R:
+        status_code = 200
+        text = ""
+        def json(self): return {"choices": [{"message": {"content": '{"ok": true}'}}]}
+    class _AC:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, headers=None):
+            vu.update(url=url, corps=json); return _R()
+    monkeypatch.setattr(ai, "HERMES_GATEWAY_URL", "https://hermes.exemple")
+    monkeypatch.setattr(ai.httpx, "AsyncClient", _AC)
+    assert ai.est_mistral_via_hermes("hermes", "mistral:mistral-small-latest")
+    assert not ai.est_mistral_via_hermes("hermes", "qwen2.5:7b")
+    p, m, _ = asyncio.run(ai.resolve_ai_config({"ai_provider": "hermes", "ai_model": "mistral:mistral-small-latest"}))
+    assert (p, m) == ("hermes", "mistral:mistral-small-latest")
+    asyncio.run(ai._call_mistral_via_hermes(model=m, system_prompt="s", user_message="u"))
+    assert vu["url"] == "https://hermes.exemple/v1/chat/completions"
+    assert vu["corps"]["provider"] == "custom:mistral" and vu["corps"]["model"] == "mistral-small-latest"
+
+
+def test_mistral_via_hermes_sans_passerelle_ni_cle(monkeypatch):
+    monkeypatch.setattr(ai, "HERMES_GATEWAY_URL", "")
+    monkeypatch.setattr(ai, "MISTRAL_API_KEY", "")
+    with pytest.raises(RuntimeError):
+        asyncio.run(ai._call_mistral_via_hermes(model="mistral:x", system_prompt="s", user_message="u"))

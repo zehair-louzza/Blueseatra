@@ -429,7 +429,7 @@ class IntegrationSettings(BaseModel):
     effacer_cle: bool = False
 
 
-PROVIDER_LABELS = {"mistral": "Mistral AI (API)", "hermes": "Moteur intégré (VPS)", "openai": "OpenAI",
+PROVIDER_LABELS = {"mistral": "Mistral AI (API directe)", "hermes": "Moteur intégré (Hermès)", "openai": "OpenAI",
                    "gemini": "Google Gemini", "anthropic": "Anthropic"}
 
 
@@ -474,7 +474,10 @@ PROVIDER_MODELS = {
     # tenant que si son modele commence par "hermes", donc un nom de modele
     # explicite comme celui-ci n'est jamais corrige automatiquement). Aligne
     # sur les modeles reellement installes.
-    "hermes": ["hermes-3", "qwen2.5vl:7b", "qwen2.5:7b"],
+    # « mistral:<id> » = API Mistral interrogée par l'agent Hermès du VPS
+    # (fournisseur nommé custom:mistral dans hermes/config.yaml, #88).
+    "hermes": ["hermes-3", "qwen2.5vl:7b", "qwen2.5:7b",
+               "mistral:mistral-medium-latest", "mistral:mistral-large-latest", "mistral:mistral-small-latest"],
 }
 
 
@@ -520,6 +523,10 @@ async def tester_integration(cu: CurrentUser = Depends(require_role("owner", "ad
     """Vérifie la clé du fournisseur choisi, sans consommer de jeton."""
     s = await get_tenant_ai_settings(cu.tenant_id)
     fournisseur = (s.get("ai_provider") or ai_service.DEFAULT_PROVIDER).lower()
+    if ai_service.est_mistral_via_hermes(fournisseur, s.get("ai_model")):
+        res = await ai_service.tester_mistral_via_hermes(s.get("ai_model"))
+        await audit(cu.tenant_id, cu.email, "settings.test_ia", None, {"fournisseur": "mistral_hermes", "ok": res["ok"]})
+        return res
     if fournisseur != "mistral":
         return {"ok": True, "message": "Moteur intégré : aucune clé à vérifier."} if fournisseur == "hermes" else \
                {"ok": False, "message": "Test disponible pour Mistral uniquement."}
