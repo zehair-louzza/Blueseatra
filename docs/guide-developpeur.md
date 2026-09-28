@@ -94,6 +94,9 @@ ollama serve   # écoute sur http://localhost:11434
 | `MCP_API_KEY`, `MCP_TENANT_ID` | Pont MCP (`/mcp`), voir [`MCP-PERPLEXITY.md`](./MCP-PERPLEXITY.md) |
 | `BLUESEATRA_IA_COUPURE` | Coupure d'urgence de l'IA : vide (normal), `repli` ou `arret` |
 | `BLUESEATRA_IA_REPLI_PROVIDER`, `BLUESEATRA_IA_REPLI_MODEL`, `BLUESEATRA_IA_REPLI_KEY` | Fournisseur de repli utilisé quand `BLUESEATRA_IA_COUPURE=repli` |
+| `MISTRAL_API_KEY` | Clé Mistral de la plateforme, utilisée par les entreprises sans clé propre |
+| `MISTRAL_MODEL` | Modèle Mistral par défaut (`mistral-medium-latest`) |
+| `BLUESEATRA_IA_FOURNISSEUR_DEFAUT` | `mistral` pour faire de Mistral le moteur des entreprises sans réglage (défaut `hermes`) |
 | `STRIPE_SECRET_KEY` | Clé secrète Stripe (`sk_test_…` ; une clé live est refusée sans `BLUESEATRA_STRIPE_LIVE=1`) |
 | `STRIPE_WEBHOOK_SECRET` | Secret de signature du point de terminaison webhook (`whsec_…`) |
 | `BLUESEATRA_STRIPE_LIVE` | `1` uniquement après validation de la bascule en production (Epic 7) |

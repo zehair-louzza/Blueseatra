@@ -426,6 +426,22 @@ class IntegrationSettings(BaseModel):
     ai_key: Optional[str] = None
     n8n_webhook_url: Optional[str] = None
     ocr_model_preference: Optional[str] = None
+    effacer_cle: bool = False
+
+
+PROVIDER_LABELS = {"mistral": "Mistral AI (API)", "hermes": "Moteur intégré (VPS)", "openai": "OpenAI",
+                   "gemini": "Google Gemini", "anthropic": "Anthropic"}
+
+
+def _apercu_cle(chiffree: Optional[str]) -> Optional[str]:
+    """Quatre derniers caractères seulement, jamais la clé complète."""
+    if not chiffree:
+        return None
+    try:
+        claire = decrypt_secret(chiffree)
+    except Exception:
+        return None
+    return ("\u2022" * 8 + claire[-4:]) if claire and len(claire) > 8 else "\u2022" * 8
 
 
 # Cles valides pour ocr_model_preference (reglage tenant facultatif,
@@ -446,7 +462,8 @@ OCR_MODEL_CHOICES = {
 
 
 PROVIDER_MODELS = {
-    
+    # Ticket #88 : IA de production (remplace Cerebras). Tous lisent le texte et les images.
+    "mistral": ["mistral-medium-latest", "mistral-large-latest", "mistral-small-latest"],
     "openai": ["gpt-5.4", "gpt-5.4-mini", "gpt-4o", "gpt-4.1"],
     "gemini": ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
@@ -465,13 +482,16 @@ PROVIDER_MODELS = {
 async def get_settings(cu: CurrentUser = Depends(get_current)):
     s = await db.settings_integrations.find_one({"tenant_id": cu.tenant_id}, {"_id": 0})
     if not s:
-        s = {"tenant_id": cu.tenant_id, "ai_provider": "hermes", "ai_model": "hermes-3",
+        s = {"tenant_id": cu.tenant_id, "ai_provider": ai_service.DEFAULT_PROVIDER, "ai_model": ai_service.DEFAULT_MODEL,
              "n8n_webhook_url": None, "ocr_model_preference": "auto"}
     s = dict(s)
     s["ai_key_set"] = bool(s.get("ai_key"))
+    s["ai_key_apercu"] = _apercu_cle(s.get("ai_key"))
     s.pop("ai_key", None)
     s.setdefault("ocr_model_preference", "auto")
-    return {"settings": s, "provider_models": PROVIDER_MODELS, "ocr_model_choices": OCR_MODEL_CHOICES}
+    return {"settings": s, "provider_models": PROVIDER_MODELS, "provider_labels": PROVIDER_LABELS,
+            "ocr_model_choices": OCR_MODEL_CHOICES,
+            "mistral_cle_plateforme": bool(ai_service.MISTRAL_API_KEY)}
 
 
 @api.put("/settings/integrations")
@@ -483,12 +503,31 @@ async def update_settings(body: IntegrationSettings,
     doc = {"tenant_id": cu.tenant_id, "ai_provider": body.ai_provider,
            "ai_model": body.ai_model, "n8n_webhook_url": body.n8n_webhook_url,
            "ocr_model_preference": ocr_pref, "updated_at": now_iso()}
+    if body.ai_provider not in PROVIDER_MODELS:
+        raise HTTPException(400, "Fournisseur IA inconnu.")
     if body.ai_key:
-        doc["ai_key"] = encrypt_secret(body.ai_key)
+        doc["ai_key"] = encrypt_secret(body.ai_key.strip())
+    elif body.effacer_cle:
+        doc["ai_key"] = None
     await db.settings_integrations.update_one({"tenant_id": cu.tenant_id}, {"$set": doc}, upsert=True)
     await audit(cu.tenant_id, cu.email, "settings.update", None,
                 {"ai_provider": body.ai_provider, "ai_model": body.ai_model, "ocr_model_preference": ocr_pref})
     return {"ok": True}
+
+
+@api.post("/settings/integrations/tester")
+async def tester_integration(cu: CurrentUser = Depends(require_role("owner", "admin"))):
+    """Vérifie la clé du fournisseur choisi, sans consommer de jeton."""
+    s = await get_tenant_ai_settings(cu.tenant_id)
+    fournisseur = (s.get("ai_provider") or ai_service.DEFAULT_PROVIDER).lower()
+    if fournisseur != "mistral":
+        return {"ok": True, "message": "Moteur intégré : aucune clé à vérifier."} if fournisseur == "hermes" else \
+               {"ok": False, "message": "Test disponible pour Mistral uniquement."}
+    cle = s.get("ai_key") or ai_service.MISTRAL_API_KEY
+    res = await asyncio.to_thread(ai_service.tester_mistral, cle)
+    res["source_cle"] = "entreprise" if s.get("ai_key") else ("plateforme" if cle else None)
+    await audit(cu.tenant_id, cu.email, "settings.test_ia", None, {"fournisseur": fournisseur, "ok": res["ok"]})
+    return res
 
 
 async def get_tenant_ai_settings(tenant_id):

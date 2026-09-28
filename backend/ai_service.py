@@ -11,6 +11,8 @@ import base64
 import uuid
 import logging
 import httpx
+
+import facturation_stripe
 import quote_scenarios
 import matching as match_engine
 import asyncio
@@ -419,8 +421,15 @@ HERMES_GATEWAY_MODEL = os.environ.get("HERMES_GATEWAY_MODEL", "hermes-agent")
 # ── Fallback cloud providers ─────────────────────────────────────────────────
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
-DEFAULT_PROVIDER = "hermes"
-DEFAULT_MODEL = HERMES_DEFAULT_MODEL
+# Ticket #88 (29/09/2026) : Mistral remplace Cerebras comme IA de production.
+# Le fournisseur par défaut d'une entreprise sans réglage reste hermes tant que
+# BLUESEATRA_IA_FOURNISSEUR_DEFAUT n'est pas défini sur Render.
+DEFAULT_PROVIDER = (os.environ.get("BLUESEATRA_IA_FOURNISSEUR_DEFAUT") or "hermes").strip().lower()
+MISTRAL_API_URL = os.environ.get("MISTRAL_API_URL", "https://api.mistral.ai/v1/chat/completions")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+MISTRAL_DEFAULT_MODEL = os.environ.get("MISTRAL_MODEL", "mistral-medium-latest")
+DEFAULT_MODEL = (os.environ.get("BLUESEATRA_IA_MODELE_DEFAUT")
+                 or (MISTRAL_DEFAULT_MODEL if DEFAULT_PROVIDER == "mistral" else HERMES_DEFAULT_MODEL))
 
 EXTRACTION_SYSTEM = """You are Blueseatra's document understanding engine for a B2B facility-maintenance quoting platform.
 You receive INCOMING quote requests (\"demande de devis\"), mission orders (\"ordre de mission\"), emails or photos in ANY language.
@@ -610,6 +619,11 @@ async def resolve_ai_config(
 
     # Normalize provider name
     provider = provider.lower()
+
+    if provider == "mistral":
+        # Clé propre à l'entreprise (page Paramètres), sinon clé de la plateforme.
+        model = model if model and not model.lower().startswith(("hermes", "qwen")) else MISTRAL_DEFAULT_MODEL
+        api_key = api_key or MISTRAL_API_KEY
 
     # Hermes/Ollama: tenant key unused; gateway auth is HERMES_API_KEY.
     if provider == "hermes":
@@ -946,6 +960,76 @@ async def _call_openai(
         return data["choices"][0]["message"]["content"]
 
 
+async def _call_mistral(
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_message: str,
+    image_b64: str | None = None,
+    role: str = "-",
+) -> str:
+    """API Mistral (compatible chat completions), réponse JSON imposée.
+
+    Les modèles mistral-medium / mistral-small lisent aussi les images.
+    Aucun prix n'est demandé ; ia_garde_fous retire tout prix renvoyé."""
+    if not api_key:
+        raise RuntimeError("Mistral : aucune clé API (page Paramètres ou MISTRAL_API_KEY).")
+    content: list | str = user_message
+    if image_b64:
+        content = [
+            {"type": "text", "text": user_message},
+            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_b64}"},
+        ]
+    payload = {
+        "model": model or MISTRAL_DEFAULT_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 4096,
+        "response_format": {"type": "json_object"},
+    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+    def _poster():
+        # Client synchrone dans un fil : compatible avec tous les proxys HTTPS.
+        with httpx.Client(timeout=120.0, verify=facturation_stripe._tls()) as client:
+            return client.post(MISTRAL_API_URL, headers=headers, json=payload)
+
+    for tentative in range(2):
+            response = await asyncio.to_thread(_poster)
+            if response.status_code == 429 and tentative == 0:
+                await asyncio.sleep(2)
+                continue
+            if response.status_code >= 400:
+                raise RuntimeError(f"Mistral HTTP {response.status_code} : {response.text[:200]}")
+            data = response.json()
+            texte = data["choices"][0]["message"]["content"]
+            if isinstance(texte, list):   # modèles de raisonnement : blocs typés
+                texte = "".join(b.get("text", "") for b in texte if isinstance(b, dict) and b.get("type") == "text")
+            return texte
+    raise RuntimeError("Mistral : limite de débit atteinte")
+
+
+def tester_mistral(api_key: str) -> dict:
+    """Vérifie une clé Mistral (liste des modèles). Ne consomme aucun jeton."""
+    if not api_key:
+        return {"ok": False, "message": "Aucune clé Mistral enregistrée."}
+    try:
+        with httpx.Client(timeout=20.0, verify=facturation_stripe._tls()) as client:
+            r = client.get(MISTRAL_API_URL.rsplit("/chat/", 1)[0] + "/models",
+                           headers={"Authorization": f"Bearer {api_key}"})
+    except httpx.HTTPError as e:
+        return {"ok": False, "message": f"Mistral injoignable : {type(e).__name__}"}
+    if r.status_code == 401:
+        return {"ok": False, "message": "Clé refusée par Mistral (401) : vérifiez-la ou régénérez-la."}
+    if r.status_code >= 400:
+        return {"ok": False, "message": f"Mistral a répondu {r.status_code}."}
+    ids = sorted({m.get("id") for m in r.json().get("data", []) if m.get("id")})
+    return {"ok": True, "message": f"Connexion réussie : {len(ids)} modèles disponibles.", "modeles": ids}
+
+
 def _fallback_extract(raw_text: str) -> dict:
     """Extraction deterministe si Ollama/Hermes ne repond pas. Aucun prix."""
     text = (raw_text or "").replace("\r\n", "\n")
@@ -1075,6 +1159,11 @@ async def extract_request_data(
                 user_message=user_message,
                 image_b64=image_b64,
                 role=role,
+            )
+        elif provider == "mistral":
+            raw_response = await _call_mistral(
+                api_key=api_key, model=model, system_prompt=EXTRACTION_SYSTEM,
+                user_message=user_message, image_b64=image_b64, role=role,
             )
         elif provider == "openai":
             raw_response = await _call_openai(
@@ -1292,7 +1381,9 @@ async def generate_ai_works_narrative(extracted: dict, tenant_settings: dict) ->
         )
     try:
         provider, model, api_key = await resolve_ai_config(tenant_settings, role="describe")
-        if provider == "openai":
+        if provider == "mistral":
+            raw = await _call_mistral(api_key=api_key, model=model, system_prompt=DESCRIPTION_SYSTEM, user_message=user, role="describe")
+        elif provider == "openai":
             raw = await _call_openai(api_key or OPENAI_API_KEY, model, DESCRIPTION_SYSTEM, user)
         else:
             raw = await _call_describe(model, DESCRIPTION_SYSTEM, user)
@@ -1364,7 +1455,9 @@ async def expand_work_into_materials(extracted: dict, tenant_settings: dict, cat
         user += "Articles catalogue (libellés seulement, SANS prix):\n- " + "\n- ".join(labels)
     try:
         provider, model, api_key = await resolve_ai_config(tenant_settings, role="reason")
-        if provider == "openai":
+        if provider == "mistral":
+            raw = await _call_mistral(api_key=api_key, model=model, system_prompt=EXPAND_SYSTEM, user_message=user, role="reason")
+        elif provider == "openai":
             raw = await _call_openai(api_key or OPENAI_API_KEY, model, EXPAND_SYSTEM, user)
         else:
             raw = await _call_reason(model, EXPAND_SYSTEM, user)
@@ -1998,4 +2091,5 @@ def extract_plain_text(content: bytes) -> str:
 _call_hermes_ollama = ia_garde_fous.journaliser("hermes")(_call_hermes_ollama)
 _call_hermes_gateway = ia_garde_fous.journaliser("hermes_gateway")(_call_hermes_gateway)
 _call_openai = ia_garde_fous.journaliser("openai")(_call_openai)
+_call_mistral = ia_garde_fous.journaliser("mistral")(_call_mistral)
 _call_ocr_model = ia_garde_fous.journaliser("hermes_ocr")(_call_ocr_model)

@@ -21,12 +21,19 @@ function AiSettings({ canManage }) {
   const [ocrModelChoices, setOcrModelChoices] = useState({});
   const [form, setForm] = useState(null);
   const [keySet, setKeySet] = useState(false);
+  const [apercu, setApercu] = useState(null);
+  const [labels, setLabels] = useState({});
+  const [clePlateforme, setClePlateforme] = useState(false);
+  const [test, setTest] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api.get('/settings/integrations').then((r) => {
       const s = r.data.settings;
       setProviderModels(r.data.provider_models);
+      setLabels(r.data.provider_labels || {});
+      setClePlateforme(!!r.data.mistral_cle_plateforme);
+      setApercu(s.ai_key_apercu || null);
       setOcrModelChoices(r.data.ocr_model_choices || {});
       setForm({
         ai_provider: s.ai_provider || 'hermes', ai_model: s.ai_model || '', ai_key: '',
@@ -38,12 +45,24 @@ function AiSettings({ canManage }) {
 
   const save = async () => {
     setBusy(true);
-    try { await api.put('/settings/integrations', form); toast.success(t('settings.saved')); if (form.ai_key) setKeySet(true); setForm({ ...form, ai_key: '' }); }
+    try {
+      await api.put('/settings/integrations', form); toast.success(t('settings.saved'));
+      const r = await api.get('/settings/integrations');
+      setKeySet(!!r.data.settings.ai_key_set); setApercu(r.data.settings.ai_key_apercu || null);
+      setForm({ ...form, ai_key: '', effacer_cle: false }); setTest(null);
+    }
     catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
   };
 
+  const tester = async () => {
+    setTest({ enCours: true });
+    try { const { data } = await api.post('/settings/integrations/tester'); setTest(data); }
+    catch (err) { setTest({ ok: false, message: apiError(err, 'Échec du test') }); }
+  };
+
   if (!form) return <Spinner />;
+  const mistral = form.ai_provider === 'mistral';
   const models = providerModels[form.ai_provider] || [];
   return (
     <Card className="card-shadow border-0 p-6">
@@ -52,7 +71,7 @@ function AiSettings({ canManage }) {
           <Label>{t('settings.ai_provider')}</Label>
           <Select value={form.ai_provider} onValueChange={(v) => setForm({ ...form, ai_provider: v, ai_model: (providerModels[v] || [])[0] || '' })} disabled={!canManage}>
             <SelectTrigger data-testid="ai-provider-select"><SelectValue /></SelectTrigger>
-            <SelectContent>{Object.keys(providerModels).map((p) => <SelectItem key={p} value={p}>{p === 'hermes' ? 'Built-in (hermes)' : p}</SelectItem>)}</SelectContent>
+            <SelectContent>{Object.keys(providerModels).map((p) => <SelectItem key={p} value={p}>{labels[p] || p}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
@@ -64,9 +83,24 @@ function AiSettings({ canManage }) {
         </div>
         <div className="space-y-1.5">
           <Label className="flex items-center gap-1.5"><KeyRound className="h-3.5 w-3.5" />{t('settings.ai_key')}</Label>
-          <Input type="password" placeholder={keySet ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : ''} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />
-          <p className="text-xs text-muted-foreground">{t('settings.ai_key_hint')}</p>
-          {keySet && <p className="flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />{t('settings.key_set')}</p>}
+          <Input type="password" autoComplete="off" placeholder={keySet ? (apercu || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') : (mistral ? t('settings.mistral_placeholder') : '')} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />
+          <p className="text-xs text-muted-foreground">{mistral ? t('settings.mistral_hint') : t('settings.ai_key_hint')}</p>
+          {keySet && (
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />{t('settings.key_set')}{apercu ? ` (${apercu})` : ''}</span>
+              {canManage && <button type="button" className="text-muted-foreground underline" onClick={() => setForm({ ...form, ai_key: '', effacer_cle: true })}>{t('settings.key_remove')}</button>}
+              {form.effacer_cle && <span className="text-amber-700">{t('settings.key_remove_pending')}</span>}
+            </div>
+          )}
+          {mistral && !keySet && clePlateforme && <p className="text-xs text-muted-foreground">{t('settings.mistral_platform')}</p>}
+          {mistral && canManage && (
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <Button type="button" variant="outline" size="sm" onClick={tester} disabled={test?.enCours} data-testid="ai-test-button">
+                {test?.enCours ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-1 h-4 w-4" />}{t('settings.test_connection')}
+              </Button>
+              {test && !test.enCours && <span className={`text-xs ${test.ok ? 'text-emerald-700' : 'text-destructive'}`} data-testid="ai-test-result">{test.message}</span>}
+            </div>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label>{t('settings.n8n')}</Label>
