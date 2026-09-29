@@ -2,6 +2,12 @@
 
 ## 2026-09-29 — Toute l'IA passe par l'agent Hermès, OCR local PaddleOCR par défaut
 
+- **Devis : schémas et règles de l'agent validé dans Mistral Studio** (les mêmes que les skills Hermès `extraire-demande-travaux` et `decrire-demande-travaux`) :
+  - `backend/schemas_ia/` contient les deux schémas JSON ;
+  - la sortie est contrainte par schéma : `format` pour Ollama, `response_format` `json_schema` strict pour Hermès et Mistral, avec un nouvel essai automatique sans schéma si la passerelle le refuse ; `BLUESEATRA_IA_SCHEMA_STRICT=0` n'utilise que la consigne ;
+  - extraction : métré en 14 familles (`famille_poste`, `postes_verifies`), engins sur ligne propre (`moyens_acces_engins`), `notes` par ligne et `reserves` ;
+  - descriptif : `preliminaires` et `controles_fin_travaux` en plus de `description` et `etapes`, désormais imprimés dans le texte du devis (Préliminaires, puis Déroulement, puis Contrôles de fin de travaux) ;
+  - correction : un modèle « Mistral (via Hermès) » était routé vers Ollama lors de l'extraction.
 - **Plus aucun appel direct du SaaS vers Ollama.** Tous les appels vont à `POST /v1/chat/completions` de l'agent Hermès, qui choisit le fournisseur à chaque requête : `custom:ollama` pour les modèles du VPS, `custom:mistral` pour l'API Mistral. Cela couvre l'OCR, la cascade de structuration, l'extraction, la décomposition, la rédaction, la vision approfondie et Mistral.
   - `BLUESEATRA_IA_VIA_HERMES=0` sert uniquement de retour arrière d'urgence.
   - Sans `HERMES_GATEWAY_URL`, l'erreur est explicite ; il n'y a pas de repli silencieux vers Ollama.

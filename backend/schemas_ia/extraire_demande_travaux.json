@@ -1,0 +1,420 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "donneur_d_ordre": {
+      "type": "string",
+      "description": "Destinataire du devis : maître d'ouvrage, gestionnaire ou entreprise qui passe commande (syndic, property manager, enseigne, entreprise générale). Repérer « devis à adresser à », « donneur d'ordre », l'en-tête, le SIRET ou l'IBAN de l'émetteur de la demande. Jamais l'entreprise sollicitée pour chiffrer. Vide si non précisé."
+    },
+    "donneur_email": {
+      "type": "string",
+      "description": "Adresse électronique du donneur d'ordre. Vide si absente."
+    },
+    "donneur_address": {
+      "type": "string",
+      "description": "Adresse postale ou de facturation du donneur d'ordre (siège), distincte de l'adresse du chantier. Vide si absente."
+    },
+    "client_name": {
+      "type": "string",
+      "description": "Enseigne ou occupant désigné par « Client : » (le site concerné). Jamais le donneur d'ordre."
+    },
+    "client_final": {
+      "type": "string",
+      "description": "Occupant ou exploitant des locaux (locataire, magasin, particulier). Identique à client_name si un seul nom est donné."
+    },
+    "client_email": {
+      "type": "string",
+      "description": "Adresse électronique du contact sur site. Vide si absente."
+    },
+    "client_phone": {
+      "type": "string",
+      "description": "Téléphone du contact sur site, tel qu'écrit dans la demande. Vide si absent."
+    },
+    "client_address": {
+      "type": "string",
+      "description": "Adresse du client si elle diffère de celle du chantier. Vide sinon."
+    },
+    "location": {
+      "type": "string",
+      "description": "Adresse du chantier : numéro, voie, code postal, ville, et si précisés bâtiment, étage, lot ou local. Jamais le siège du donneur d'ordre."
+    },
+    "work_type": {
+      "type": "string",
+      "enum": [
+        "plomberie",
+        "electricite",
+        "cvc",
+        "menuiserie",
+        "serrurerie",
+        "platrerie",
+        "peinture",
+        "revetement_sol",
+        "carrelage",
+        "maconnerie",
+        "couverture_etancheite",
+        "multi_lots",
+        "autre"
+      ],
+      "description": "Corps d'état principal. multi_lots si plusieurs corps d'état sont concernés à parts comparables."
+    },
+    "description": {
+      "type": "string",
+      "description": "Descriptif de la demande dans les termes d'un devis : nature de l'intervention, ouvrages concernés, état existant décrit, contraintes d'accès et d'exploitation (site occupé ou ouvert au public, horaires, hauteur de travail, étage sans ascenseur, stationnement, amiante ou plomb suspectés). Aucune information absente de la demande."
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "urgent",
+        "normal",
+        "planifie"
+      ],
+      "description": "urgent : dépannage, fuite, mise en sécurité ou arrêt d'exploitation. planifie : date ou période d'intervention imposée. normal : tous les autres cas."
+    },
+    "requested_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Date ou période d'intervention demandée, au format AAAA-MM-JJ si elle est précise, sinon telle qu'écrite (« semaine 42 »). Null si absente."
+    },
+    "di_number": {
+      "type": "string",
+      "description": "Numéro de demande d'intervention, de bon de commande ou de ticket du donneur d'ordre. Vide si absent."
+    },
+    "language": {
+      "type": "string",
+      "description": "Langue de la demande, en code ISO 639-1 (fr, en…)."
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Degré de certitude du relevé, de 0 à 1. Inférieur à 0,5 si les parties, le lieu ou la prestation sont incertains."
+    },
+    "labor_hours": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Main-d'œuvre estimée en heures-homme : préparation, dépose, pose, raccordement, essais, repli et nettoyage. Hors temps de trajet, chiffré séparément."
+    },
+    "travel_days": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Nombre de jours d'intervention sur site, chacun générant un déplacement."
+    },
+    "crew_size": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "description": "Composition de l'équipe : 2 compagnons par défaut (sécurité et manutention), 1 seulement pour une intervention courte et légère de 3 h au plus."
+    },
+    "line_items": {
+      "type": "array",
+      "description": "Décomposer la prestation comme un métreur, sans rien négliger, en vérifiant systématiquement : 1) préliminaires (visite, relevé, repérage des réseaux, consignation électrique ou coupure d'eau, autorisations) ; 2) protection et balisage (bâches, films, protections de sols, barrières, signalisation en site occupé ou ERP) ; 3) moyens d'accès et engins dès que la hauteur, le poids ou l'accès l'exigent (escabeau pro, échafaudage roulant, nacelle ciseaux ou articulée, monte-matériaux, transpalette, carotteuse, perforateur, aspirateur de chantier), chacun sur sa ligne avec sa durée ; 4) dépose, évacuation, tri et mise en décharge des existants ; 5) matériau ou appareil principal, sur sa propre ligne ; 6) accessoires indispensables à la pose (supports, raccords, vannes, boîtes, gaines, profilés, quincaillerie) ; 7) fixations (vis, chevilles, colliers, scellement chimique, tiges filetées) ; 8) étanchéité et calfeutrement (joints, mastic, silicone, mousse, bande, coupe-feu si requis) ; 9) collage et préparation (primaire, colle, mortier-colle, enduit, ragréage) ; 10) raccordements (câbles, bornes, connecteurs, flexibles, manchons) ; 11) petites fournitures et consommables regroupés sur UNE ligne explicite en forfait, détaillée dans included_items, jamais « divers » ; 12) finitions (baguettes, plinthes, caches, retouches de peinture) ; 13) essais, mesures, réglages, mise en service et autocontrôle ; 14) nettoyage et repli. Ne retenir que ce qui s'applique réellement à cette prestation. Un matériau principal coûteux n'est jamais caché dans les consommables. Liste vide si la demande comporte des variantes exclusives : les postes figurent alors dans quote_options.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Désignation de l'article ou de la prestation, nom seul sans verbe d'action, avec les caractéristiques utiles au rapprochement catalogue (dimension, section, puissance, classe, matière, teinte : « câble R2V 3G2,5 », « bloc porte coupe-feu EI30 90x204 », « nacelle ciseaux 8 m »)."
+          },
+          "qty": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Quantité issue de la demande, du métré ou d'un minimum réaliste de mise en œuvre. Null seulement si elle est réellement indéterminable."
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "u",
+              "ml",
+              "m2",
+              "m3",
+              "kg",
+              "l",
+              "h",
+              "j",
+              "semaine",
+              "ens",
+              "forfait"
+            ],
+            "description": "Unité de métré. j ou semaine pour la location d'engins et d'échafaudages."
+          },
+          "line_type_hint": {
+            "type": "string",
+            "enum": [
+              "main_work",
+              "installation_supplies",
+              "consumable",
+              "finish",
+              "protection",
+              "waste_removal",
+              "testing"
+            ],
+            "description": "main_work : matériau ou ouvrage principal, engin ou équipement d'accès. installation_supplies : accessoires et fixations indispensables à la pose. consumable : petites fournitures et consommables regroupés. finish : finitions et raccords de propreté. protection : préliminaires, protections, balisage, consignation. waste_removal : dépose, évacuation, tri et mise en décharge. testing : essais, mesures, réglages, mise en service."
+          },
+          "famille_poste": {
+            "type": "string",
+            "enum": [
+              "preliminaires",
+              "protection_balisage",
+              "moyens_acces_engins",
+              "depose_evacuation",
+              "materiau_principal",
+              "accessoires_pose",
+              "fixations",
+              "etancheite_calfeutrement",
+              "collage_preparation",
+              "raccordements",
+              "petites_fournitures_consommables",
+              "finitions",
+              "essais_mise_en_service",
+              "nettoyage_repli"
+            ],
+            "description": "Famille de poste, pour contrôler qu'aucune n'a été oubliée."
+          },
+          "included_items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Détail des éléments couverts par une ligne groupée (ex. pour les consommables : vis, chevilles, colliers, embouts, mastic, bande, sacs à gravats). Liste vide pour un article unitaire."
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Réserve ou hypothèse retenue lorsque la demande est imprécise (ex. « hauteur sous plafond supposée inférieure à 3 m »). Null si aucune."
+          }
+        },
+        "required": [
+          "label",
+          "qty",
+          "unit",
+          "line_type_hint",
+          "famille_poste",
+          "included_items",
+          "notes"
+        ]
+      }
+    },
+    "quote_options": {
+      "type": "array",
+      "description": "Variantes exclusives demandées par le client (« soit… soit… », « ou bien », option 1 / option 2), chacune destinée à un devis distinct ; au moins deux, sinon liste vide. Les travaux cumulatifs (« et », « puis », « ainsi que ») forment une seule prestation dans line_items. Ne jamais additionner des variantes.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "Intitulé court de la variante (ex. « Remplacement complet de la pompe »)."
+          },
+          "description": {
+            "type": "string",
+            "description": "Descriptif de la variante tel qu'il figurera sur le devis : ouvrages et limites de prestation."
+          },
+          "line_items": {
+            "type": "array",
+            "description": "Décomposition complète de la variante, selon la même vérification poste par poste que line_items.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "description": "Désignation de l'article ou de la prestation, nom seul sans verbe d'action, avec les caractéristiques utiles au rapprochement catalogue (dimension, section, puissance, classe, matière, teinte : « câble R2V 3G2,5 », « bloc porte coupe-feu EI30 90x204 », « nacelle ciseaux 8 m »)."
+                },
+                "quantity": {
+                  "type": [
+                    "number",
+                    "null"
+                  ],
+                  "description": "Quantité issue de la demande, du métré ou d'un minimum réaliste de mise en œuvre. Null seulement si elle est réellement indéterminable."
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "u",
+                    "ml",
+                    "m2",
+                    "m3",
+                    "kg",
+                    "l",
+                    "h",
+                    "j",
+                    "semaine",
+                    "ens",
+                    "forfait"
+                  ],
+                  "description": "Unité de métré. j ou semaine pour la location d'engins et d'échafaudages."
+                },
+                "line_type_hint": {
+                  "type": "string",
+                  "enum": [
+                    "main_work",
+                    "installation_supplies",
+                    "consumable",
+                    "finish",
+                    "protection",
+                    "waste_removal",
+                    "testing"
+                  ],
+                  "description": "main_work : matériau ou ouvrage principal, engin ou équipement d'accès. installation_supplies : accessoires et fixations indispensables à la pose. consumable : petites fournitures et consommables regroupés. finish : finitions et raccords de propreté. protection : préliminaires, protections, balisage, consignation. waste_removal : dépose, évacuation, tri et mise en décharge. testing : essais, mesures, réglages, mise en service."
+                },
+                "famille_poste": {
+                  "type": "string",
+                  "enum": [
+                    "preliminaires",
+                    "protection_balisage",
+                    "moyens_acces_engins",
+                    "depose_evacuation",
+                    "materiau_principal",
+                    "accessoires_pose",
+                    "fixations",
+                    "etancheite_calfeutrement",
+                    "collage_preparation",
+                    "raccordements",
+                    "petites_fournitures_consommables",
+                    "finitions",
+                    "essais_mise_en_service",
+                    "nettoyage_repli"
+                  ],
+                  "description": "Famille de poste, pour contrôler qu'aucune n'a été oubliée."
+                },
+                "included_items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Détail des éléments couverts par une ligne groupée (ex. pour les consommables : vis, chevilles, colliers, embouts, mastic, bande, sacs à gravats). Liste vide pour un article unitaire."
+                },
+                "notes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Réserve ou hypothèse retenue lorsque la demande est imprécise (ex. « hauteur sous plafond supposée inférieure à 3 m »). Null si aucune."
+                }
+              },
+              "required": [
+                "description",
+                "quantity",
+                "unit",
+                "line_type_hint",
+                "famille_poste",
+                "included_items",
+                "notes"
+              ]
+            }
+          },
+          "labor_hours": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Heures-homme propres à la variante, hors trajet."
+          },
+          "travel_days": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Jours d'intervention sur site pour la variante."
+          },
+          "crew_size": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Compagnons mobilisés (2 par défaut)."
+          },
+          "excludes": {
+            "type": "string",
+            "description": "Prestations exclues de la variante, généralement l'autre variante. Vide sinon."
+          }
+        },
+        "required": [
+          "label",
+          "description",
+          "line_items",
+          "labor_hours",
+          "travel_days",
+          "crew_size",
+          "excludes"
+        ]
+      }
+    },
+    "moyens_acces_engins": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Engins et moyens d'accès nécessaires (nacelle, échafaudage roulant, monte-matériaux, carotteuse…), avec la raison (hauteur, poids, accès). Ils figurent aussi en ligne de devis pour être chiffrés. Liste vide si aucun."
+    },
+    "reserves": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Points à faire confirmer avant envoi du devis : informations manquantes, hypothèses retenues, visite technique recommandée. Liste vide si la demande est complète."
+    },
+    "postes_verifies": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "preliminaires",
+          "protection_balisage",
+          "moyens_acces_engins",
+          "depose_evacuation",
+          "materiau_principal",
+          "accessoires_pose",
+          "fixations",
+          "etancheite_calfeutrement",
+          "collage_preparation",
+          "raccordements",
+          "petites_fournitures_consommables",
+          "finitions",
+          "essais_mise_en_service",
+          "nettoyage_repli"
+        ]
+      },
+      "description": "Familles de postes examinées lors de la vérification, qu'elles aient donné lieu à une ligne ou qu'elles soient sans objet. Doit couvrir les 14 familles."
+    }
+  },
+  "required": [
+    "donneur_d_ordre",
+    "donneur_email",
+    "donneur_address",
+    "client_name",
+    "client_final",
+    "client_email",
+    "client_phone",
+    "client_address",
+    "location",
+    "work_type",
+    "description",
+    "urgency",
+    "requested_date",
+    "di_number",
+    "language",
+    "confidence",
+    "labor_hours",
+    "travel_days",
+    "crew_size",
+    "line_items",
+    "quote_options",
+    "moyens_acces_engins",
+    "reserves",
+    "postes_verifies"
+  ]
+}
