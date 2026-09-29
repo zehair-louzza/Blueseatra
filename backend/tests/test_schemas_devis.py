@@ -59,3 +59,22 @@ def test_descriptif_avec_preliminaires_et_controles(monkeypatch):
                                                       {"ai_provider": "hermes"}))
     assert "Préliminaires :\n- Consigner" in texte and "Contrôles de fin de travaux :\n- Vérifier" in texte
     assert texte.index("Préliminaires") < texte.index("Déroulement") < texte.index("Contrôles")
+
+
+def test_hermes_occupe_429_attend_puis_reussit(monkeypatch):
+    import httpx
+    reponses = [httpx.Response(429, json={"error": {"message": "Too many concurrent runs (max 1)"}}),
+                httpx.Response(200, json={"choices": [{"message": {"content": "{\"ok\": 1}"}}]})]
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, *a, **k): return reponses.pop(0)
+    attentes = []
+    async def _dormir(s): attentes.append(s)
+    monkeypatch.setattr(ai.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(ai.asyncio, "sleep", _dormir)
+    monkeypatch.setattr(ai, "HERMES_GATEWAY_URL", "https://hermes.exemple")
+    monkeypatch.setattr(ai, "HERMES_ATTENTES_429", (10, 30))
+    assert asyncio.run(ai._hermes_chat("qwen2.5:7b", "s", "u")) == '{"ok": 1}'
+    assert attentes == [10]
