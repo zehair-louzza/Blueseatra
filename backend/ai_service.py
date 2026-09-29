@@ -341,8 +341,8 @@ _OCR_STAGE_MEASURED_SECONDS = {
 # label interne utilise par _OCR_STAGE_MEASURED_SECONDS/_ocr_cascade_stages.
 # "auto" (ou toute cle absente/inconnue) laisse l'ordre par defaut inchange.
 OCR_MODEL_PREFERENCE_LABELS = {
-    "paddleocr": "PaddleOCR-VL-1.6",
     "glm-ocr": "GLM-OCR",
+    "paddleocr": "GLM-OCR",  # ancienne préférence, remplacée par GLM-OCR le 29/09/2026
     "lightonocr": "LightOnOCR-2-1B",
     "qwen25vl": "Qwen2.5-VL-7B",
     "olmocr2": "olmOCR-2-7B",
@@ -383,8 +383,11 @@ def _ocr_cascade_stages(preferred: str | None = None) -> list[tuple[str, str, fl
     priorite, pas un remplacement de la cascade de secours. Une cle
     absente, vide ou non reconnue ("auto" compris) laisse l'ordre par
     defaut totalement inchange."""
+    # 2026-09-29 : GLM-OCR remplace PaddleOCR-VL-1.6 en tête (demande de
+    # l'utilisateur) : PaddleOCR relu mal par la passerelle Hermès (essai réel :
+    # « Pome » au lieu de « DEVIS TEST 4217 / Pompe de relevage »). PaddleOCR
+    # sort de la cascade ; l'ancienne préférence « paddleocr » vaut GLM-OCR.
     order = [
-        ("PaddleOCR-VL-1.6", HERMES_OCR_MODEL),
         ("GLM-OCR", HERMES_OCR_GLM_MODEL),
         ("LightOnOCR-2-1B", HERMES_OCR_SECONDARY_MODEL),
         ("Qwen2.5-VL-7B", HERMES_OCR_ESCALATION_MODEL),

@@ -452,9 +452,8 @@ def _apercu_cle(chiffree: Optional[str]) -> Optional[str]:
 # traitement initial -- ne s'applique jamais retroactivement (un PDF n'est
 # jamais conserve, voir create_request).
 OCR_MODEL_CHOICES = {
-    "paddleocr": "PaddleOCR-VL-1.6 — local sur le VPS, par défaut (le plus rapide, ~110s/page)",
-    "auto": "Automatique (ordre par défaut, priorité vitesse)",
-    "glm-ocr": "GLM-OCR (~183s/page)",
+    "glm-ocr": "GLM-OCR — local sur le VPS, par défaut (~183s/page)",
+    "auto": "Automatique (ordre par défaut, GLM-OCR en premier)",
     "lightonocr": "LightOnOCR-2-1B (français, ~200s/page)",
     "qwen25vl": "Qwen2.5-VL-7B (~246s/page)",
     "olmocr2": "olmOCR-2-7B (meilleurs tableaux, le plus lent, ~587s/page)",
@@ -486,13 +485,13 @@ async def get_settings(cu: CurrentUser = Depends(get_current)):
     s = await db.settings_integrations.find_one({"tenant_id": cu.tenant_id}, {"_id": 0})
     if not s:
         s = {"tenant_id": cu.tenant_id, "ai_provider": ai_service.DEFAULT_PROVIDER, "ai_model": ai_service.DEFAULT_MODEL,
-             "n8n_webhook_url": None, "ocr_model_preference": "paddleocr"}
+             "n8n_webhook_url": None, "ocr_model_preference": "glm-ocr"}
     s = dict(s)
     s["ai_key_set"] = bool(s.get("ai_key"))
     s["ai_key_apercu"] = _apercu_cle(s.get("ai_key"))
     s.pop("ai_key", None)
-    if not s.get("ocr_model_preference"):
-        s["ocr_model_preference"] = "paddleocr"
+    if s.get("ocr_model_preference") in (None, "", "paddleocr"):
+        s["ocr_model_preference"] = "glm-ocr"
     return {"settings": s, "provider_models": PROVIDER_MODELS, "provider_labels": PROVIDER_LABELS,
             "ocr_model_choices": OCR_MODEL_CHOICES,
             "mistral_cle_plateforme": bool(ai_service.MISTRAL_API_KEY),
@@ -502,7 +501,9 @@ async def get_settings(cu: CurrentUser = Depends(get_current)):
 @api.put("/settings/integrations")
 async def update_settings(body: IntegrationSettings,
                           cu: CurrentUser = Depends(require_role("owner", "admin"))):
-    ocr_pref = (body.ocr_model_preference or "paddleocr").strip()
+    ocr_pref = (body.ocr_model_preference or "glm-ocr").strip()
+    if ocr_pref == "paddleocr":   # retiré le 29/09/2026, remplacé par GLM-OCR
+        ocr_pref = "glm-ocr"
     if ocr_pref not in OCR_MODEL_CHOICES:
         raise HTTPException(400, f"ocr_model_preference invalide. Valeurs acceptees : {', '.join(OCR_MODEL_CHOICES)}")
     doc = {"tenant_id": cu.tenant_id, "ai_provider": body.ai_provider,

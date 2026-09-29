@@ -46,7 +46,7 @@ function AiSettings({ canManage }) {
       setOcrModelChoices(r.data.ocr_model_choices || {});
       setForm({
         ai_provider: s.ai_provider || 'hermes', ai_model: s.ai_model || '', ai_key: '',
-        n8n_webhook_url: s.n8n_webhook_url || '', ocr_model_preference: s.ocr_model_preference || 'paddleocr',
+        n8n_webhook_url: s.n8n_webhook_url || '', ocr_model_preference: s.ocr_model_preference || 'glm-ocr',
       });
       setKeySet(!!s.ai_key_set);
     });
@@ -61,7 +61,7 @@ function AiSettings({ canManage }) {
       setKeySet(!!e.ai_key_set); setApercu(e.ai_key_apercu || null);
       // Le formulaire affiche ce qui est réellement enregistré, pas la saisie locale.
       setForm({ ai_provider: e.ai_provider || 'hermes', ai_model: e.ai_model || '', ai_key: '', effacer_cle: false,
-        n8n_webhook_url: e.n8n_webhook_url || '', ocr_model_preference: e.ocr_model_preference || 'paddleocr' });
+        n8n_webhook_url: e.n8n_webhook_url || '', ocr_model_preference: e.ocr_model_preference || 'glm-ocr' });
       setTest(null);
     }
     catch (err) { toast.error(apiError(err, 'Failed')); }

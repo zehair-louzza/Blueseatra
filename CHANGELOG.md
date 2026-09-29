@@ -1,7 +1,8 @@
 # Changelog
 
-## 2026-09-29 — Toute l'IA passe par l'agent Hermès, OCR local PaddleOCR par défaut
+## 2026-09-29 — Toute l'IA passe par l'agent Hermès, OCR local GLM-OCR par défaut
 
+- **GLM-OCR remplace PaddleOCR-VL-1.6** en tête de l'OCR, à la demande de l'utilisateur : PaddleOCR lisait mal par la passerelle Hermès (« Pome » au lieu du texte de l'image d'essai). PaddleOCR sort de la cascade ; une préférence « paddleocr » enregistrée vaut désormais GLM-OCR (migration `20260929020000_settings_ocr_glm.sql`).
 - **Devis : schémas et règles de l'agent validé dans Mistral Studio** (les mêmes que les skills Hermès `extraire-demande-travaux` et `decrire-demande-travaux`) :
   - `backend/schemas_ia/` contient les deux schémas JSON ;
   - la sortie est contrainte par schéma : `format` pour Ollama, `response_format` `json_schema` strict pour Hermès et Mistral, avec un nouvel essai automatique sans schéma si la passerelle le refuse ; `BLUESEATRA_IA_SCHEMA_STRICT=0` n'utilise que la consigne ;
@@ -12,7 +13,7 @@
   - `BLUESEATRA_IA_VIA_HERMES=0` sert uniquement de retour arrière d'urgence.
   - Sans `HERMES_GATEWAY_URL`, l'erreur est explicite ; il n'y a pas de repli silencieux vers Ollama.
 - **Hermès :** la passerelle est le service `hermes-passerelle` du dépôt `ovh-ai-stack` (PR #30, ADR-009), sans aucun outil, avec les fournisseurs `ollama` et `mistral`. Elle est joignable sur `https://hermes.blueseatra.com` avec l'en-tête `X-Api-Key`.
-- **OCR toujours local, PaddleOCR-VL par défaut :**
+- **OCR toujours local (GLM-OCR par défaut) :**
   - une image n'est jamais envoyée à Mistral ou OpenAI ; seul le texte lu sur le VPS part vers le fournisseur choisi ;
   - le choix « Modèle OCR préféré » est enfin enregistré : la colonne manquait, et le choix revenait à « Automatique » après chaque enregistrement (migration `20260929010000_settings_ocr_preference.sql`).
 - **Page Paramètres :** après « Enregistrer », le formulaire se recharge avec les valeurs réellement enregistrées.
