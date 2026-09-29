@@ -900,6 +900,8 @@ def _looks_like_wrong_server(response) -> bool:
 IA_VIA_HERMES = os.environ.get("BLUESEATRA_IA_VIA_HERMES", "1") != "0"
 # Sortie contrainte par les schémas JSON (extraction et descriptif). 0 = consigne seule.
 IA_SCHEMA_STRICT = os.environ.get("BLUESEATRA_IA_SCHEMA_STRICT", "1") != "0"
+# Attentes (s) avant nouvel essai quand Hermès répond 429 (occupé) : ~3 min au total.
+HERMES_ATTENTES_429 = tuple(int(x) for x in os.environ.get("HERMES_ATTENTES_429", "10,30,60,90").split(",") if x.strip())
 HERMES_OLLAMA_PROVIDER = os.environ.get("HERMES_OLLAMA_PROVIDER", "custom:ollama")
 
 
@@ -950,6 +952,14 @@ async def _hermes_chat(
                 # Passerelle ou modèle sans sortie structurée : même demande, consigne seule.
                 logger.warning("hermes: response_format refuse (%s), nouvel essai sans schema", response.status_code)
                 payload.pop("response_format")
+                response = await client.post(url, json=payload, headers=headers)
+            # 429 « Too many concurrent runs » : Hermès est occupé par une autre
+            # requête (OCR long). On attend qu'une place se libère au lieu d'échouer.
+            for attente in HERMES_ATTENTES_429:
+                if response.status_code != 429:
+                    break
+                logger.warning("hermes: occupe (429), nouvel essai dans %ss", attente)
+                await asyncio.sleep(attente)
                 response = await client.post(url, json=payload, headers=headers)
     if _looks_like_wrong_server(response):
         raise HermesIndisponible(f"Réponse HTML au lieu de JSON : routage incorrect vers {HERMES_GATEWAY_URL}")
