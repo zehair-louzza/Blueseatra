@@ -15,6 +15,13 @@ import { Spinner } from '@/components/Spinner';
 import { toast } from 'sonner';
 import { Save, Loader2, KeyRound, CheckCircle2, Building2, Sparkles } from 'lucide-react';
 
+// « mistral:<id> » sous le moteur intégré = API Mistral interrogée par l'agent Hermès (#88).
+function nomModele(m) {
+  if (!m.startsWith('mistral:')) return m;
+  const id = m.slice(8).replace(/-latest$/, '').replace(/^mistral-/, '');
+  return `Mistral ${id.charAt(0).toUpperCase()}${id.slice(1)} (via Hermès)`;
+}
+
 function AiSettings({ canManage }) {
   const { t } = useTranslation();
   const [providerModels, setProviderModels] = useState({});
@@ -24,6 +31,7 @@ function AiSettings({ canManage }) {
   const [apercu, setApercu] = useState(null);
   const [labels, setLabels] = useState({});
   const [clePlateforme, setClePlateforme] = useState(false);
+  const [viaHermes, setViaHermes] = useState(true);
   const [test, setTest] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -33,11 +41,12 @@ function AiSettings({ canManage }) {
       setProviderModels(r.data.provider_models);
       setLabels(r.data.provider_labels || {});
       setClePlateforme(!!r.data.mistral_cle_plateforme);
+      setViaHermes(r.data.ia_via_hermes !== false);
       setApercu(s.ai_key_apercu || null);
       setOcrModelChoices(r.data.ocr_model_choices || {});
       setForm({
         ai_provider: s.ai_provider || 'hermes', ai_model: s.ai_model || '', ai_key: '',
-        n8n_webhook_url: s.n8n_webhook_url || '', ocr_model_preference: s.ocr_model_preference || 'auto',
+        n8n_webhook_url: s.n8n_webhook_url || '', ocr_model_preference: s.ocr_model_preference || 'glm-ocr',
       });
       setKeySet(!!s.ai_key_set);
     });
@@ -48,8 +57,12 @@ function AiSettings({ canManage }) {
     try {
       await api.put('/settings/integrations', form); toast.success(t('settings.saved'));
       const r = await api.get('/settings/integrations');
-      setKeySet(!!r.data.settings.ai_key_set); setApercu(r.data.settings.ai_key_apercu || null);
-      setForm({ ...form, ai_key: '', effacer_cle: false }); setTest(null);
+      const e = r.data.settings;
+      setKeySet(!!e.ai_key_set); setApercu(e.ai_key_apercu || null);
+      // Le formulaire affiche ce qui est réellement enregistré, pas la saisie locale.
+      setForm({ ai_provider: e.ai_provider || 'hermes', ai_model: e.ai_model || '', ai_key: '', effacer_cle: false,
+        n8n_webhook_url: e.n8n_webhook_url || '', ocr_model_preference: e.ocr_model_preference || 'glm-ocr' });
+      setTest(null);
     }
     catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
@@ -62,6 +75,8 @@ function AiSettings({ canManage }) {
   };
 
   if (!form) return <Spinner />;
+  const mistralHermes = (form.ai_provider === 'hermes' && (form.ai_model || '').startsWith('mistral:'))
+    || (form.ai_provider === 'mistral' && viaHermes);
   const mistral = form.ai_provider === 'mistral';
   const models = providerModels[form.ai_provider] || [];
   return (
@@ -78,13 +93,13 @@ function AiSettings({ canManage }) {
           <Label>{t('settings.ai_model')}</Label>
           <Select value={form.ai_model} onValueChange={(v) => setForm({ ...form, ai_model: v })} disabled={!canManage}>
             <SelectTrigger data-testid="ai-model-select"><SelectValue placeholder="..." /></SelectTrigger>
-            <SelectContent>{models.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            <SelectContent>{models.map((m) => <SelectItem key={m} value={m}>{nomModele(m)}</SelectItem>)}</SelectContent>
           </Select>
         </div>
         <div className="space-y-1.5">
           <Label className="flex items-center gap-1.5"><KeyRound className="h-3.5 w-3.5" />{t('settings.ai_key')}</Label>
-          <Input type="password" autoComplete="off" placeholder={keySet ? (apercu || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') : (mistral ? t('settings.mistral_placeholder') : '')} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />
-          <p className="text-xs text-muted-foreground">{mistral ? t('settings.mistral_hint') : t('settings.ai_key_hint')}</p>
+          {!mistralHermes && <Input type="password" autoComplete="off" placeholder={keySet ? (apercu || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') : (mistral ? t('settings.mistral_placeholder') : '')} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />}
+          {!mistralHermes && <p className="text-xs text-muted-foreground">{mistral ? t('settings.mistral_hint') : t('settings.ai_key_hint')}</p>}
           {keySet && (
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <span className="flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />{t('settings.key_set')}{apercu ? ` (${apercu})` : ''}</span>
@@ -92,8 +107,9 @@ function AiSettings({ canManage }) {
               {form.effacer_cle && <span className="text-amber-700">{t('settings.key_remove_pending')}</span>}
             </div>
           )}
-          {mistral && !keySet && clePlateforme && <p className="text-xs text-muted-foreground">{t('settings.mistral_platform')}</p>}
-          {mistral && canManage && (
+          {mistral && !mistralHermes && !keySet && clePlateforme && <p className="text-xs text-muted-foreground">{t('settings.mistral_platform')}</p>}
+          {mistralHermes && <p className="text-xs text-muted-foreground">{t('settings.mistral_hermes_hint')}</p>}
+          {(mistral || mistralHermes) && canManage && (
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <Button type="button" variant="outline" size="sm" onClick={tester} disabled={test?.enCours} data-testid="ai-test-button">
                 {test?.enCours ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-1 h-4 w-4" />}{t('settings.test_connection')}

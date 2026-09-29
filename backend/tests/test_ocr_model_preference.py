@@ -17,21 +17,27 @@ def _labels(stages):
 
 class TestOcrCascadePreferenceReordering:
     def test_default_order_is_unchanged_without_preference(self):
+        # 2026-09-29 : GLM-OCR remplace PaddleOCR-VL-1.6 en tête de cascade.
         assert _labels(ai_service._ocr_cascade_stages()) == [
-            "PaddleOCR-VL-1.6", "GLM-OCR", "LightOnOCR-2-1B", "Qwen2.5-VL-7B", "olmOCR-2-7B",
+            "GLM-OCR", "LightOnOCR-2-1B", "Qwen2.5-VL-7B", "olmOCR-2-7B",
         ]
 
-    def test_preferred_glm_ocr_moves_to_front_others_unchanged(self):
-        labels = _labels(ai_service._ocr_cascade_stages(preferred="glm-ocr"))
-        assert labels[0] == "GLM-OCR"
+    def test_preferred_lightonocr_moves_to_front_others_unchanged(self):
+        labels = _labels(ai_service._ocr_cascade_stages(preferred="lightonocr"))
+        assert labels[0] == "LightOnOCR-2-1B"
         # every stage is still present -- reordering, not replacement.
-        assert set(labels) == {"PaddleOCR-VL-1.6", "GLM-OCR", "LightOnOCR-2-1B", "Qwen2.5-VL-7B", "olmOCR-2-7B"}
-        assert labels[1:] == ["PaddleOCR-VL-1.6", "LightOnOCR-2-1B", "Qwen2.5-VL-7B", "olmOCR-2-7B"]
+        assert set(labels) == {"GLM-OCR", "LightOnOCR-2-1B", "Qwen2.5-VL-7B", "olmOCR-2-7B"}
+        assert labels[1:] == ["GLM-OCR", "Qwen2.5-VL-7B", "olmOCR-2-7B"]
+
+    def test_ancienne_preference_paddleocr_vaut_glm_ocr(self):
+        assert _labels(ai_service._ocr_cascade_stages(preferred="paddleocr"))[0] == "GLM-OCR"
+        assert "paddleocr" not in server.OCR_MODEL_CHOICES
+        assert "PaddleOCR-VL-1.6" not in _labels(ai_service._ocr_cascade_stages())
 
     def test_preferred_olmocr2_moves_to_front(self):
         labels = _labels(ai_service._ocr_cascade_stages(preferred="olmocr2"))
         assert labels[0] == "olmOCR-2-7B"
-        assert len(labels) == 5
+        assert len(labels) == 4
 
     def test_auto_is_a_no_op(self):
         assert _labels(ai_service._ocr_cascade_stages(preferred="auto")) == \

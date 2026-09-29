@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-09-29 — Toute l'IA passe par l'agent Hermès, OCR local GLM-OCR par défaut
+
+- **GLM-OCR remplace PaddleOCR-VL-1.6** en tête de l'OCR, à la demande de l'utilisateur : PaddleOCR lisait mal par la passerelle Hermès (« Pome » au lieu du texte de l'image d'essai). PaddleOCR sort de la cascade ; une préférence « paddleocr » enregistrée vaut désormais GLM-OCR (migration `20260929020000_settings_ocr_glm.sql`).
+- **Devis : schémas et règles de l'agent validé dans Mistral Studio** (les mêmes que les skills Hermès `extraire-demande-travaux` et `decrire-demande-travaux`) :
+  - `backend/schemas_ia/` contient les deux schémas JSON ;
+  - la sortie est contrainte par schéma : `format` pour Ollama, `response_format` `json_schema` strict pour Hermès et Mistral, avec un nouvel essai automatique sans schéma si la passerelle le refuse ; `BLUESEATRA_IA_SCHEMA_STRICT=0` n'utilise que la consigne ;
+  - extraction : métré en 14 familles (`famille_poste`, `postes_verifies`), engins sur ligne propre (`moyens_acces_engins`), `notes` par ligne et `reserves` ;
+  - descriptif : `preliminaires` et `controles_fin_travaux` en plus de `description` et `etapes`, désormais imprimés dans le texte du devis (Préliminaires, puis Déroulement, puis Contrôles de fin de travaux) ;
+  - correction : un modèle « Mistral (via Hermès) » était routé vers Ollama lors de l'extraction.
+- **Plus aucun appel direct du SaaS vers Ollama.** Tous les appels vont à `POST /v1/chat/completions` de l'agent Hermès, qui choisit le fournisseur à chaque requête : `custom:ollama` pour les modèles du VPS, `custom:mistral` pour l'API Mistral. Cela couvre l'OCR, la cascade de structuration, l'extraction, la décomposition, la rédaction, la vision approfondie et Mistral.
+  - `BLUESEATRA_IA_VIA_HERMES=0` sert uniquement de retour arrière d'urgence.
+  - Sans `HERMES_GATEWAY_URL`, l'erreur est explicite ; il n'y a pas de repli silencieux vers Ollama.
+- **Hermès :** la passerelle est le service `hermes-passerelle` du dépôt `ovh-ai-stack` (PR #30, ADR-009), sans aucun outil, avec les fournisseurs `ollama` et `mistral`. Elle est joignable sur `https://hermes.blueseatra.com` avec l'en-tête `X-Api-Key`.
+- **OCR toujours local (GLM-OCR par défaut) :**
+  - une image n'est jamais envoyée à Mistral ou OpenAI ; seul le texte lu sur le VPS part vers le fournisseur choisi ;
+  - le choix « Modèle OCR préféré » est enfin enregistré : la colonne manquait, et le choix revenait à « Automatique » après chaque enregistrement (migration `20260929010000_settings_ocr_preference.sql`).
+- **Page Paramètres :** après « Enregistrer », le formulaire se recharge avec les valeurs réellement enregistrées.
+- **Mistral :** relances en cas de limite de débit (429) avec délai exponentiel (2, 4, 8, 16 s), en respectant `Retry-After`.
+
+## 2026-09-29 — Mistral interrogeable par l'agent Hermès (ticket #88)
+
+- **Agent Hermès** (`ovh-ai-stack-corrige/hermes/config.yaml`) :
+  - nouveau fournisseur nommé `mistral` (`https://api.mistral.ai/v1`, clé `MISTRAL_API_KEY` du `.env` du VPS) ;
+  - `direct_model_requests: true`, pour que le modèle demandé par le SaaS soit respecté ;
+  - `compose.yaml` transmet `MISTRAL_API_KEY` au conteneur `hermes`.
+- **SaaS :**
+  - Paramètres → Moteur IA → « Moteur intégré (Hermès) » propose désormais Mistral Medium, Large et Small (via Hermès), en plus des modèles locaux ;
+  - chaque appel envoie `provider: custom:mistral` et le modèle choisi ;
+  - images prises en charge ;
+  - le test de connexion fait un petit appel réel par Hermès.
+- **Repli :** sans passerelle Hermès configurée, appel direct à l'API Mistral avec la clé de la plateforme.
+
 ## 2026-09-29 — Mistral remplace Cerebras (ticket #88)
 
 - **Nouveau fournisseur « Mistral AI (API) »** pour l'extraction des demandes (texte, PDF et images), la décomposition en fournitures et la rédaction du descriptif de travaux.

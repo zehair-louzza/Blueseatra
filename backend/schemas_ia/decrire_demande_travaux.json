@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "type": "string",
+      "description": "Paragraphe de périmètre destiné au client, 3 à 6 phrases, dans le style d'un devis d'entreprise du bâtiment : nature de la prestation (fourniture et pose, remplacement, création, mise en conformité), ouvrages et matériaux concernés tels qu'ils figurent dans la liste fournie, lieu d'intervention, moyens d'accès et engins mis en œuvre s'ils sont fournis, conditions d'exécution (site occupé, horaires), et exclusions uniquement si elles sont fournies. Aucun prix, aucune quantité, aucune durée, aucun effectif."
+    },
+    "preliminaires": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Opérations préalables applicables à cette intervention : prise de rendez-vous et accueil par l'occupant, repérage des réseaux, consignation électrique ou coupure d'eau, vérification de l'accès et du stationnement, protection des sols et du mobilier, balisage de la zone en site occupé ou ERP, mise en place des engins d'accès. Une phrase courte par opération, seulement celles qui s'appliquent."
+    },
+    "etapes": {
+      "type": "array",
+      "description": "Déroulement complet de l'intervention, de 5 à 12 étapes dans l'ordre chronologique : préliminaires, sécurisation et protection, dépose et évacuation de l'existant (uniquement s'il s'agit d'un remplacement), préparation des supports, pose ou installation détaillée par ouvrage, raccordements, finitions, essais et mise en service, autocontrôle, nettoyage, repli et remise des lieux à l'occupant. Détailler chaque opération technique réelle sans en inventer.",
+      "items": {
+        "type": "string",
+        "description": "Une étape : phrase courte, verbe à l'infinitif et objet précis, 25 mots au plus, sans numéro ni puce (ex. « Consigner le circuit concerné au tableau et vérifier l'absence de tension »)."
+      }
+    },
+    "controles_fin_travaux": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Vérifications réalisées avant la remise : essais d'étanchéité, mesures électriques, fonctionnement, aspect des finitions, propreté. Une phrase par contrôle, seulement ceux qui s'appliquent."
+    }
+  },
+  "required": [
+    "description",
+    "preliminaires",
+    "etapes",
+    "controles_fin_travaux"
+  ]
+}
