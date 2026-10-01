@@ -134,6 +134,10 @@ Details (variables, local database, tests) are in the [developer guide (FR)](./d
 
 <img src="docs/assets/schema-architecture-en.png" alt="Blueseatra architecture: Vercel, Render, Supabase, Hermès gateway and OVH VPS" width="100%">
 
+<img src="docs/assets/schema-parcours-complet-en.png" alt="Full quote journey, from intake to the final PDF: who acts, who reacts" width="100%">
+
+The ten phases in detail, Supabase and Render views: [Infrastructure and full quote journey](./docs/infrastructure.en.md).
+
 <img src="docs/assets/schema-chiffrage-en.png" alt="Quoting on activatable sources" width="100%">
 
 <img src="docs/assets/schema-recherche-rls-en.png" alt="Supplier search under RLS: secured functions, then records read back under RLS" width="100%">
@@ -168,7 +172,7 @@ The detailed documentation is written in French.
 | For | Document |
 |---|---|
 | Using the application | [User manual](./docs/manuel-utilisateur.md) |
-| Understanding the system | [Architecture](./docs/architecture.md) · [Decisions (ADR)](./docs/decisions) |
+| Understanding the system | [Architecture](./docs/architecture.md) · [Infrastructure and full quote journey](./docs/infrastructure.en.md) · [Decisions (ADR)](./docs/decisions) |
 | Developing | [Developer guide](./docs/guide-developpeur.md) · [API reference](./docs/reference-api.md) · [Contributing](./CONTRIBUTING.md) |
 | Running in production | [Operations](./docs/exploitation.md) · [DEPLOIEMENT.md](./DEPLOIEMENT.md) |
 | Plans and pricing | [Pricing](./docs/tarification-2026-09.md) |
