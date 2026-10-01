@@ -61,6 +61,14 @@ SQL_CATALOGUES = """
       JOIN blueseatra.catalog_versions v
         ON v.id = c.active_version_id AND v.tenant_id = c.tenant_id
      WHERE (c.tenant_id = :tenant_id OR (:avec_commun AND c.tenant_id = :commun))
+       -- Seuls les VRAIS catalogues fournisseurs : au moins une offre
+       -- rattachee a la version. Sans ce filtre, les catalogues de
+       -- chiffrage importes en CSV (pricing_items, sans supplier_offers)
+       -- apparaitraient comme des fournisseurs fantoches.
+       AND EXISTS (SELECT 1 FROM blueseatra.supplier_offers o
+                    WHERE o.tenant_id = c.tenant_id
+                      AND o.version_id = v.id
+                      AND o.is_active)
      ORDER BY v.item_count DESC
 """
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-01 — Catalogues fournisseurs dans le chiffrage des devis
+
+- **Sources fournisseurs du chiffrage** : chaque catalogue fournisseur visible (les siens + le catalogue commun non masqué) peut être **activé ou désactivé pour le chiffrage** via un bouton poussoir, depuis « Catalogue fournisseurs » ou depuis la nouvelle section « Catalogues fournisseurs » de la page Catalogues. L'état est persisté (table `chiffrage_sources`, migration `20261001120000_sources_chiffrage_fournisseurs.sql`, RLS par entreprise) ; désactiver ne supprime rien — contenu conservé et réactivable en un clic.
+- **Aucune copie de données** : les articles ne sont pas dupliqués dans `pricing_items`. La recherche d'articles du devis (`GET /catalog/search`) lit en SQL les offres des sources activées (index trigramme `recherche_norm`), avec un quota réservé pour que les résultats fournisseurs ne soient jamais affamés par le catalogue interne, et un repli silencieux en cas d'incident côté fournisseurs.
+- **Sélecteur d'articles du devis** : les articles fournisseurs apparaissent dans la recherche, marqués d'un badge fournisseur (prix net HT, unité de vente, marque, référence).
+- **Page Catalogues** : interrupteur « Utiliser pour le chiffrage » sur chaque catalogue interne (active sa version la plus récente / désactive sans rien perdre) ; section « Catalogues fournisseurs » avec interrupteur par source et bouton « Afficher le catalogue » (contenu paginé et filtrable).
+- **Correctif parcours fournisseurs** : `catalogue_navigation` ne liste plus comme fournisseurs les catalogues de chiffrage importés en CSV (aucune offre rattachée) — filtre `EXISTS` sur `supplier_offers`.
+
 ## 2026-09-29 — Toute l'IA passe par l'agent Hermès, OCR local GLM-OCR par défaut
 
 - **GLM-OCR remplace PaddleOCR-VL-1.6** en tête de l'OCR, à la demande de l'utilisateur : PaddleOCR lisait mal par la passerelle Hermès (« Pome » au lieu du texte de l'image d'essai). PaddleOCR sort de la cascade ; une préférence « paddleocr » enregistrée vaut désormais GLM-OCR (migration `20260929020000_settings_ocr_glm.sql`).

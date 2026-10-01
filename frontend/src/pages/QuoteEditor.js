@@ -307,15 +307,18 @@ export default function QuoteEditor() {
                               <div key={it.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm hover:bg-muted/40" data-testid="catalog-pick-row">
                                 <div className="min-w-[180px] flex-1">
                                   <div className="font-medium">{it.item_label}</div>
-                                  <div className="text-xs text-muted-foreground">
+                                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                                    {it.source === 'fournisseur' && (
+                                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" data-testid="item-source-fournisseur">{it.supplier_main || t('quote.supplier')}</span>
+                                    )}
                                     {it.family && <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground">{it.family}</span>}
-                                    {it.brand && <span className="ml-1.5">{it.brand}</span>}
-                                    {it.item_code && <span className="ml-1.5 font-mono">{it.item_code}</span>}
+                                    {it.brand && <span>{it.brand}</span>}
+                                    {it.item_code && <span className="font-mono">{it.item_code}</span>}
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <span className="whitespace-nowrap font-medium">{money(it.unit_price_ht, it.currency)}/{it.unit}</span>
-                                  {(it.suppliers || []).length > 0 && (
+                                  {(it.suppliers || []).length > 0 && it.source !== 'fournisseur' && (
                                     <Select value={sup} onValueChange={(v) => setSupplierBy({ ...supplierBy, [it.id]: v })}>
                                       <SelectTrigger className="h-8 w-44" data-testid="supplier-select"><SelectValue /></SelectTrigger>
                                       <SelectContent>{(it.suppliers || []).map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
