@@ -1,5 +1,5 @@
 """Tests de blueseatra.offres_candidates et blueseatra.catalogue_page
-(migrations 20261001180000 et 20261001190000).
+(migrations 20261001180000, 20261001190000 et 20261001200000).
 
 La fonction est SECURITY DEFINER : elle lit supplier_offers SANS la RLS.
 Ces tests verifient donc, sur une base JETABLE avec de vraies politiques
@@ -30,7 +30,8 @@ pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 
 RACINE = Path(__file__).resolve().parents[2]
 MIGRATIONS = [RACINE / "supabase/migrations/20261001180000_recherche_offres_sous_rls.sql",
-              RACINE / "supabase/migrations/20261001190000_recherche_dans_catalogue.sql"]
+              RACINE / "supabase/migrations/20261001190000_recherche_dans_catalogue.sql",
+              RACINE / "supabase/migrations/20261001200000_comparateur_famille.sql"]
 
 COMMUN = "00000000-0000-4000-8000-000000000c0d"
 A = "aaaaaaaa-0000-4000-8000-00000000000a"   # entreprise testee
@@ -149,11 +150,11 @@ def _app(tenant, sql, params=()):
 
 
 def _candidats(tenant, tenants, termes, limite=200, version=None, hist=None,
-               actives=False, tri=False):
+               actives=False, tri=False, famille=None):
     return _app(tenant, """
         SELECT id, tenant_id, price_ht FROM blueseatra.offres_candidates(
-            %s::text[], %s::jsonb, %s, %s, %s, %s, %s)""",
-        (tenants, json.dumps(termes), limite, version, hist, actives, tri))
+            %s::text[], %s::jsonb, %s, %s, %s, %s, %s, %s)""",
+        (tenants, json.dumps(termes), limite, version, hist, actives, tri, famille))
 
 
 def _like(*mots):
@@ -202,7 +203,9 @@ def test_droit_execute_reserve_a_blueseatra_app():
                    p.oid, 'EXECUTE')
               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
              WHERE n.nspname = 'blueseatra' AND p.proname = 'offres_candidates'""")
-        secdef, config, public = cur.fetchone()
+        lignes = cur.fetchall()
+        assert len(lignes) == 1, "une seule signature de offres_candidates (pas de surcharge)"
+        secdef, config, public = lignes[0]
     assert secdef is True
     assert config == ["search_path=\"\""] or config == ['search_path=""']
     assert public is False
@@ -352,3 +355,30 @@ def test_page_historique_et_terme_rare():
 def test_page_bornes():
     r = _page(A, COMMUN, _like("prise"), version="ver-c2", limite=10 ** 6, decalage=-5, plafond=10 ** 9)
     assert len(r["ids"]) == 201 and r["total"] == 4000   # limite <= 201, decalage >= 0
+
+
+# --- Filtre de famille du comparateur (offres_candidates, p_famille) ---------
+
+def test_famille_filtre_et_reste_identique_a_la_reference():
+    for limite in (50, 1000):
+        obtenus = [r[0] for r in _candidats(A, [A, COMMUN], _like("prise"), limite,
+                                            actives=True, tri=True, famille="Eclairage")]
+        attendus = _reference([A, COMMUN], "o.recherche_norm LIKE %s AND o.raw_row->>'famille' = %s",
+                              ["%prise%", "Eclairage"], limite)
+        assert obtenus == attendus and len(obtenus) == min(limite, 400)
+    # Famille inconnue : rien ; famille d'une autre entreprise : jamais.
+    assert _candidats(A, [A, COMMUN], _like("prise"), 50, actives=True, tri=True, famille="Inconnue") == []
+    assert _candidats(A, [A, B], _like("prise"), 50, actives=True, tri=True, famille="Appareillage") == []
+
+
+def test_famille_injection_sans_effet():
+    for f in ["x' OR '1'='1", "Eclairage'); DROP TABLE blueseatra.catalogs; --"]:
+        assert _candidats(A, [A, COMMUN], _like("prise"), 50, actives=True, tri=True, famille=f) == []
+    assert _app(A, "SELECT count(*) FROM blueseatra.catalogs")[0][0] == 1
+
+
+def test_appel_a_sept_arguments_toujours_valide():
+    """Le code deja deploye appelle la fonction sans p_famille pendant la bascule."""
+    lignes = _app(A, """SELECT count(*) FROM blueseatra.offres_candidates(
+        %s::text[], %s::jsonb, 200, NULL, NULL, false, false)""", ([COMMUN], json.dumps(_like("prise"))))
+    assert lignes[0][0] == 200

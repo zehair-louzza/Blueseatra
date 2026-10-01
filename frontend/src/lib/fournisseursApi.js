@@ -377,17 +377,26 @@ const erreurSimulee = (status, detail) => {
  * @param {{ q: string, limite?: number, inclureQualifiants?: boolean }} params
  * @returns {Promise<object>} charge utile conforme au contrat d'API
  */
-export const rechercherFournisseurs = async ({ q, limite = 50, inclureQualifiants = false }) => {
+export const rechercherFournisseurs = async ({ q, limite = 50, inclureQualifiants = false, famille = '' }) => {
   const requete = (q || '').trim();
+  const fam = (famille || '').trim();
   if (UTILISER_JEU_EXEMPLE) {
     await sleep(LATENCE_EXEMPLE_MS);
     if (!requete) throw erreurSimulee(400, 'La requête est obligatoire.');
     if (limite < 1 || limite > 200) throw erreurSimulee(422, 'La limite doit être comprise entre 1 et 200.');
-    return reponseExemple({ q: requete, limite, inclureQualifiants });
+    return { ...reponseExemple({ q: requete, limite, inclureQualifiants }), famille: fam || null };
   }
-  const { data } = await api.get('/fournisseurs/recherche', {
-    params: { q: requete, limite, inclure_qualifiants: inclureQualifiants },
-  });
+  const params = { q: requete, limite, inclure_qualifiants: inclureQualifiants };
+  if (fam) params.famille = fam;
+  const { data } = await api.get('/fournisseurs/recherche', { params });
+  return data;
+};
+
+// Familles de produits de tous les catalogues visibles, pour filtrer le
+// comparateur : [{ famille, nb, fournisseurs: [...] }], plus fournies d'abord.
+export const listerFamilles = async () => {
+  if (UTILISER_JEU_EXEMPLE) return { familles: [] };
+  const { data } = await api.get('/fournisseurs/familles');
   return data;
 };
 

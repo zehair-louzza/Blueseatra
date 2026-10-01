@@ -10,11 +10,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiError } from '@/lib/api';
-import { rechercherFournisseurs, UTILISER_JEU_EXEMPLE } from '@/lib/fournisseursApi';
+import { rechercherFournisseurs, listerFamilles, UTILISER_JEU_EXEMPLE } from '@/lib/fournisseursApi';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { SupplierSearchSummary, RecognizedTerms } from '@/components/SupplierSearchSummary';
 import { SupplierCheapestPanel } from '@/components/SupplierCheapestPanel';
@@ -22,7 +23,8 @@ import { SupplierResultsTable } from '@/components/SupplierResultsTable';
 import { CatalogueCommunPanel } from '@/components/CatalogueCommunPanel';
 import { IsolatedQualifiers, RefineCriteria } from '@/components/SupplierRefinePanels';
 import { toast } from 'sonner';
-import { Search, Loader2, AlertTriangle, PackageSearch, FlaskConical, RotateCcw } from 'lucide-react';
+import { entier } from '@/lib/fournisseursFormat';
+import { Search, Loader2, AlertTriangle, PackageSearch, FlaskConical, RotateCcw, Layers, X } from 'lucide-react';
 
 const LIMITE_PAR_DEFAUT = 50;
 
@@ -71,11 +73,16 @@ const messageErreur = (err) => {
   };
 };
 
+// Valeur technique du choix « Toutes les familles » (le composant Select
+// n'accepte pas de valeur vide).
+const TOUTES_FAMILLES = '__toutes__';
+
 export default function SupplierSearch() {
   const [params, setParams] = useSearchParams();
   const requeteUrl = params.get('q') || '';
   const inclureUrl = params.get('inclure_qualifiants') === 'true';
   const limiteUrl = Number(params.get('limite')) || LIMITE_PAR_DEFAUT;
+  const familleUrl = params.get('famille') || '';
 
   const [saisie, setSaisie] = useState(requeteUrl);
   const [chargement, setChargement] = useState(false);
@@ -85,17 +92,42 @@ export default function SupplierSearch() {
   // Incremente quand le catalogue commun est masque/reaffiche : relance la recherche.
   const [generation, setGeneration] = useState(0);
   const relancer = useCallback(() => setGeneration((g) => g + 1), []);
+  // Familles de produits des catalogues visibles (chargees une fois ; leur
+  // absence n'empeche jamais de chercher).
+  const [familles, setFamilles] = useState([]);
+  useEffect(() => {
+    let annule = false;
+    listerFamilles()
+      .then((d) => { if (!annule) setFamilles(d?.familles || []); })
+      .catch(() => { if (!annule) setFamilles([]); });
+    return () => { annule = true; };
+  }, [generation]);
 
   // La recherche est pilotee par l'URL (q / inclure_qualifiants / limite) :
   // une relance (clic sur un qualifiant ou sur un critere a affiner) n'est
   // qu'une mise a jour de l'URL, et la recherche reste partageable et
   // rejouable via le bouton « retour » du navigateur.
-  const lancer = useCallback(({ q, inclure = false, limite = LIMITE_PAR_DEFAUT }) => {
+  const lancer = useCallback(({ q, inclure = false, limite = LIMITE_PAR_DEFAUT, famille = familleUrl }) => {
     const suivant = { q: q.trim() };
     if (inclure) suivant.inclure_qualifiants = 'true';
     if (limite !== LIMITE_PAR_DEFAUT) suivant.limite = String(limite);
+    if (famille) suivant.famille = famille;
     setParams(suivant);
-  }, [setParams]);
+  }, [setParams, familleUrl]);
+
+  // Changer de famille relance la recherche en cours (s'il y en a une) ;
+  // sinon la famille est simplement retenue pour la prochaine recherche.
+  const choisirFamille = (valeur) => {
+    const famille = valeur === TOUTES_FAMILLES ? '' : valeur;
+    const q = (requeteUrl || saisie).trim();
+    if (q) {
+      lancer({ q, inclure: inclureUrl, limite: limiteUrl, famille });
+    } else {
+      const suivant = {};
+      if (famille) suivant.famille = famille;
+      setParams(suivant);
+    }
+  };
 
   useEffect(() => {
     setSaisie(requeteUrl);
@@ -110,7 +142,7 @@ export default function SupplierSearch() {
     let annule = false;
     setChargement(true);
     setErreur(null);
-    rechercherFournisseurs({ q: requeteUrl, limite: limiteUrl, inclureQualifiants: inclureUrl })
+    rechercherFournisseurs({ q: requeteUrl, limite: limiteUrl, inclureQualifiants: inclureUrl, famille: familleUrl })
       .then((data) => { if (!annule) setReponse(data); })
       .catch((err) => {
         if (annule) return;
@@ -121,7 +153,7 @@ export default function SupplierSearch() {
       })
       .finally(() => { if (!annule) setChargement(false); });
     return () => { annule = true; };
-  }, [requeteUrl, inclureUrl, limiteUrl, generation]);
+  }, [requeteUrl, inclureUrl, limiteUrl, familleUrl, generation]);
 
   const soumettre = (e) => {
     e.preventDefault();
@@ -204,6 +236,28 @@ export default function SupplierSearch() {
               Rechercher
             </Button>
           </div>
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+            <Label htmlFor="fournisseurs-famille" className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Layers className="h-4 w-4" />
+              Famille
+            </Label>
+            <Select value={familleUrl || TOUTES_FAMILLES} onValueChange={choisirFamille} disabled={chargement}>
+              <SelectTrigger id="fournisseurs-famille" className="sm:w-96" data-testid="fournisseurs-famille">
+                <SelectValue placeholder="Toutes les familles" />
+              </SelectTrigger>
+              <SelectContent className="max-h-80">
+                <SelectItem value={TOUTES_FAMILLES}>Toutes les familles</SelectItem>
+                {familleUrl && !familles.some((f) => f.famille === familleUrl) && (
+                  <SelectItem value={familleUrl}>{familleUrl}</SelectItem>
+                )}
+                {familles.map((f) => (
+                  <SelectItem key={f.famille} value={f.famille} title={(f.fournisseurs || []).join(', ')}>
+                    {f.famille} <span className="text-muted-foreground">({entier(f.nb)})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Exemples&nbsp;:</span>
             {EXEMPLES.map((ex) => (
@@ -282,6 +336,29 @@ export default function SupplierSearch() {
 
         {!chargement && !erreur && reponse && (
           <>
+            {reponse.famille && (
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs"
+                data-testid="fournisseurs-famille-active"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                <span>
+                  Famille « {reponse.famille} » uniquement
+                  {reponse.tronque ? ` : les ${entier(reponse.plafond)} offres les moins chères sont comparées.` : '.'}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2"
+                  onClick={() => choisirFamille(TOUTES_FAMILLES)}
+                  data-testid="fournisseurs-famille-retirer"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Toutes les familles
+                </Button>
+              </div>
+            )}
             <SupplierSearchSummary reponse={reponse} />
             <RecognizedTerms termes={reponse.termes_reconnus} requete={reponse.requete} />
 

@@ -310,3 +310,23 @@ async def familles(cle: str) -> dict:
     if not cle.startswith("hist:"):
         _cache_familles[cle] = rows
     return {"cle": cle, "familles": rows}
+
+
+async def familles_visibles() -> dict:
+    """Familles de tous les catalogues visibles (comparateur de prix).
+
+    Agregation des familles par catalogue (familles(), en cache par
+    version et servie par l'index (tenant_id, version_id, famille, ...)).
+    Les libelles de famille sont propres a chaque fournisseur : ils sont
+    regroupes tels quels, avec les fournisseurs qui les emploient.
+    """
+    agregat: dict[str, dict] = {}
+    for f in (await fournisseurs()).get("fournisseurs", []):
+        for fam in (await familles(f["cle"])).get("familles", []):
+            a = agregat.setdefault(fam["famille"], {"famille": fam["famille"], "nb": 0,
+                                                    "fournisseurs": []})
+            a["nb"] += fam["nb"]
+            if f["fournisseur"] not in a["fournisseurs"]:
+                a["fournisseurs"].append(f["fournisseur"])
+    liste = sorted(agregat.values(), key=lambda a: (-a["nb"], a["famille"]))
+    return {"familles": liste}

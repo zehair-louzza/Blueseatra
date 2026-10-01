@@ -2280,6 +2280,8 @@ async def fournisseurs_recherche(
         False,
         description="Réintègre les produits d'une autre nature "
                     "(différentiel, reconditionné, lot...)"),
+    famille: str = Query("", max_length=200,
+                         description="Restreint à une famille (voir /fournisseurs/familles)"),
     cu: CurrentUser = Depends(get_current),
 ):
     """Recherche par inclusion, avec comparaison entre fournisseurs.
@@ -2302,9 +2304,18 @@ async def fournisseurs_recherche(
     """
     try:
         return await fournisseur_recherche.recherche(
-            q, limite=limite, inclure_qualifiants=inclure_qualifiants)
+            q, limite=limite, inclure_qualifiants=inclure_qualifiants,
+            famille=famille or None)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+@api.get("/fournisseurs/familles")
+async def fournisseurs_familles(cu: CurrentUser = Depends(get_current)):
+    """Familles de produits de tous les catalogues visibles, pour filtrer le
+    comparateur. Chaque famille indique son nombre de produits et les
+    fournisseurs qui l'emploient (les libellés sont propres à chacun)."""
+    return await catalogue_navigation.familles_visibles()
 
 
 @api.get("/fournisseurs/liste")

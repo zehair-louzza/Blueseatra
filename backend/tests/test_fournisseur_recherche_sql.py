@@ -59,7 +59,7 @@ class _Ctx:
         return False
 
 
-def _lancer(monkeypatch, requete, masque=False):
+def _lancer(monkeypatch, requete, masque=False, famille=None):
     session = _Session([{"id": "o1", "tenant_id": catalogue_commun.TENANT_COMMUN,
                          "supplier_id": "s1", "price_ht": 6.83,
                          "recherche_norm": "disjoncteur 16a courbe c"}])
@@ -69,7 +69,7 @@ def _lancer(monkeypatch, requete, masque=False):
     async def est_masque(_s, _t):
         return masque
     monkeypatch.setattr(catalogue_commun, "est_masque", est_masque)
-    return asyncio.run(fr.recherche(requete)), session
+    return asyncio.run(fr.recherche(requete, famille=famille)), session
 
 
 def test_comparateur_passe_par_la_fonction_avec_tenant_courant_et_commun(monkeypatch):
@@ -81,6 +81,8 @@ def test_comparateur_passe_par_la_fonction_avec_tenant_courant_et_commun(monkeyp
     assert params["versions_actives"] is True and params["tri_prix"] is True
     assert params["limite"] == fr.PLAFOND_LIGNES
     assert params["version"] is None and params["hist"] is None
+    assert params["famille"] is None
+    assert "CAST(:famille AS text)" in sql
     termes = json.loads(params["termes"])
     assert termes[0] == [{"op": "like", "v": "%disjoncteur%"}]
     assert "\\b" not in params["termes"]          # limite de mot PostgreSQL : \y
@@ -189,3 +191,34 @@ def test_catalogue_sans_mot_inchange(monkeypatch):
     assert "catalogue_page(" not in session.executed[0][0]
     assert "ORDER BY o.raw_label, o.id" in session.executed[0][0]
     assert res["total"] is None
+
+
+def test_comparateur_famille_plafond_reduit(monkeypatch):
+    res, session = _lancer(monkeypatch, "led", famille="  Eclairage ")
+    params = session.executed[0][1]
+    assert params["famille"] == "Eclairage"
+    assert params["limite"] == fr.PLAFOND_LIGNES_FAMILLE
+    assert res["famille"] == "Eclairage" and res["plafond"] == fr.PLAFOND_LIGNES_FAMILLE
+    _, session = _lancer(monkeypatch, "led", famille="   ")
+    assert session.executed[0][1]["famille"] is None
+    assert session.executed[0][1]["limite"] == fr.PLAFOND_LIGNES
+
+
+def test_familles_visibles_agrege_les_catalogues(monkeypatch):
+    async def fournisseurs():
+        return {"fournisseurs": [{"cle": "v1", "fournisseur": "Rexel"},
+                                 {"cle": "hist:x", "fournisseur": "Prolians"},
+                                 {"cle": "v2", "fournisseur": "Rexel"}]}
+    donnees = {"v1": [{"famille": "Eclairage", "nb": 10}, {"famille": "Cables", "nb": 4}],
+               "hist:x": [{"famille": "Eclairage", "nb": 3}],
+               "v2": [{"famille": "Cables", "nb": 20}]}
+
+    async def familles(cle):
+        return {"cle": cle, "familles": donnees[cle]}
+    monkeypatch.setattr(nav, "fournisseurs", fournisseurs)
+    monkeypatch.setattr(nav, "familles", familles)
+    res = asyncio.run(nav.familles_visibles())
+    assert res["familles"] == [
+        {"famille": "Cables", "nb": 24, "fournisseurs": ["Rexel"]},
+        {"famille": "Eclairage", "nb": 13, "fournisseurs": ["Rexel", "Prolians"]},
+    ]

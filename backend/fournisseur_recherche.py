@@ -65,6 +65,10 @@ LIMITE_MAX = 200
 # Les lignes sont triees par prix croissant, les moins cheres sont donc
 # toujours dans la fenetre ; `tronque` signale que la liste est partielle.
 PLAFOND_LIGNES = 5000
+# Avec une famille, le filtre n'est pas dans l'index par prix : chaque
+# offre parcourue coute une lecture de fiche. Plafond reduit (mesure sur
+# « led » + Eclairage : 17 s a 5 000 lignes, 3,4 s a 1 000).
+PLAFOND_LIGNES_FAMILLE = 1000
 
 # Seules les offres de la VERSION ACTIVE de leur catalogue sont visibles.
 # Un import lourd ecrit d'abord une version non active (script
@@ -215,7 +219,8 @@ SQL_CANDIDATES = """
     SELECT c.id, c.tenant_id, c.supplier_id, c.price_ht, c.recherche_norm
       FROM blueseatra.offres_candidates(
                CAST(:tenants AS text[]), CAST(:termes AS jsonb), :limite,
-               :version, :hist, :versions_actives, :tri_prix) c
+               :version, :hist, :versions_actives, :tri_prix,
+               CAST(:famille AS text)) c
 """
 
 
@@ -335,7 +340,8 @@ def _criteres_a_affiner(lignes: list[dict], requete: str) -> list[dict]:
 # --- point d'entree -----------------------------------------------------
 
 async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
-                    inclure_qualifiants: bool = False) -> dict:
+                    inclure_qualifiants: bool = False,
+                    famille: str | None = None) -> dict:
     """Recherche par inclusion, avec comparaison entre fournisseurs.
 
     Passe par tenant_session(), donc app.tenant_id est emis et RLS
@@ -347,6 +353,8 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     if not requete:
         raise ValueError("La requête est vide.")
     limite = max(1, min(int(limite), LIMITE_MAX))
+    famille = (famille or "").strip() or None
+    plafond = PLAFOND_LIGNES_FAMILLE if famille else PLAFOND_LIGNES
 
     conditions, parametres, reconnus = _conditions(requete)
     if not conditions:
@@ -391,8 +399,8 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     """)
     parametres_fonction = {
         "termes": json.dumps(termes_recherche(requete)),
-        "limite": PLAFOND_LIGNES, "version": None, "hist": None,
-        "versions_actives": True, "tri_prix": True,
+        "limite": plafond, "version": None, "hist": None,
+        "versions_actives": True, "tri_prix": True, "famille": famille,
     }
     sql_noms = text("""
         SELECT f.tenant_id, f.id, f.name FROM blueseatra.suppliers f
@@ -422,7 +430,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
             l["fournisseur"] = noms.get((l.pop("tenant_id"), l.pop("supplier_id")))
 
         total = len(lignes)
-        tronque = total >= PLAFOND_LIGNES
+        tronque = total >= plafond
 
         if inclure_qualifiants:
             retenus, isoles = lignes, []
@@ -483,6 +491,8 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
 
     return {
         "requete": requete,
+        "famille": famille,
+        "plafond": plafond,
         "total": total,
         "tronque": tronque,
         "comparables": len(retenus),

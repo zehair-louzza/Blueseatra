@@ -229,6 +229,7 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 - **Catalogue fournisseurs :** environ 967 000 références de 9 distributeurs : Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson Matériaux et Icilux. Les produits s'affichent page par page, avec des filtres par famille et par mot-clé.
 - **Catalogue commun :** il est partagé par toutes les entreprises. Vous pouvez **masquer** un fournisseur pour votre entreprise ; le catalogue commun n'est jamais supprimé.
 - **Comparer les prix :** recherchez un produit (par exemple « dalle LED 600x600 ») pour voir le moins cher chez chaque fournisseur. Les critères de la recherche (puissance, dimensions, marque) sont isolés.
+- **Filtrer par famille :** le menu **Famille**, sous le champ de recherche, liste les familles de tous vos catalogues visibles avec leur nombre de produits (les libellés sont ceux de chaque fournisseur). Choisir une famille relance la recherche ; un bandeau rappelle le filtre actif et **Toutes les familles** le retire. Avec une famille, ce sont les 1 000 offres les moins chères qui sont comparées. Le filtre est conservé dans l'adresse de la page : la recherche reste partageable.
 
   ![Comparer les prix : recherche](assets/manuel/15-comparateur-prix.jpg)
 
