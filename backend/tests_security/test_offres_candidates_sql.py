@@ -1,5 +1,5 @@
 """Tests de blueseatra.offres_candidates et blueseatra.catalogue_page
-(migrations 20261001180000, 20261001190000 et 20261001200000).
+(migrations 20261001180000, 20261001190000, 20261001200000, 20261001210000).
 
 La fonction est SECURITY DEFINER : elle lit supplier_offers SANS la RLS.
 Ces tests verifient donc, sur une base JETABLE avec de vraies politiques
@@ -31,7 +31,8 @@ pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 RACINE = Path(__file__).resolve().parents[2]
 MIGRATIONS = [RACINE / "supabase/migrations/20261001180000_recherche_offres_sous_rls.sql",
               RACINE / "supabase/migrations/20261001190000_recherche_dans_catalogue.sql",
-              RACINE / "supabase/migrations/20261001200000_comparateur_famille.sql"]
+              RACINE / "supabase/migrations/20261001200000_comparateur_famille.sql",
+              RACINE / "supabase/migrations/20261001210000_familles_catalogue.sql"]
 
 COMMUN = "00000000-0000-4000-8000-000000000c0d"
 A = "aaaaaaaa-0000-4000-8000-00000000000a"   # entreprise testee
@@ -382,3 +383,24 @@ def test_appel_a_sept_arguments_toujours_valide():
     lignes = _app(A, """SELECT count(*) FROM blueseatra.offres_candidates(
         %s::text[], %s::jsonb, 200, NULL, NULL, false, false)""", ([COMMUN], json.dumps(_like("prise"))))
     assert lignes[0][0] == 200
+
+
+# --- Familles d'un catalogue (familles_catalogue) -----------------------------
+
+def _familles(tenant, p_tenant, version=None, hist=None):
+    return sorted(r[0] for r in _app(tenant, "SELECT * FROM blueseatra.familles_catalogue(%s, %s, %s)",
+                                     (p_tenant, version, hist)))
+
+
+def test_familles_d_une_version_et_d_un_historique():
+    assert _familles(A, COMMUN, version="ver-c2") == ["Appareillage", "Distribution", "Eclairage"]
+    assert _familles(A, COMMUN, version="ver-c1") == ["Appareillage"]
+    assert _familles(A, A, hist="histo") == ["Appareillage"]
+
+
+def test_familles_cloisonnees_et_portee_obligatoire():
+    assert _familles(A, B, version="ver-b1") == []
+    assert _familles(A, B, hist="concurrent") == []
+    assert _familles("", A, hist="histo") == []
+    assert _familles(A, COMMUN) == []
+    assert _familles(A, COMMUN, version="ver-c2", hist="x") == []

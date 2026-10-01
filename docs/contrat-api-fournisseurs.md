@@ -108,13 +108,13 @@ Fiche d'une offre, avec les autres offres du même fournisseur sur la même fami
 
 ## `GET /fournisseurs/familles`
 
-Familles de produits de tous les catalogues visibles par l'entreprise (les siens + le catalogue commun s'il n'est pas masqué), pour alimenter le filtre du comparateur. Les libellés sont propres à chaque fournisseur : ils sont regroupés tels quels.
+Familles de produits de tous les catalogues visibles par l'entreprise (les siens + le catalogue commun s'il n'est pas masqué), pour alimenter le filtre du comparateur. Les libellés sont propres à chaque fournisseur : ils sont regroupés tels quels, triés par ordre alphabétique (sans tenir compte des accents ni de la casse). Pas de comptage par famille : il exigerait de lire chaque fiche (voir migration `20261001210000`).
 
 ```json
 {
   "familles": [
-    {"famille": "Eclairage", "nb": 242359, "fournisseurs": ["Rexel"]},
-    {"famille": "Chauffage électrique climatisation ventilation", "nb": 224652, "fournisseurs": ["Rexel"]}
+    {"famille": "Appareillage et contrôle du bâtiment", "fournisseurs": ["Rexel"]},
+    {"famille": "Eclairage", "fournisseurs": ["Rexel", "YESSS"]}
   ]
 }
 ```
