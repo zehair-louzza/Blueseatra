@@ -1,70 +1,37 @@
-# Getting Started with Create React App
+# Frontend Blueseatra
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+SPA React du logiciel de devis assisté par IA — écrans demandes, devis, catalogues (internes et fournisseurs), clients, relances, membres, paramètres, facturation. Interface FR / EN (react-i18next).
 
-## Available Scripts
+## Stack
 
-In the project directory, you can run:
+- **React 18** (Create React App + CRACO), React Router, **Tailwind CSS**, Radix UI / shadcn
+- Build : CRA avec `DISABLE_ESLINT_PLUGIN=true`, `legacy-peer-deps`, `ajv@8` épinglé (voir `.npmrc` et `package.json`)
+- Hébergement : **Vercel**, projet `blueseatra`, Root Directory `frontend/`, production sur `main` — chaque fusion sur `main` publie le site (domaines `www.blueseatra.com` et `blueseatra.com`)
 
-### `npm start`
+## Scripts
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```bash
+npm install
+REACT_APP_BACKEND_URL=http://localhost:8001 npm start   # dev server sur :3000
+CI=true npm run build                                   # build de production dans build/
+npm test                                                # tests Jest
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Variables d'environnement
 
-### `npm test`
+| Variable | Rôle |
+|---|---|
+| `REACT_APP_BACKEND_URL` | URL de l'API (production : `https://blueseatra-api.onrender.com`) ; un fallback existe dans `src/lib/api.js` |
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Authentification maison : jeton `bs_token` en localStorage, en-têtes `Authorization: Bearer` et `X-Tenant-Id` (sélecteur d'entreprise).
 
-### `npm run build`
+## Pages notables
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- `src/pages/Catalogs.js` — catalogues internes (import CSV, versions, contrôle avant activation) + interrupteur « Utiliser pour le chiffrage » par catalogue et section « Catalogues fournisseurs » (sources activables pour le chiffrage, bouton « Afficher le catalogue »).
+- `src/pages/SupplierCatalog.js` / `SupplierCatalogDialog.js` — catalogue fournisseurs (~967 000 références), bouton poussoir d'activation pour le chiffrage par fournisseur, dialog produits paginé.
+- `src/pages/QuoteEditor.js` — éditeur de devis : recherche d'articles mêlant catalogue interne et sources activées, badge ambre sur les articles fournisseurs ; génération avec délai d'attente 300 s.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Documentation
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- [Architecture](../docs/architecture.md) · [Guide développeur](../docs/guide-developpeur.md) · [Manuel d'utilisation](../docs/manuel-utilisateur.md)
+- [Déploiement (Vercel / Render / Supabase / OVH)](../DEPLOIEMENT.md)

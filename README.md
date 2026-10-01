@@ -12,7 +12,7 @@
 [![Sécurité](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/securite.yml)
 [![Tests métier](https://github.com/zehair-louzza/Blueseatra/actions/workflows/tests-metier.yml/badge.svg)](https://github.com/zehair-louzza/Blueseatra/actions/workflows/tests-metier.yml)
 [![Production](https://img.shields.io/badge/production-en%20ligne-2EA043)](https://blueseatra.com)
-[![Version](https://img.shields.io/badge/version-2026.09.25-1B3F73)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2026.10.01-1B3F73)](./CHANGELOG.md)
 [![Licence](https://img.shields.io/badge/licence-propri%C3%A9taire-555)](./LICENSE)
 
 ![Python](https://img.shields.io/badge/Python-3.11-1B3F73?logo=python&logoColor=white)
@@ -22,10 +22,11 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-3AAFB9?logo=postgresql&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-RLS-3AAFB9?logo=supabase&logoColor=white)
 ![Render](https://img.shields.io/badge/API-Render-3AAFB9?logo=render&logoColor=white)
+![Vercel](https://img.shields.io/badge/Site-Vercel-3AAFB9?logo=vercel&logoColor=white)
 ![Ollama](https://img.shields.io/badge/IA-Ollama%20%C2%B7%20OVH-3AAFB9?logo=ollama&logoColor=white)
 
-![Routes API](https://img.shields.io/badge/routes%20API-110-0F2747)
-![Migrations](https://img.shields.io/badge/migrations-15-0F2747)
+![Routes API](https://img.shields.io/badge/routes%20API-113-0F2747)
+![Migrations](https://img.shields.io/badge/migrations-18-0F2747)
 ![Tests](https://img.shields.io/badge/tests%20automatis%C3%A9s-200%2B-0F2747)
 ![Isolation](https://img.shields.io/badge/isolation-RLS%20par%20entreprise-0F2747)
 ![RGPD](https://img.shields.io/badge/RGPD-anonymisation%20%C2%B7%20opposition-0F2747)
@@ -95,6 +96,7 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 | **Devis** | Lots et sous-lots, matériaux, main-d'œuvre, déplacement, notes ; TVA 20 / 10 / 5,5 / 0 % ; marge masquée ; variantes ; PDF Pro Forma | ✅ |
 | **Catalogues sur mesure** | Import CSV de n'importe quel format, correspondance des colonnes, versions, activation atomique, fichiers volumineux | ✅ |
 | **Catalogue fournisseurs** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux ; partagé, masquable, jamais supprimé | ✅ |
+| **Chiffrage sur sources activables** | Chaque catalogue fournisseur s'active ou se désactive pour le chiffrage (bouton poussoir, contenu conservé) ; sans catalogue interne, les sources activées génèrent le devis ; recherche rapide en deux temps (trigramme) | ✅ |
 | **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, recherche en 0,05 s | ✅ |
 | **Clients** | Fiches, contacts, chantiers, journal des échanges, import et export CSV, indicateurs | ✅ |
 | **Suggestions IA** | Donneur d'ordre et client final proposés avec la phrase source ; rattachement automatique seulement sur SIRET ou e-mail identique | ✅ |
@@ -126,7 +128,7 @@ Le détail (variables, base locale, tests) est dans le [guide développeur](./do
 
 ```mermaid
 flowchart LR
-    U[Navigateur] -->|HTTPS| H[Hostinger<br>site React]
+    U[Navigateur] -->|HTTPS| V[Vercel<br>site React]
     U -->|/api| R[Render<br>API FastAPI]
     R -->|rôle blueseatra_app + RLS| S[(Supabase<br>PostgreSQL 17)]
     R -->|HTTPS + clé| O[VPS OVH<br>Ollama]

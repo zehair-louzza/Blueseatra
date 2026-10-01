@@ -19,6 +19,7 @@
 ![React](https://img.shields.io/badge/React-18-1B3F73?logo=react&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-3AAFB9?logo=postgresql&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-RLS-3AAFB9?logo=supabase&logoColor=white)
+![Vercel](https://img.shields.io/badge/Site-Vercel-3AAFB9?logo=vercel&logoColor=white)
 ![Ollama](https://img.shields.io/badge/AI-Ollama%20%C2%B7%20OVH-3AAFB9?logo=ollama&logoColor=white)
 
 [**Website**](https://blueseatra.com) · [**Documentation (FR)**](./docs/README.md) · [**User manual (FR)**](./docs/manuel-utilisateur.md) · [**API**](./docs/reference-api.md) · [**Français**](./README.md)
@@ -39,6 +40,7 @@
 - Quote editor with packages, labour, travel and notes, and 20 / 10 / 5.5 / 0 % VAT.
 - Custom catalogue import from any CSV layout, with versioning.
 - Shared supplier catalogue and price comparison.
+- Quoting on activatable sources: each supplier catalogue can be switched on or off for quoting (nothing is ever deleted); without an internal catalogue, activated sources generate the quote.
 - Clients module: records, contacts, sites, activity log, AI suggestions with evidence, follow-ups, GDPR opt-out and anonymisation.
 - Multi-tenant roles with PostgreSQL row-level security.
 - Plans and usage metering.
@@ -46,7 +48,7 @@
 
 ## Stack
 
-React 18 and Tailwind CSS on Hostinger · FastAPI (Python 3.11) on Render · PostgreSQL 17 on Supabase with RLS · Ollama on an OVH VPS. See [architecture](./docs/architecture.md).
+React 18 and Tailwind CSS on Vercel · FastAPI (Python 3.11) on Render · PostgreSQL 17 on Supabase with RLS · Ollama on an OVH VPS. See [architecture](./docs/architecture.md).
 
 The detailed documentation is written in French.
 

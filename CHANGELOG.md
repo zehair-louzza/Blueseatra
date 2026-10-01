@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-01 (3) — Génération robuste et rapide : recherche en deux temps, frontend sur Vercel
+
+- **Recherche fournisseurs en deux temps** (PR #133) : chaque libellé est d'abord filtré par l'index trigramme `idx_offers_recherche_trgm` dans une sous-requête **sans tri** (plafond 200 id), puis trié par prix sur le petit résultat. Avec un `ORDER BY price` dans la branche filtrante, le planificateur parcourait tout l'index par prix (960k lignes) pour des termes rares et dépassait le `command_timeout` asyncpg de 30 s — `TimeoutError` en production sur « trou evacuation rongeurs » ; la même requête passe désormais en **189 ms** (EXPLAIN ANALYZE vérifié sur la base de production).
+- **Tenant exact par branche UNION ALL** (PR #132) : chaque branche de recherche porte le `tenant_id` issu du parcours de visibilité (entreprise ou catalogue commun) — plus de clause `OR` qui bloquait les index.
+- **Parallélisme réduit 4 → 3** par label (PR #131) et délai d'attente du front porté à 300 s pour la génération (`makeQuote`).
+- **La génération ne refuse que si l'entreprise n'a NI catalogue interne NI source fournisseur activée** (PR #134) : des sources actives sans aucune correspondance (libellés introuvables dans les 971 676 offres) produisent désormais un devis avec des lignes à confirmer — plus aucun faux « Aucun catalogue actif ».
+- **Frontend migré d'Hostinger vers Vercel** : projet `blueseatra` (Root Directory `frontend/`, production sur `main`), domaines `www.blueseatra.com` (principal) et apex en 308 ; DNS Hostinger `A @ 216.198.79.1` + `CNAME www → d3e2977595b6a031.vercel-dns-017.com` ; CORS Render étendu aux domaines Vercel ; build CRA réparé (`legacy-peer-deps`, `ajv@8`, `DISABLE_ESLINT_PLUGIN`).
+- **Documentation alignée** : référence API régénérée (113 routes), nouveau document [`docs/schema-base-donnees.md`](docs/schema-base-donnees.md), architecture et manuel à jour (sources de chiffrage activables, Vercel).
+
 ## 2026-10-01 (2) — Tout catalogue activé est utilisable pour le chiffrage
 
 - **Génération de devis sans catalogue interne** : les catalogues fournisseurs activés par l'entreprise pour le chiffrage complètent le catalogue tarifaire interne pour le rapprochement automatique — et le remplacent s'il n'y en a pas. C'est l'entreprise qui choisit ses sources via les boutons d'activation ; le catalogue interne reste prioritaire (marges et prix de vente maîtrisés).
