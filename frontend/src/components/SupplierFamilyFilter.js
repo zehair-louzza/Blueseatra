@@ -78,12 +78,14 @@ export const SupplierFamilyFilter = ({ familles, valeur, onChange, desactive = f
                   </CommandItem>
                 )}
                 {correspondances.affichees.map((f) => (
-                  <CommandItem key={f.famille} value={f.famille} onSelect={() => choisir(f.famille)}>
+                  <CommandItem key={f.famille} value={f.famille} onSelect={() => choisir(f.famille)} className="group">
                     <Check className={`mr-2 h-4 w-4 shrink-0 ${valeur === f.famille ? 'opacity-100' : 'opacity-0'}`} />
                     <span className="min-w-0">
                       <span className="block truncate">{f.famille}</span>
                       {f.fournisseurs?.length > 0 && (
-                        <span className="block truncate text-xs text-muted-foreground">
+                        // Sur la ligne survolee (fond accent), le gris standard devenait
+                        // illisible : blanc, contraste ~4,7:1 sur l'accent (AA texte).
+                        <span className="block truncate text-xs text-muted-foreground group-data-[selected=true]:text-accent-foreground">
                           {f.fournisseurs.join(', ')}
                         </span>
                       )}

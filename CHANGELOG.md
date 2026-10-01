@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-01 (10) — Lisibilité du menu Famille
+
+- **Comparateur, menu Famille** : sur la ligne survolée (fond accent), le nom du fournisseur restait en gris standard et devenait presque illisible. Il passe en blanc sur cette ligne (contraste ≈ 4,7:1, niveau AA pour le texte).
+
 ## 2026-10-01 (9) — Liste des familles du comparateur : 75 s → 1,5 s
 
 - **Constat juste après #141** : `GET /fournisseurs/familles` prenait 75 s au premier appel (puis 3,3 s). Pour chaque catalogue, le `GROUP BY raw_row->>'famille'` finissait en parcours complet de `supplier_offers` (2,5 Go) : l'index des familles porte sur une expression que PostgreSQL ne sait pas lire sans la fiche, et sous RLS `->>` ne peut pas servir de condition d'index.
