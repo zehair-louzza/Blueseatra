@@ -182,6 +182,87 @@ def test_recherche_n_echoue_jamais_sur_une_erreur(monkeypatch):
     assert asyncio.run(catalogue_chiffrage.rechercher("disjoncteur")) == []
 
 
+# --- Candidats fournisseurs pour le rapprochement d'un devis ----------------
+
+def test_libelles_extraits_depuis_lignes():
+    e = {"line_items": [{"label": "Trou d'évacuation"},
+                        {"description": "Barre anti-rongeurs"},
+                        {"label": "trou d'évacuation"},   # doublon insensible a la casse
+                        {"label": "  "}]}
+    assert catalogue_chiffrage._libelles_extraits(e) == ["Trou d'évacuation", "Barre anti-rongeurs"]
+
+
+def test_libelles_extraits_repli_sur_description():
+    assert catalogue_chiffrage._libelles_extraits({"description": "Réfection complète"}) == ["Réfection complète"]
+    assert catalogue_chiffrage._libelles_extraits({}) == []
+    assert catalogue_chiffrage._libelles_extraits({"line_items": [{"label": None}]}) == []
+
+
+def test_libelles_extraits_bornes():
+    e = {"line_items": [{"label": f"article {i}"} for i in range(40)]}
+    assert len(catalogue_chiffrage._libelles_extraits(e)) == 15
+
+
+def test_candidats_rapprochement_agrege_et_deduplique(monkeypatch):
+    contexts = []
+
+    class _CtxT:
+        def __init__(self, tenant):
+            self.tenant = tenant
+
+        async def __aenter__(self):
+            contexts.append(self.tenant)
+            return None
+
+        async def __aexit__(self, *a):
+            return False
+
+    recherches = []
+
+    async def faux_rechercher(q, limite):
+        recherches.append((q, limite))
+        # deux libelles, un article commun (id 'frn:x' dedouble)
+        if "évacuation" in q:
+            return [{"id": "frn:x", "item_label": "Grille", "source": "fournisseur"},
+                    {"id": "frn:y", "item_label": "Evacuation", "source": "fournisseur"}]
+        return [{"id": "frn:x", "item_label": "Grille", "source": "fournisseur"}]
+
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_context", _CtxT)
+    monkeypatch.setattr(catalogue_chiffrage, "rechercher", faux_rechercher)
+    resultat = asyncio.run(catalogue_chiffrage.candidats_rapprochement(
+        TENANT, {"line_items": [{"label": "Trou d'évacuation"}, {"label": "Grille"}]}))
+    # Le contexte tenant est bien pose avec le tenant EXPLICITE passe par le
+    # serveur (generation en tache de fond, hors requete HTTP).
+    assert contexts == [TENANT]
+    assert [r[1] for r in recherches] == [8, 8]
+    assert [a["id"] for a in resultat] == ["frn:x", "frn:y"]
+
+
+def test_candidats_rapprochement_sans_libelle_rend_vide(monkeypatch):
+    async def boom(q, limite):
+        raise AssertionError("ne doit pas chercher")
+
+    monkeypatch.setattr(catalogue_chiffrage, "rechercher", boom)
+    assert asyncio.run(catalogue_chiffrage.candidats_rapprochement(TENANT, {})) == []
+
+
+def test_candidats_rapprochement_n_echoue_jamais(monkeypatch):
+    class _CtxKO:
+        def __init__(self, tenant):
+            pass
+
+        async def __aenter__(self):
+            raise RuntimeError("contexte indisponible")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_context", _CtxKO)
+    resultat = asyncio.run(catalogue_chiffrage.candidats_rapprochement(
+        TENANT, {"line_items": [{"label": "Grille"}]}))
+    assert resultat == []  # repli silencieux : la generation ne doit pas echouer
+
+
 # --- Bascule activer / desactiver --------------------------------------------
 
 def test_basculer_refuse_une_cle_invalide(monkeypatch):

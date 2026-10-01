@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-01 (2) — Tout catalogue activé est utilisable pour le chiffrage
+
+- **Génération de devis sans catalogue interne** : les catalogues fournisseurs activés par l'entreprise pour le chiffrage complètent le catalogue tarifaire interne pour le rapprochement automatique — et le remplacent s'il n'y en a pas. C'est l'entreprise qui choisit ses sources via les boutons d'activation ; le catalogue interne reste prioritaire (marges et prix de vente maîtrisés).
+- Chaque libellé de la demande est recherché dans les sources actives (index trigramme) ; les meilleures offres deviennent candidates au rapprochement (borne mémoire : 15 libellés, 8 offres par libellé, 120 candidats).
+- Repli silencieux : un incident côté fournisseurs ne bloque jamais la génération ; sans aucune source ni catalogue, le message d'erreur explicite invité à importer un catalogue ou activer un catalogue fournisseur.
+- `pricing_snapshot` du devis trace la provenance (`Catalogues fournisseurs`, drapeau `sources_fournisseurs`).
+- 6 nouveaux tests unitaires (`candidats_rapprochement`, extraction des libellés).
+
 ## 2026-10-01 — Catalogues fournisseurs dans le chiffrage des devis
 
 - **Sources fournisseurs du chiffrage** : chaque catalogue fournisseur visible (les siens + le catalogue commun non masqué) peut être **activé ou désactivé pour le chiffrage** via un bouton poussoir, depuis « Catalogue fournisseurs » ou depuis la nouvelle section « Catalogues fournisseurs » de la page Catalogues. L'état est persisté (table `chiffrage_sources`, migration `20261001120000_sources_chiffrage_fournisseurs.sql`, RLS par entreprise) ; désactiver ne supprime rien — contenu conservé et réactivable en un clic.

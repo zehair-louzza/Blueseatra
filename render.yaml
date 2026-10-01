@@ -159,7 +159,7 @@ services:
       # --- CORS (specifique a l'API, le worker n'en a pas besoin) ---
       # Ajouter l'URL réelle du frontend une fois déployé
       - key: CORS_ORIGINS
-        value: https://blueseatra.com,https://blueseatra-frontend.onrender.com
+        value: https://blueseatra.com,https://www.blueseatra.com,https://blueseatra-frontend.onrender.com,https://blueseatra.vercel.app
 
       # --- Taille max upload (15 Mo, specifique a l'API) ---
       - key: MAX_UPLOAD_SIZE
