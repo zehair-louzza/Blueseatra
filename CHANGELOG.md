@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-01 (16) — Bandeaux du README retravaillés
+
+- **Palette professionnelle à plusieurs couleurs** pour les 18 bandeaux shields.io (README français et anglais) : libellé gris foncé commun (`2D333B`), couleur de marque pour chaque technologie (Python, FastAPI, React, Tailwind, PostgreSQL, Supabase, Render, Vercel, Ollama · OVH), une couleur par indicateur (routes, migrations, tests, isolation, RGPD, langues) et par statut (production, version, licence).
+- **Lisibilité** : contraste du texte blanc d'au moins 4,6:1 sur chaque couleur (niveau AA), logos ajoutés aux indicateurs.
+- Les 3 bandeaux GitHub Actions restent tels quels : leur couleur dépend du résultat des tests.
+
 ## 2026-10-01 (15) — README anglais : comparateur et catalogue fournisseurs
 
 - **Deux captures ajoutées** au README anglais, après la traduction (#147) : comparateur de prix (« disjoncteur 16a courbe c ») et catalogue fournisseurs. Données personnelles masquées.
