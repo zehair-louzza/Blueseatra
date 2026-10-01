@@ -4,6 +4,7 @@ import { api, apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { localeCourante } from '@/lib/locale';
 import { Check, Loader2, ExternalLink, Zap } from 'lucide-react';
 
 // Ticket #90 : choix de l'offre, recharges et portail Stripe.
@@ -15,7 +16,10 @@ const OFFRES = [
 const PACKS = [
   { code: 'recharge_devis_25', prix: 19 }, { code: 'recharge_devis_100', prix: 59 }, { code: 'recharge_pages_500', prix: 39 },
 ];
-const nf = new Intl.NumberFormat('fr-FR');
+// Nombres et prix dans la langue de l'interface : « 59 € HT / mois » en
+// français, « €59 excl. VAT / month » en anglais.
+const nf = { format: (n) => new Intl.NumberFormat(localeCourante()).format(n) };
+const eur = (n) => new Intl.NumberFormat(localeCourante(), { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 
 export default function ChoixOffre({ offreActuelle, peutPayer }) {
   const { t } = useTranslation();
@@ -53,8 +57,8 @@ export default function ChoixOffre({ offreActuelle, peutPayer }) {
             <Card key={o.code} className={`card-shadow relative border-0 p-5 ${o.conseille ? 'ring-2 ring-primary' : ''}`}>
               {o.conseille && <span className="absolute -top-2.5 left-5 rounded-full bg-primary px-2.5 py-0.5 text-xs font-medium text-primary-foreground">{t('cl.p_conseille')}</span>}
               <div className="font-display text-lg font-semibold">{o.nom}</div>
-              <div className="mt-1"><span className="font-display text-3xl font-semibold">{nf.format(annuel ? o.mensuel * 10 : o.mensuel)} €</span>
-                <span className="text-sm text-muted-foreground"> HT / {annuel ? t('cl.p_an') : t('cl.p_mois')}</span></div>
+              <div className="mt-1"><span className="font-display text-3xl font-semibold">{eur(annuel ? o.mensuel * 10 : o.mensuel)}</span>
+                <span className="text-sm text-muted-foreground"> {t('cl.p_ht')} / {annuel ? t('cl.p_an') : t('cl.p_mois')}</span></div>
               {annuel && <div className="text-xs text-emerald-700">{t('cl.p_deux_mois')}</div>}
               <ul className="mt-3 space-y-1.5 text-sm">
                 {[t('cl.p_sieges', { n: o.sieges }), t('cl.p_devis', { n: nf.format(o.devis) }), t('cl.p_pages', { n: nf.format(o.pages) }), t('cl.p_illimite')].map((x) => (
@@ -83,7 +87,7 @@ export default function ChoixOffre({ offreActuelle, peutPayer }) {
           <div className="mt-3 flex flex-wrap gap-2">
             {PACKS.map((p) => (
               <Button key={p.code} variant="secondary" size="sm" disabled={busy !== null} onClick={() => aller(p.code, '/abonnement/recharge', { pack: p.code })}>
-                {busy === p.code && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t(`cl.p_${p.code}`)} · {p.prix} € HT
+                {busy === p.code && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{t(`cl.p_${p.code}`)} · {eur(p.prix)} {t('cl.p_ht')}
               </Button>
             ))}
           </div>

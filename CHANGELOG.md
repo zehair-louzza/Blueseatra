@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-01 (17) — Cartes d'offre traduites
+
+- **Prix des offres dans la langue de l'interface** : « 59 € HT / mois » en français, « €59 excl. VAT / month » en anglais, sur les cartes d'offre, les recharges et la ligne de l'offre actuelle (page Offre et consommation). Nouvelle clé `cl.p_ht`.
+
 ## 2026-10-01 (16) — Bandeaux du README retravaillés
 
 - **Palette professionnelle à plusieurs couleurs** pour les 18 bandeaux shields.io (README français et anglais) : libellé gris foncé commun (`2D333B`), couleur de marque pour chaque technologie (Python, FastAPI, React, Tailwind, PostgreSQL, Supabase, Render, Vercel, Ollama · OVH), une couleur par indicateur (routes, migrations, tests, isolation, RGPD, langues) et par statut (production, version, licence).
