@@ -1,15 +1,20 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+import { localeCourante } from '@/lib/locale';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 export const TYPES = ['entreprise', 'particulier', 'syndic', 'bailleur', 'collectivite', 'enseigne'];
 
-export const nf = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
-export const euro = (n) => `${nf.format(Number(n) || 0)} € HT`;
-export const dfr = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
-export const dtfr = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
+// Montants et dates du module Clients dans la langue de l'interface :
+// « 1 250 € HT » et « 09/10/2026 » en français, « €1,250 excl. VAT » et
+// « 09/10/2026 » (jour/mois, comme au Royaume-Uni) en anglais.
+export const nf = { format: (n) => new Intl.NumberFormat(localeCourante(), { maximumFractionDigits: 0 }).format(n) };
+export const euro = (n) => `${new Intl.NumberFormat(localeCourante(), { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(Number(n) || 0)} ${i18n.t('cl.p_ht')}`;
+export const dfr = (iso) => (iso ? new Date(iso).toLocaleDateString(localeCourante(), { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—');
+export const dtfr = (iso) => (iso ? new Date(iso).toLocaleString(localeCourante(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export const selectCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
