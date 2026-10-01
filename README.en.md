@@ -86,9 +86,13 @@ The validated quote goes out as a Pro Forma PDF; **follow-ups in working days** 
 <td width="50%"><img src="docs/assets/manuel-en/06-catalogues.jpg" alt="Catalogues"><br><sub><b>Catalogues</b>: your price catalogue and the supplier catalogues you switch on for quoting</sub></td>
 <td width="50%"><img src="docs/assets/manuel-en/10-offre-consommation.jpg" alt="Plan and usage"><br><sub><b>Plan and usage</b>: only automated work is counted</sub></td>
 </tr>
+<tr>
+<td width="50%"><img src="docs/assets/manuel-en/15-comparateur-prix.jpg" alt="Price comparison"><br><sub><b>Price comparison</b>: cheapest offer at each supplier, family filter, recognised trade terms</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/09-catalogue-fournisseurs.jpg" alt="Supplier catalogue"><br><sub><b>Supplier catalogue</b>: shared supplier catalogues, each switched on or off for quoting</sub></td>
+</tr>
 </table>
 
-<sub>English interface. Personal data is masked; item labels come from a French price catalogue.</sub>
+<sub>English interface. Personal data is masked. Product descriptions, families and sample queries stay in French: they come from, and must match, French supplier catalogues.</sub>
 
 ## Features
 
