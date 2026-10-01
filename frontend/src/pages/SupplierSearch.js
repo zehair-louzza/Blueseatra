@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SupplierFamilyFilter } from '@/components/SupplierFamilyFilter';
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { SupplierSearchSummary, RecognizedTerms } from '@/components/SupplierSearchSummary';
 import { SupplierCheapestPanel } from '@/components/SupplierCheapestPanel';
@@ -73,8 +73,8 @@ const messageErreur = (err) => {
   };
 };
 
-// Valeur technique du choix « Toutes les familles » (le composant Select
-// n'accepte pas de valeur vide).
+// Valeur technique du choix « Toutes les familles » (convertie en filtre vide
+// par choisirFamille).
 const TOUTES_FAMILLES = '__toutes__';
 
 export default function SupplierSearch() {
@@ -95,11 +95,14 @@ export default function SupplierSearch() {
   // Familles de produits des catalogues visibles (chargees une fois ; leur
   // absence n'empeche jamais de chercher).
   const [familles, setFamilles] = useState([]);
+  const [famillesEnCours, setFamillesEnCours] = useState(true);
   useEffect(() => {
     let annule = false;
+    setFamillesEnCours(true);
     listerFamilles()
       .then((d) => { if (!annule) setFamilles(d?.familles || []); })
-      .catch(() => { if (!annule) setFamilles([]); });
+      .catch(() => { if (!annule) setFamilles([]); })
+      .finally(() => { if (!annule) setFamillesEnCours(false); });
     return () => { annule = true; };
   }, [generation]);
 
@@ -236,28 +239,13 @@ export default function SupplierSearch() {
               Rechercher
             </Button>
           </div>
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-            <Label htmlFor="fournisseurs-famille" className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Layers className="h-4 w-4" />
-              Famille
-            </Label>
-            <Select value={familleUrl || TOUTES_FAMILLES} onValueChange={choisirFamille} disabled={chargement}>
-              <SelectTrigger id="fournisseurs-famille" className="sm:w-96" data-testid="fournisseurs-famille">
-                <SelectValue placeholder="Toutes les familles" />
-              </SelectTrigger>
-              <SelectContent className="max-h-80">
-                <SelectItem value={TOUTES_FAMILLES}>Toutes les familles</SelectItem>
-                {familleUrl && !familles.some((f) => f.famille === familleUrl) && (
-                  <SelectItem value={familleUrl}>{familleUrl}</SelectItem>
-                )}
-                {familles.map((f) => (
-                  <SelectItem key={f.famille} value={f.famille} title={(f.fournisseurs || []).join(', ')}>
-                    {f.famille} <span className="text-muted-foreground">({entier(f.nb)})</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <SupplierFamilyFilter
+            familles={familles}
+            valeur={familleUrl}
+            onChange={(f) => choisirFamille(f || TOUTES_FAMILLES)}
+            desactive={chargement}
+            chargement={famillesEnCours}
+          />
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>Exemples&nbsp;:</span>
             {EXEMPLES.map((ex) => (

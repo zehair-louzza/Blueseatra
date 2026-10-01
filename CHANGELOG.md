@@ -1,8 +1,16 @@
 # Changelog
 
+## 2026-10-01 (9) — Liste des familles du comparateur : 75 s → 1,5 s
+
+- **Constat juste après #141** : `GET /fournisseurs/familles` prenait 75 s au premier appel (puis 3,3 s). Pour chaque catalogue, le `GROUP BY raw_row->>'famille'` finissait en parcours complet de `supplier_offers` (2,5 Go) : l'index des familles porte sur une expression que PostgreSQL ne sait pas lire sans la fiche, et sous RLS `->>` ne peut pas servir de condition d'index.
+- **Migration `20261001210000`** : `blueseatra.familles_catalogue(tenant, version, hist)`, parcours « en saut » de `idx_offers_tenant_version_famille` (une lecture par famille), `SECURITY DEFINER`, mêmes règles de cloisonnement et de portée que les autres fonctions. Mesuré sous RLS en production : 9 catalogues en ≈ 1,5 s à froid (Rexel : 17 ms), puis cache par version (une version publiée ne change jamais). Aucune table modifiée.
+- **Sans comptage** : compter exigerait de lire chaque fiche. Liste triée par ordre alphabétique, sans accents ni casse.
+- **Écran** : 2 419 familles (un fournisseur en emploie 2 204) — le menu devient une liste **filtrable à la saisie** (sans accents ni casse, 100 correspondances affichées au plus), avec les fournisseurs sous chaque famille.
+- **Tests** : 2 tests SQL de plus (25 au total) ; test d'agrégation réécrit (tenant de chaque source, tri, cache par version).
+
 ## 2026-10-01 (8) — Filtre par famille dans le comparateur de prix
 
-- **Comparateur** : nouveau paramètre `famille` sur `GET /fournisseurs/recherche` et nouveau `GET /fournisseurs/familles` (familles de tous les catalogues visibles, avec leur nombre de produits et les fournisseurs qui les emploient ; lues dans l'index `(tenant_id, version_id, famille, …)` déjà en place et mises en cache par catalogue). Écran : menu **Famille** sous le champ de recherche, bandeau du filtre actif, filtre conservé dans l'URL.
+- **Comparateur** : nouveau paramètre `famille` sur `GET /fournisseurs/recherche` et nouveau `GET /fournisseurs/familles` (familles de tous les catalogues visibles et fournisseurs qui les emploient ; voir l'entrée (9) pour sa vitesse). Écran : menu **Famille** sous le champ de recherche, bandeau du filtre actif, filtre conservé dans l'URL.
 - **Migration `20261001200000`** : `offres_candidates` reçoit `p_famille` (8ᵉ paramètre, `NULL` par défaut). Signature remplacée par `DROP` + `CREATE` dans la même transaction, pour qu'il n'existe jamais deux surcharges ; les appels à 7 arguments du code déjà déployé restent valides pendant la bascule. Aucune table modifiée.
 - **Plafond de comparaison ramené à 1 000 offres avec une famille** : la famille n'est pas dans l'index par prix, chaque offre parcourue coûte une lecture de fiche. Mesuré sous RLS (production) : « led » + Éclairage 17 s à 5 000 offres, 3,4 s à 1 000 ; « disjoncteur 16a courbe c » + Distribution 44 ms ; « prise » + Éclairage 6 s. La réponse rappelle `famille` et `plafond`.
 - **Tests** : 3 tests SQL de plus (23 au total : filtre identique à la référence, famille inconnue, autre entreprise, injection, appel à 7 arguments, signature unique) ; 2 tests unitaires (plafond réduit, agrégation des familles). Référence API régénérée (114 routes).

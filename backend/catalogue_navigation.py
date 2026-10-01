@@ -26,6 +26,7 @@ versions actives de l'entreprise et du catalogue commun non masque.
 from __future__ import annotations
 
 import json
+import unicodedata
 
 from sqlalchemy import text
 
@@ -312,21 +313,54 @@ async def familles(cle: str) -> dict:
     return {"cle": cle, "familles": rows}
 
 
-async def familles_visibles() -> dict:
-    """Familles de tous les catalogues visibles (comparateur de prix).
+# Familles distinctes par version : une version publiee ne change jamais
+# (une mise a jour cree une nouvelle version), le cache n'expire donc pas.
+_cache_familles_comparateur: dict[str, list[str]] = {}
 
-    Agregation des familles par catalogue (familles(), en cache par
-    version et servie par l'index (tenant_id, version_id, famille, ...)).
+SQL_FAMILLES_CATALOGUE = """
+    SELECT f AS famille FROM blueseatra.familles_catalogue(:t, :v, :h) AS f
+"""
+
+
+async def familles_visibles() -> dict:
+    """Familles de tous les catalogues visibles (filtre du comparateur).
+
+    Chaque catalogue est lu par blueseatra.familles_catalogue (migration
+    20261001210000) : parcours en saut de l'index des familles, ~1,5 s a
+    froid pour 9 catalogues. La version precedente (GROUP BY sur
+    raw_row->>'famille') parcourait toute la table pour chaque catalogue :
+    75 s au premier appel en production. Pas de comptage : il exigerait de
+    lire chaque fiche.
+
     Les libelles de famille sont propres a chaque fournisseur : ils sont
-    regroupes tels quels, avec les fournisseurs qui les emploient.
+    regroupes tels quels, avec les fournisseurs qui les emploient. Le tenant
+    de chaque source vient du parcours de visibilite, jamais du client.
     """
+    tenant = _tenant()
+    sources = (await fournisseurs()).get("fournisseurs", [])
     agregat: dict[str, dict] = {}
-    for f in (await fournisseurs()).get("fournisseurs", []):
-        for fam in (await familles(f["cle"])).get("familles", []):
-            a = agregat.setdefault(fam["famille"], {"famille": fam["famille"], "nb": 0,
-                                                    "fournisseurs": []})
-            a["nb"] += fam["nb"]
-            if f["fournisseur"] not in a["fournisseurs"]:
-                a["fournisseurs"].append(f["fournisseur"])
-    liste = sorted(agregat.values(), key=lambda a: (-a["nb"], a["famille"]))
+    async with tenant_session() as session:
+        for src in sources:
+            cle = src["cle"]
+            noms = _cache_familles_comparateur.get(cle)
+            if noms is None:
+                hist = cle.startswith("hist:")
+                portee = {"t": tenant if hist or not src.get("catalogue_commun")
+                          else catalogue_commun.TENANT_COMMUN,
+                          "v": None if hist else cle, "h": cle[5:] if hist else None}
+                noms = [r["famille"] for r in
+                        (await session.execute(text(SQL_FAMILLES_CATALOGUE), portee)).mappings()]
+                if not hist:
+                    _cache_familles_comparateur[cle] = noms
+            for nom in noms:
+                a = agregat.setdefault(nom, {"famille": nom, "fournisseurs": []})
+                if src["fournisseur"] not in a["fournisseurs"]:
+                    a["fournisseurs"].append(src["fournisseur"])
+    liste = sorted(agregat.values(), key=lambda a: _cle_tri(a["famille"]))
     return {"familles": liste}
+
+
+def _cle_tri(texte: str) -> str:
+    """Tri alphabetique insensible aux accents et a la casse."""
+    return "".join(c for c in unicodedata.normalize("NFD", texte.casefold())
+                   if unicodedata.category(c) != "Mn")

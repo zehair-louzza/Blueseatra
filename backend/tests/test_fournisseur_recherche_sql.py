@@ -206,19 +206,41 @@ def test_comparateur_famille_plafond_reduit(monkeypatch):
 
 def test_familles_visibles_agrege_les_catalogues(monkeypatch):
     async def fournisseurs():
-        return {"fournisseurs": [{"cle": "v1", "fournisseur": "Rexel"},
-                                 {"cle": "hist:x", "fournisseur": "Prolians"},
-                                 {"cle": "v2", "fournisseur": "Rexel"}]}
-    donnees = {"v1": [{"famille": "Eclairage", "nb": 10}, {"famille": "Cables", "nb": 4}],
-               "hist:x": [{"famille": "Eclairage", "nb": 3}],
-               "v2": [{"famille": "Cables", "nb": 20}]}
+        return {"fournisseurs": [
+            {"cle": "v1", "fournisseur": "Rexel", "catalogue_commun": True},
+            {"cle": "hist:x", "fournisseur": "Prolians", "catalogue_commun": False},
+            {"cle": "v2", "fournisseur": "Rexel", "catalogue_commun": False}]}
+    donnees = {"v1": ["Éclairage", "Câbles"], "x": ["Éclairage"], "v2": ["Câbles", "abri"]}
 
-    async def familles(cle):
-        return {"cle": cle, "familles": donnees[cle]}
+    class Session:
+        def __init__(self):
+            self.executed = []
+
+        async def execute(self, sql, params=None):
+            self.executed.append((str(sql), params))
+            cle = params["v"] or params["h"]
+            return _Res([{"famille": f} for f in donnees[cle]])
+    session = Session()
     monkeypatch.setattr(nav, "fournisseurs", fournisseurs)
-    monkeypatch.setattr(nav, "familles", familles)
+    monkeypatch.setattr(nav, "get_current_tenant", lambda: TENANT)
+    monkeypatch.setattr(nav, "tenant_session", lambda: _Ctx(session))
+    nav._cache_familles_comparateur.clear()
     res = asyncio.run(nav.familles_visibles())
+    # Tri insensible aux accents et a la casse ; fournisseurs regroupes.
     assert res["familles"] == [
-        {"famille": "Cables", "nb": 24, "fournisseurs": ["Rexel"]},
-        {"famille": "Eclairage", "nb": 13, "fournisseurs": ["Rexel", "Prolians"]},
+        {"famille": "abri", "fournisseurs": ["Rexel"]},
+        {"famille": "Câbles", "fournisseurs": ["Rexel"]},
+        {"famille": "Éclairage", "fournisseurs": ["Rexel", "Prolians"]},
     ]
+    # Tenant de chaque source : commun pour le catalogue commun, sinon
+    # l'entreprise ; jamais fourni par le client.
+    portees = [p for _, p in session.executed]
+    assert all("blueseatra.familles_catalogue(" in sql for sql, _ in session.executed)
+    assert {"t": catalogue_commun.TENANT_COMMUN, "v": "v1", "h": None} in portees
+    assert {"t": TENANT, "v": None, "h": "x"} in portees
+    assert {"t": TENANT, "v": "v2", "h": None} in portees
+    # Les versions sont mises en cache (immuables), pas le fournisseur historique.
+    session.executed.clear()
+    asyncio.run(nav.familles_visibles())
+    assert [p for _, p in session.executed] == [{"t": TENANT, "v": None, "h": "x"}]
+    nav._cache_familles_comparateur.clear()
