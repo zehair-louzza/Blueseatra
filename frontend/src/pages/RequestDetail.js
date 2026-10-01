@@ -82,7 +82,10 @@ export default function RequestDetail() {
   const makeQuote = async () => {
     setBusy(true);
     try {
-      const { data } = await api.post('/quotes/draft', { request_id: id });
+      // Generation longue (rapprochement IA + sources fournisseurs actives) :
+      // le delai par defaut (90 s) deconnait avant la fin. 300 s couvre le pire
+      // cas observe (IA Hermes + recherche multi-catalogues).
+      const { data } = await api.post('/quotes/draft', { request_id: id }, { timeout: 300000 });
       const n = data.option_count || 1;
       if (n > 1) toast.success(t('req.quotes_created', { n }));
       else toast.success(t('req.quote_created'));

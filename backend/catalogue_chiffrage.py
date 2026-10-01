@@ -33,6 +33,8 @@ import logging
 
 from sqlalchemy import text
 
+import asyncio
+
 import catalogue_navigation
 import catalogue_commun
 from database import get_current_tenant, tenant_context, tenant_session
@@ -172,9 +174,20 @@ async def candidats_rapprochement(tenant_id: str, extraits: dict,
         return []
     try:
         async with tenant_context(tenant_id):
+            # Reches par libelle en parallele (jeton borne : la base est
+            # lointaine, chaque recherche coute quelques secondes) : sequentiel,
+            # 15 libelles x 3 s = 45 s ; parallele x4, ~12 s.
+            sem = asyncio.Semaphore(4)
+
+            async def une_recherche(lb):
+                async with sem:
+                    return await rechercher(lb, par_ligne)
+
+            resultats = await asyncio.gather(*(une_recherche(lb) for lb in libelles),
+                                             return_exceptions=True)
             vus, candidats = set(), []
-            for lb in libelles:
-                for article in await rechercher(lb, par_ligne):
+            for lot in resultats:
+                for article in (lot if isinstance(lot, list) else []):
                     if article["id"] not in vus:
                         vus.add(article["id"])
                         candidats.append(article)
@@ -240,32 +253,43 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
             return []
 
         conds, params, _ = _conditions(q)
-        clauses = []
+        params.update(tenant_id=tenant, commun=catalogue_commun.TENANT_COMMUN,
+                       limite=limite, plafond_branche=limite)
+        # UNION ALL par source : chaque branche profite de l'index
+        # (tenant_id, version_id) et de l'index trigramme recherche_norm,
+        # puis renvoie ses k meilleures offres. Une clause OR unique sur les
+        # 8+ sources actives forçait un parcours quasi complet (30-50 s en
+        # production) ; chaque branche top-k coute quelques centaines de ms.
+        branches = []
         for i, cle in enumerate(cles):
             if cle.startswith("hist:"):
                 params[f"h{i}"] = cle[5:]
-                clauses.append(f"""(o.tenant_id = :tenant_id AND o.supplier_id = :h{i}
+                filtre = f"""o.tenant_id = :tenant_id AND o.supplier_id = :h{i}
                     AND o.is_active
                     AND (o.catalog_id IS NULL OR o.catalog_id NOT IN (
-                        SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id = :tenant_id)))""")
+                        SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id = :tenant_id))"""
             else:
                 # Cle de version : UUID globalement unique, resolu ci-dessus
                 # parmi les fournisseurs visibles de cette entreprise. Le
                 # filtre tenant reste explicite par defense en profondeur,
                 # comme partout dans le parcours fournisseurs.
                 params[f"v{i}"] = cle
-                clauses.append(f"((o.tenant_id = :tenant_id OR o.tenant_id = :commun)"
-                               f" AND o.version_id = :v{i} AND o.is_active)")
-        params.update(tenant_id=tenant, commun=catalogue_commun.TENANT_COMMUN, limite=limite)
+                filtre = ("(o.tenant_id = :tenant_id OR o.tenant_id = :commun)"
+                          f" AND o.version_id = :v{i} AND o.is_active")
+            branches.append(f"""
+                (SELECT {catalogue_navigation.CHAMPS}
+                     FROM blueseatra.supplier_offers o
+                     LEFT JOIN blueseatra.suppliers f
+                            ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+                    WHERE ({filtre})
+                      AND ({' AND '.join(conds)})
+                    ORDER BY o.price_ht ASC NULLS LAST, o.id
+                    LIMIT :plafond_branche)
+            """)
         sql = text(f"""
-            SELECT {catalogue_navigation.CHAMPS}
-              FROM blueseatra.supplier_offers o
-              LEFT JOIN blueseatra.suppliers f
-                     ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
-             WHERE ({' OR '.join(clauses)})
-               AND ({' AND '.join(conds)})
-             ORDER BY o.price_ht ASC NULLS LAST, o.id
-             LIMIT :limite
+            SELECT * FROM ({' UNION ALL '.join(branches)}) offres
+            ORDER BY prix_net_ht ASC NULLS LAST, id
+            LIMIT :limite
         """)
         async with tenant_session() as session:
             lignes = [dict(r) for r in (await session.execute(sql, params)).mappings()]
