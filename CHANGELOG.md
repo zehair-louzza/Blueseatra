@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-01 (12) — Schémas du README anglais en anglais
+
+- **3 schémas en anglais** pour le README anglais : architecture, chiffrage sur sources activables, recherche fournisseurs sous RLS (`docs/assets/schema-*-en.png`, générés par `scripts/docs/generer_schemas_en.py`, même code de dessin et même style que les versions françaises).
+- **Schéma d'architecture français corrigé** : il indiquait encore 113 routes et 18 migrations (114 et 22).
+
 ## 2026-10-01 (11) — Documentation à jour, README anglais complet
 
 - **README anglais complet**, aligné section par section sur le README français (pourquoi, aperçu, fonctionnalités, démarrage rapide, architecture, documentation, qualité et sécurité, écosystème, feuille de route) ; il ne comptait que 3 sections.
