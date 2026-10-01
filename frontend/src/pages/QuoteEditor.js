@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api, apiError } from '@/lib/api';
@@ -51,18 +51,22 @@ export default function QuoteEditor() {
     toast.error(apiError(err, 'Failed'));
   });
   useEffect(() => { load(); }, [id]);
+  // Chaque recherche porte un numero : une reponse plus ancienne (les sources
+  // fournisseurs peuvent repondre plus lentement) n'ecrase jamais la plus recente.
+  const catalogSeq = useRef(0);
   const loadCatalog = (q = '') => {
+    const seq = ++catalogSeq.current;
     setCatalogLoading(true);
     setCatalogError(false);
     api.get('/catalog/search', { params: { q, limit: 40 } })
-      .then((r) => { setCatalog(r.data.items || []); })
-      .catch(() => { setCatalog([]); setCatalogError(true); })
-      .finally(() => setCatalogLoading(false));
+      .then((r) => { if (seq === catalogSeq.current) setCatalog(r.data.items || []); })
+      .catch(() => { if (seq === catalogSeq.current) { setCatalog([]); setCatalogError(true); } })
+      .finally(() => { if (seq === catalogSeq.current) setCatalogLoading(false); });
   };
   useEffect(() => { if (pickerOpen) loadCatalog(search); }, [pickerOpen]);
   useEffect(() => {
     if (!pickerOpen) return undefined;
-    const t = setTimeout(() => loadCatalog(search), 200);
+    const t = setTimeout(() => loadCatalog(search), 350);
     return () => clearTimeout(t);
   }, [search, pickerOpen]);
 
@@ -279,14 +283,10 @@ export default function QuoteEditor() {
                       <DialogTitle>{t('quote.add_from_catalog')}</DialogTitle>
                       <DialogDescription className="sr-only">{t('quote.pick_item')}</DialogDescription>
                     </DialogHeader>
-                    {catalogLoading ? (
-                      <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-                    ) : catalogError ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">{t('quote.catalog_empty')}</p>
-                    ) : catalog.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-muted-foreground">{t('quote.catalog_empty')}</p>
-                    ) : (
-                      <div className="space-y-3">
+                    {/* Le champ de recherche reste toujours affiche : sans catalogue interne,
+                        les sources fournisseurs activees exigent un mot-cle, et une liste vide
+                        a l'ouverture ne veut pas dire qu'aucun catalogue n'est actif. */}
+                    <div className="space-y-3">
                         <div className="flex flex-col gap-2 sm:flex-row">
                           <Select value={family} onValueChange={setFamily}>
                             <SelectTrigger className="sm:w-64" data-testid="family-filter"><SelectValue /></SelectTrigger>
@@ -300,7 +300,18 @@ export default function QuoteEditor() {
                             <Input className="pl-8" placeholder={t('quote.pick_item')} value={search} onChange={(e) => setSearch(e.target.value)} data-testid="catalog-search-input" autoFocus />
                           </div>
                         </div>
-                        <div className="max-h-[55vh] divide-y overflow-auto rounded-lg border">
+                        <div className="relative max-h-[55vh] divide-y overflow-auto rounded-lg border" aria-busy={catalogLoading}>
+                          {catalogLoading && catalog.length === 0 && (
+                            <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                          )}
+                          {catalogError && (
+                            <p className="px-3 py-6 text-center text-sm text-muted-foreground" data-testid="catalog-search-error">{t('quote.catalog_search_error')}</p>
+                          )}
+                          {!catalogError && !catalogLoading && filtered.length === 0 && (
+                            <p className="px-3 py-6 text-center text-sm text-muted-foreground" data-testid="catalog-empty-hint">
+                              {search.trim() ? t('quote.catalog_no_result') : t('quote.catalog_type_to_search')}
+                            </p>
+                          )}
                           {filtered.map((it) => {
                             const sup = supplierBy[it.id] || it.supplier_main || (it.suppliers || [])[0] || '';
                             return (
@@ -329,10 +340,11 @@ export default function QuoteEditor() {
                               </div>
                             );
                           })}
-                          {filtered.length === 0 && <p className="px-3 py-6 text-center text-sm text-muted-foreground">\u2014</p>}
                         </div>
-                      </div>
-                    )}
+                        {catalogLoading && catalog.length > 0 && (
+                          <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" />{t('quote.catalog_searching')}</p>
+                        )}
+                    </div>
                   </DialogContent>
                 </Dialog>
                 <div className="mx-1 h-5 w-px bg-border" />
