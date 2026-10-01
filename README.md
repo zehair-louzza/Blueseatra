@@ -126,6 +126,13 @@ Le détail (variables, base locale, tests) est dans le [guide développeur](./do
 
 ## Architecture
 
+<img src="docs/assets/schema-architecture.png" alt="Architecture Blueseatra : Vercel, Render, Supabase, passerelle Hermès et VPS OVH" width="100%">
+
+<img src="docs/assets/schema-chiffrage.png" alt="Chiffrage sur sources activables" width="100%">
+
+<details>
+<summary>Vue texte (Mermaid)</summary>
+
 ```mermaid
 flowchart LR
     U[Navigateur] -->|HTTPS| V[Vercel<br>site React]
@@ -134,6 +141,8 @@ flowchart LR
     R -->|HTTPS + clé| O[VPS OVH<br>Ollama]
     R -.-> N[n8n]
 ```
+
+</details>
 
 **Principes**
 - L'IA ne fixe jamais un prix.

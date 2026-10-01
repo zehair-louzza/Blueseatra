@@ -4,6 +4,10 @@ Vue d'ensemble technique de Blueseatra au 01/10/2026. Pour installer et tester, 
 
 ## Vue générale
 
+![Architecture Blueseatra](./assets/schema-architecture.png)
+
+La même vue en texte (Mermaid) :
+
 ```mermaid
 flowchart LR
     U[Navigateur<br>blueseatra.com] -->|HTTPS| V[Vercel<br>site React statique<br>déploiement auto depuis main]
@@ -26,6 +30,8 @@ flowchart LR
 
 ## Parcours d'une demande
 
+![Parcours d'une demande jusqu'au devis](./assets/schema-parcours.png)
+
 ```mermaid
 sequenceDiagram
     participant U as Utilisateur
@@ -45,6 +51,14 @@ sequenceDiagram
     U->>A: validation, envoi du devis
     A->>DB: relances planifiées en jours ouvrés
 ```
+
+## Routage IA
+
+![Routage IA par la passerelle Hermès](./assets/schema-routage.png)
+
+## Chiffrage sur sources activables
+
+![Chiffrage sur sources activables](./assets/schema-chiffrage.png)
 
 ## Principes non négociables
 

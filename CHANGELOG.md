@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-01 (4) — Schémas et captures d'écran à jour
+
+- **Schémas redessinés** (`docs/assets/schema-*.png`, rendu x2) : architecture (Vercel, Render, Supabase, passerelle Hermès, `custom:ollama` / `custom:mistral`), parcours d'une demande, routage IA, et nouveau schéma **Chiffrage sur sources activables** (recherche en deux temps, règles de génération). Affichés dans le README et `docs/architecture.md`. Générateur : `scripts/docs/generer_schemas.py` (hors `backend/`, donc sans redéploiement Render).
+- **Captures du manuel refaites** sur l'interface actuelle (1440×900), dont deux nouvelles : sources fournisseurs du chiffrage et fenêtre « Afficher le catalogue ».
+- **Données personnelles masquées** sur toutes les captures et la bannière : noms de personnes, clients, entreprise, e-mails, téléphones, adresses, SIREN/SIRET et suffixe de clé API.
+
 ## 2026-10-01 (3) — Génération robuste et rapide : recherche en deux temps, frontend sur Vercel
 
 - **Recherche fournisseurs en deux temps** (PR #133) : chaque libellé est d'abord filtré par l'index trigramme `idx_offers_recherche_trgm` dans une sous-requête **sans tri** (plafond 200 id), puis trié par prix sur le petit résultat. Avec un `ORDER BY price` dans la branche filtrante, le planificateur parcourait tout l'index par prix (960k lignes) pour des termes rares et dépassait le `command_timeout` asyncpg de 30 s — `TimeoutError` en production sur « trou evacuation rongeurs » ; la même requête passe désormais en **189 ms** (EXPLAIN ANALYZE vérifié sur la base de production).
