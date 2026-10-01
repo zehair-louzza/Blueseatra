@@ -25,6 +25,8 @@
 
 ## 1. Principe en une minute
 
+![Parcours d'une demande jusqu'au devis](assets/schema-parcours.png)
+
 ```mermaid
 flowchart LR
     A[Email, PDF, photo<br>ou texte collé] --> B[Demande<br>lue par l'IA]
@@ -42,6 +44,8 @@ flowchart LR
 - **Rien n'est supprimé en silence.** Les clients sont archivés, les relances annulées avec leur motif, et chaque action sensible est enregistrée au journal d'audit.
 
 ## 2. Créer un compte et se connecter
+
+![Page de connexion](assets/screens/connexion.jpg)
 
 1. Sur [blueseatra.com](https://blueseatra.com), cliquez sur **Essai gratuit** ou **Se connecter**.
 2. À l'inscription, indiquez votre nom, votre adresse e-mail, un mot de passe et le nom de votre entreprise. Un espace entreprise est créé, et vous en êtes le propriétaire.
@@ -110,6 +114,8 @@ Les demandes sont lues l'une après l'autre. Quand plusieurs sont en cours, la l
 - **Retraiter :** relance la lecture, par exemple après avoir corrigé le texte.
 - **Générer un autre devis :** crée une variante, par exemple une option A ou une option B.
 
+![Lignes de travaux extraites](assets/manuel/03b-demande-lignes.jpg)
+
 ## 6. Devis : vérifier, ajuster, valider, envoyer
 
 ### Liste des devis
@@ -157,6 +163,12 @@ La liste affiche le numéro, le client, le total TTC et le statut : **Brouillon*
 - **Bouton « Historique » :** il liste les versions avec leur date, le nombre de lignes et les totaux HT et TTC.
 - **Comparer :** affiche l'écart des totaux, les champs d'en-tête modifiés, ainsi que les lignes modifiées (avant → après), ajoutées et retirées.
 
+### PDF Pro Forma
+
+Le PDF reprend l'en-tête de votre société (**Paramètres → Société & PDF devis**), le destinataire, l'objet, le déroulement des travaux, les lignes par lot, le récapitulatif, les modalités de paiement et la zone de signature du client.
+
+![PDF Pro Forma d'un devis](assets/manuel/16-pdf-devis.jpg)
+
 ### Client et suivi
 
 Le panneau **Client et suivi** relie le devis à votre fichier clients :
@@ -167,6 +179,8 @@ Le panneau **Client et suivi** relie le devis à votre fichier clients :
 - **Relances prévues** pour ce devis.
 
 ### Cycle de vie d'un devis
+
+![Cycle de vie d'un devis et relances](assets/schema-cycle-devis.png)
 
 ```mermaid
 stateDiagram-v2
@@ -188,6 +202,8 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 1. Cliquez sur **Télécharger le modèle** pour obtenir un fichier CSV d'exemple, ou utilisez directement votre propre fichier.
 2. Cliquez sur **Importer CSV**. Toutes les colonnes sont acceptées : Blueseatra détecte les champs utiles (désignation, prix, unité, TVA, référence…) et vous pouvez corriger la correspondance.
 3. **Versions :** chaque import crée une version. Vous choisissez celle qui est active ; les anciennes restent consultables.
+![Import d'un catalogue tarifaire en 5 étapes](assets/schema-import-catalogue.png)
+
 4. **Contrôle avant activation :** l'import crée une version en brouillon. Blueseatra la compare à la version active (articles nouveaux, retirés, hausses et baisses de prix), puis rend un verdict :
    - **OK** : rien à signaler ;
    - **À vérifier** : prix manquants, unités inconnues, fortes variations ;
@@ -213,6 +229,11 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 - **Catalogue fournisseurs :** environ 967 000 références de 9 distributeurs : Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson Matériaux et Icilux. Les produits s'affichent page par page, avec des filtres par famille et par mot-clé.
 - **Catalogue commun :** il est partagé par toutes les entreprises. Vous pouvez **masquer** un fournisseur pour votre entreprise ; le catalogue commun n'est jamais supprimé.
 - **Comparer les prix :** recherchez un produit (par exemple « dalle LED 600x600 ») pour voir le moins cher chez chaque fournisseur. Les critères de la recherche (puissance, dimensions, marque) sont isolés.
+
+  ![Comparer les prix : recherche](assets/manuel/15-comparateur-prix.jpg)
+
+  ![Comparer les prix : le moins cher par fournisseur et résultats comparables](assets/manuel/15b-comparateur-resultats.jpg)
+
 - **Bouton « Utiliser pour le chiffrage » (bouton poussoir par fournisseur) :** c'est votre entreprise qui choisit quelles sources servent au chiffrage de ses devis. Activer un fournisseur fait apparaître ses articles dans la recherche d'articles du devis ; désactiver ne supprime **rien** — le contenu est conservé intégralement et se réactive en un clic. Les bascules sont journalisées dans le journal d'audit.
 - **Génération sans catalogue interne :** si vous n'avez pas importé de catalogue tarifaire interne, les sources fournisseurs activées suffisent : les libellés de la demande sont recherchés dans ces sources et les meilleures offres deviennent des lignes du devis (provenance « Catalogues fournisseurs »). Sans aucune source ni catalogue activés, la génération vous invite à en activer un ; des sources actives sans correspondance produisent un devis avec des lignes **à confirmer** (prix vides à compléter via la recherche d'articles).
 - **Dans l'éditeur de devis :** la recherche d'articles mélange votre catalogue interne et les sources activées ; les articles fournisseurs portent un badge ambre (prix net HT, unité de vente, marque, référence).
@@ -247,6 +268,8 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 
 ### 9.3 Protection des données personnelles
 
+![Droits des personnes (RGPD)](assets/schema-rgpd.png)
+
 - **Opposition aux relances :** décochez « Accepte les relances » sur le contact. Blueseatra crée alors une simple tâche interne, jamais d'e-mail.
 - **Anonymiser :** efface le nom, l'e-mail et les téléphones d'un contact, tout en conservant l'historique chiffré des devis. L'action est définitive.
 
@@ -263,6 +286,8 @@ Après la lecture d'une demande, Blueseatra propose le donneur d'ordre et le cli
 ![À relancer](assets/manuel/09-relances.jpg)
 
 ### Quand les relances sont prévues
+
+![Calendrier et arrêt des relances](assets/schema-cycle-devis.png)
 
 Les relances sont créées automatiquement quand un devis passe au statut **Envoyé**.
 
@@ -341,9 +366,13 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
   Chaque opération est inscrite au journal d'audit.
 - **Société & PDF devis :** raison sociale, SIRET, TVA intracommunautaire, adresse, IBAN, logo, mentions et conditions de paiement. Ces informations sont imprimées sur chaque PDF ; renseignez-les avant votre premier envoi.
 
+  ![Société & PDF devis](assets/manuel/12b-societe-pdf.jpg)
+
 ## 13. Offre et consommation
 
 ![Offre et consommation](assets/manuel/10-offre-consommation.jpg)
+
+![Quotas et consommation](assets/schema-quotas.png)
 
 - **Offre actuelle** et date de fin d'essai.
 - **Compteurs :**
@@ -364,6 +393,8 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
 Détail des offres : [`tarification-2026-09.md`](./tarification-2026-09.md).
 
 ## 14. Journal d'audit
+
+![Journal d'audit](assets/manuel/14-journal-audit.jpg)
 
 Le **Journal d'audit** liste les actions sensibles de votre entreprise : qui a fait quoi et quand. On y trouve par exemple la création ou la validation d'un devis, un import de catalogue, un changement de rôle, l'archivage ou l'anonymisation. L'application n'offre aucune fonction pour modifier ou effacer une entrée.
 

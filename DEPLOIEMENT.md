@@ -4,6 +4,10 @@ Ce document récapitule la configuration mise en place et les étapes pour dépl
 
 ## Architecture
 
+![Architecture Blueseatra](docs/assets/schema-architecture.png)
+
+![Chaîne de livraison](docs/assets/schema-livraison.png)
+
 ```
 Navigateur ──(REACT_APP_BACKEND_URL)/api──▶ Backend FastAPI ──(DATABASE_URL)──▶ Supabase Postgres
  (React/CRA build statique, Vercel,           (Python, Render)                    schéma "blueseatra"

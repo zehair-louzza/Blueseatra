@@ -282,7 +282,7 @@ def build_chiffrage() -> None:
         "   sous-requête sans tri, 200 id max",
         "2. tri par prix sur ce petit résultat",
         "",
-        "189 ms au lieu de > 30 s (timeout)",
+        "sous RLS : index trigramme à rétablir",
     ], fill=ACCENT_BG)
     c.arrow([(400, 162), (520, 162)])
     c.arrow([(400, 308), (520, 308)])
@@ -312,8 +312,192 @@ def build_chiffrage() -> None:
     c.save("schema-chiffrage.png")
 
 
+# --------------------------------------------------------------------------
+RED_BG = (251, 234, 232)
+RED = (176, 58, 46)
+GREEN_BG = (230, 244, 234)
+GREEN = (46, 125, 70)
+
+
+def build_livraison() -> None:
+    c = Canvas(1400, 560)
+    c.title("Chaîne de livraison", "Une fusion sur main déploie automatiquement ; aucune action manuelle sur les serveurs.")
+    c.box((40, 110, 290, 231), "1 Branche + PR", ["feat/... ou fix/...", "gabarit de PR", "un test par correctif"])
+    c.box((330, 110, 640, 252), "2 Contrôles GitHub", [("ci-infra", "lint, migrations,"), ("", "recherche de secrets"),
+                                                          ("securite", "isolation tenant_id"), ("tests-metier", "pytest")], col2=110)
+    c.box((680, 110, 930, 231), "3 Fusion sur main", ["squash, branche supprimée", "migration Supabase", "appliquée AVANT"], fill=ACCENT_BG)
+    c.box((980, 92, 1360, 196), "Render : API", ["si backend/ change, 2 à 3 min", "/api/health renvoie le commit"])
+    c.box((980, 212, 1360, 316), "Vercel : site", ["frontend/ à chaque fusion, 1 à 2 min", "www.blueseatra.com"])
+    c.arrow([(290, 170), (330, 170)])
+    c.arrow([(640, 170), (680, 170)])
+    c.arrow([(930, 150), (955, 150), (955, 144), (980, 144)])
+    c.arrow([(930, 190), (955, 190), (955, 264), (980, 264)])
+    c.zone((40, 350, 1360, 520), "Retour arrière")
+    c.box((60, 390, 470, 494), "API défectueuse", ["Render : Rollback du déploiement", "précédent, ou git revert + fusion"], fill=RED_BG)
+    c.box((495, 390, 905, 494), "Site défectueux", ["Vercel : Redeploy du déploiement", "précédent, ou git revert + fusion"], fill=RED_BG)
+    c.box((930, 390, 1340, 494), "Migration", ["toujours additive : l'ancien code", "l'ignore ; jamais de DROP en urgence"], fill=RED_BG)
+    c.save("schema-livraison.png")
+
+
+def build_isolation() -> None:
+    c = Canvas(1400, 520)
+    c.title("Isolation des entreprises", "Deux verrous indépendants : le filtre du code ET la RLS imposée par PostgreSQL.")
+    c.box((40, 110, 300, 231), "Requête", ["Authorization: Bearer", "X-Tenant-Id (choix", "de l'entreprise)"])
+    c.box((340, 110, 640, 231), "API : tenant résolu", ["côté serveur depuis le jeton", "et l'appartenance du membre,", "jamais pris tel quel du client"])
+    c.box((680, 110, 990, 231), "tenant_session()", ["SET app.tenant_id", "rôle blueseatra_app", "(non propriétaire des tables)"], fill=ACCENT_BG)
+    c.box((1030, 110, 1360, 231), "PostgreSQL RLS", ["policy : tenant_id =", "current_tenant()", "sur chaque table métier"], fill=ACCENT_BG)
+    for a, b in ((300, 340), (640, 680), (990, 1030)):
+        c.arrow([(a, 170), (b, 170)])
+    c.box((40, 270, 440, 374), "Filtre explicite dans le code", ["WHERE tenant_id = :tenant", "vérifié en CI (workflow securite)"])
+    c.box((480, 270, 900, 374), "Identifiant d'une autre entreprise", ["réponse 404, jamais 403 :", "on ne révèle pas son existence"], fill=RED_BG)
+    c.box((940, 270, 1360, 374), "Catalogue fournisseurs commun", ["seule donnée partagée, en lecture,", "masquable par entreprise"], fill=AMBER_BG)
+    c.text((40, 410), "Même si une requête oubliait le filtre, la RLS ne renverrait aucune ligne d'une autre entreprise ; "
+                      "et sans app.tenant_id positionné,", F_FOOT, FOOT)
+    c.text((40, 436), "elle ne renvoie rien du tout (get_db() sans tenant est désactivée). Audit d'isolation : "
+                      "docs/audit-isolation-tenants-2026-09-12.md.", F_FOOT, FOOT)
+    c.save("schema-isolation.png")
+
+
+def build_cycle_devis() -> None:
+    c = Canvas(1400, 640)
+    c.title("Cycle de vie d'un devis et relances", "Chaque validation fige une version ; rien n'est écrasé ni supprimé.")
+    c.box((40, 120, 250, 220), "Brouillon", ["modifiable,", "généré ou manuel"])
+    c.box((350, 120, 560, 220), "Validé", ["version figée,", "PDF Pro Forma"], fill=ACCENT_BG)
+    c.box((660, 120, 870, 220), "Envoyé", ["relances créées", "automatiquement"], fill=AMBER_BG)
+    c.box((990, 84, 1200, 142), "Accepté", [], fill=GREEN_BG)
+    c.box((990, 156, 1200, 214), "Refusé", [], fill=RED_BG)
+    c.box((990, 228, 1200, 286), "Sans suite", [], fill=RED_BG)
+    c.arrow([(250, 170), (350, 170)], "Valider", (272, 146))
+    c.arrow([(560, 170), (660, 170)], "Envoyer", (580, 146))
+    c.arrow([(870, 170), (930, 170), (930, 113), (990, 113)])
+    c.arrow([(930, 170), (930, 185), (990, 185)])
+    c.arrow([(930, 185), (930, 257), (990, 257)])
+    c.arrow([(765, 220), (765, 270), (145, 270), (145, 220)])
+    c.text((260, 278), "Remettre en brouillon : nouvelle version, relances annulées", F_BOX_BODY, ARROW)
+    c.zone((40, 330, 1360, 600), "Calendrier des relances (jours ouvrés : hors week-ends et 11 jours fériés)")
+    rows = [("Devis ordinaire", "J+3, J+7, J+14 après l'envoi, à 9 h"),
+            ("Demande urgente", "J+1, J+2, J+4"),
+            ("Validité renseignée", "rappel 3 jours ouvrés avant expiration"),
+            ("Plus de 10 000 € HT", "appel proposé plutôt qu'un e-mail"),
+            ("Contact sans e-mail", "appel")]
+    y = 372
+    for a_, b_ in rows:
+        c.text((60, y), a_, F_BOX_TITLE)
+        c.text((330, y + 2), b_, F_BOX_BODY, BODY)
+        y += 34
+    c.box((860, 365, 1340, 576), "Arrêt des relances", ["devis accepté, refusé ou sans suite",
+                                                     "devis remis en brouillon",
+                                                     "client archivé ou relances désactivées",
+                                                     "opposition RGPD du contact",
+                                                     "→ statut « annulée » avec motif,",
+                                                     "   jamais supprimées"])
+    c.save("schema-cycle-devis.png")
+
+
+def build_quotas() -> None:
+    c = Canvas(1400, 520)
+    c.title("Quotas et consommation", "Seul l'automatique est compté ; tout le manuel est illimité dans toutes les offres.")
+    c.box((40, 110, 290, 210), "Nouvelle demande", ["texte, PDF, photo", "lue par l'IA"])
+    c.box((330, 110, 640, 231), "quota_reserver()", ["1 devis assisté IA", "+ pages lues si photo", "ou PDF scanné"], fill=ACCENT_BG)
+    c.box((680, 110, 930, 210), "Lecture IA", ["OCR, structuration,", "brouillon de devis"])
+    c.box((980, 92, 1360, 175), "Succès", ["consommation confirmée"], fill=GREEN_BG)
+    c.box((980, 190, 1360, 273), "Échec", ["écriture inverse : quota remboursé"], fill=RED_BG)
+    c.arrow([(290, 160), (330, 160)])
+    c.arrow([(640, 160), (680, 160)])
+    c.arrow([(930, 145), (955, 145), (955, 133), (980, 133)])
+    c.arrow([(930, 180), (955, 180), (955, 231), (980, 231)])
+    c.box((40, 300, 640, 446), "Jamais compté", ["devis manuels, PDF, catalogues internes,",
+                                                 "catalogue fournisseurs commun, comparateur de prix,",
+                                                 "PDF qui contient déjà du texte (0 page lue)",
+                                                 "→ illimité dans toutes les offres"], fill=GREEN_BG)
+    c.box((680, 300, 1360, 446), "Registre de consommation", ["écritures ajoutées uniquement (trigger)",
+                                                            "correction = écriture inverse, jamais une modification",
+                                                            "impayé : suspension, jamais de suppression",
+                                                            "historique visible dans Offre et consommation"])
+    c.text((40, 470), "Offres : Découverte (essai 14 j, 10 devis IA, 30 pages)  |  Initial 59 €  |  Pilotage 149 €  |  "
+                      "Performance 399 €  |  Signature sur devis", F_FOOT, FOOT)
+    c.save("schema-quotas.png")
+
+
+def build_import_catalogue() -> None:
+    c = Canvas(1400, 470)
+    c.title("Import d'un catalogue tarifaire", "Toujours une nouvelle version en brouillon : l'ancienne reste active tant que vous n'activez pas.")
+    steps = [("1 Fichier", ["CSV de n'importe", "quel format"], WHITE),
+             ("2 Correspondance", ["colonnes détectées,", "corrigeables"], WHITE),
+             ("3 Import", ["version créée", "en brouillon"], WHITE),
+             ("4 Contrôle", ["comparaison avec", "la version active"], AMBER_BG),
+             ("5 Activé", ["bascule atomique", "de version"], GREEN_BG)]
+    x, w, gap = 40, 236, 30
+    spans = []
+    for t, l, f in steps:
+        c.box((x, 110, x + w, 210), t, l, fill=f)
+        spans.append((x, x + w))
+        x += w + gap
+    for (_, a), (b, _) in zip(spans[:-1], spans[1:]):
+        c.arrow([(a, 160), (b, 160)])
+    c.zone((40, 240, 1360, 430), "Verdict du contrôle")
+    c.box((60, 280, 470, 405), "OK", ["rien à signaler :", "activation directe"], fill=GREEN_BG)
+    c.box((495, 280, 905, 405), "À vérifier", ["prix manquants, unités inconnues,", "fortes variations de prix", "→ activation possible après revue"], fill=AMBER_BG)
+    c.box((930, 280, 1340, 405), "Bloquant", ["version vide, prix négatifs, trop de", "rejets, beaucoup moins d'articles",
+                                              "→ « Forcer » : owner ou admin seulement"], fill=RED_BG)
+    c.save("schema-import-catalogue.png")
+
+
+def build_rgpd() -> None:
+    c = Canvas(1400, 480)
+    c.title("Droits des personnes (RGPD)", "Tout est tracé dans le journal d'audit ; aucune donnée n'est supprimée physiquement.")
+    boxes = [("Accès, portabilité", ["art. 15 et 20", "Paramètres → Données", "personnelles → export", "GET /api/rgpd/export"], WHITE),
+             ("Effacement", ["art. 17", "Anonymiser par e-mail :", "identité effacée, devis", "et montants conservés"], AMBER_BG),
+             ("Opposition", ["art. 21", "« Accepte les relances »", "décoché : relances", "→ tâches internes"], WHITE),
+             ("Rectification", ["art. 16", "modifier la fiche", "client ou contact"], WHITE),
+             ("Conservation", ["art. 5", "client archivé > 3 ans :", "contact listé pour", "anonymisation"], WHITE)]
+    x, w, gap = 40, 246, 22
+    for t, l, f in boxes:
+        c.box((x, 110, x + w, 252), t, l, fill=f)
+        x += w + gap
+    c.box((40, 290, 680, 414), "Journal d'audit", ["rgpd.export, rgpd.anonymisation (e-mail pseudonymisé)",
+                                                    "ajout seul : aucune fonction de modification",
+                                                    "ni d'effacement d'une entrée"], fill=ACCENT_BG)
+    c.box((720, 290, 1360, 414), "Mesures de sécurité", ["RLS par entreprise, clés IA chiffrées (Fernet)",
+                                                          "mots de passe bcrypt, HTTPS obligatoire",
+                                                          "journaux JSON sans e-mail en clair"])
+    c.save("schema-rgpd.png")
+
+
+def build_incident() -> None:
+    c = Canvas(1400, 420)
+    c.title("Déroulé d'un incident", "Chaque requête porte un request_id : il relie le message d'erreur, les journaux Render et l'audit.")
+    steps = [("1 Détecter", ["alerte, client,", "réveil pg_cron KO"], WHITE, "—"),
+             ("2 Qualifier", ["/api/health,", "journaux ERROR"], WHITE, "10 min"),
+             ("3 Contenir", ["rollback, coupure", "IA, quotas à 0"], RED_BG, "15 min"),
+             ("4 Corriger", ["PR + test qui", "reproduit, CI verte"], WHITE, "selon gravité"),
+             ("5 Vérifier", ["health sur le commit,", "parcours critique"], GREEN_BG, "10 min"),
+             ("6 Post-mortem", ["fiche dans un", "ticket GitHub"], ACCENT_BG, "5 j ouvrés")]
+    x, w, gap = 40, 196, 28
+    spans = []
+    for t, l, f, d in steps:
+        c.box((x, 110, x + w, 210), t, l, fill=f)
+        c.text((x + 18, 222), d, F_BOX_BODY, ARROW)
+        spans.append((x, x + w))
+        x += w + gap
+    for (_, a), (b, _) in zip(spans[:-1], spans[1:]):
+        c.arrow([(a, 160), (b, 160)])
+    c.text((40, 270), "Contenir : API en 5xx → Render Rollback  |  quotas qui bloquent → BLUESEATRA_QUOTAS_APPLIQUES=0  |  "
+                      "IA en échec → BLUESEATRA_IA_COUPURE=repli", F_FOOT, FOOT)
+    c.text((40, 296), "Soupçon de fuite entre entreprises : couper l'accès, conserver les journaux, prévenir sous 72 h "
+                      "si des données personnelles sont touchées (art. 33).", F_FOOT, FOOT)
+    c.save("schema-incident.png")
+
+
 if __name__ == "__main__":
     build_architecture()
     build_parcours()
     build_routage()
     build_chiffrage()
+    build_livraison()
+    build_isolation()
+    build_cycle_devis()
+    build_quotas()
+    build_import_catalogue()
+    build_rgpd()
+    build_incident()

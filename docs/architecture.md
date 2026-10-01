@@ -67,6 +67,14 @@ sequenceDiagram
 3. **Aucune suppression silencieuse.** Le catalogue commun est masquable mais jamais supprimé. Les clients sont archivés et les contacts anonymisés. Le registre de consommation et les échanges clients sont en ajout seul, protégés par un trigger.
 4. **Validation humaine.** Un devis reste un brouillon tant qu'une personne ne l'a pas validé.
 
+## Isolation des entreprises
+
+![Isolation des entreprises](./assets/schema-isolation.png)
+
+## Chaîne de livraison
+
+![Chaîne de livraison](./assets/schema-livraison.png)
+
 ## Modules du backend
 
 | Fichier | Rôle |

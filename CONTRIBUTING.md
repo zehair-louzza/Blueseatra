@@ -1,5 +1,7 @@
 # Contribuer à Blueseatra
 
+![Chaîne de livraison : PR, contrôles, fusion, déploiement](docs/assets/schema-livraison.png)
+
 Dépôt privé et propriétaire : les contributions se font sur invitation.
 
 ## Flux de travail

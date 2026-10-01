@@ -2,6 +2,26 @@
 
 Toute la documentation du projet, classée par usage.
 
+
+## Schémas
+
+| | |
+|---|---|
+| [![Architecture](./assets/schema-architecture.png)](./architecture.md) | [![Parcours d'une demande](./assets/schema-parcours.png)](./manuel-utilisateur.md#1-principe-en-une-minute) |
+| **Architecture** : Vercel, Render, Supabase, passerelle Hermès | **Parcours** : de la demande au devis validé |
+| [![Chiffrage sur sources activables](./assets/schema-chiffrage.png)](./manuel-utilisateur.md#8-catalogue-fournisseurs-et-comparateur-de-prix) | [![Cycle de vie d'un devis](./assets/schema-cycle-devis.png)](./manuel-utilisateur.md#10-à-relancer) |
+| **Chiffrage** : catalogue interne et sources fournisseurs activables | **Devis et relances** : statuts, calendrier, arrêt |
+| [![Import de catalogue](./assets/schema-import-catalogue.png)](./manuel-utilisateur.md#7-catalogues-sur-mesure) | [![Quotas](./assets/schema-quotas.png)](./tarification-2026-09.md) |
+| **Import de catalogue** : 5 étapes et verdict du contrôle | **Quotas** : réservation, remboursement, ce qui n'est jamais compté |
+| [![Isolation des entreprises](./assets/schema-isolation.png)](./audit-isolation-tenants-2026-09-12.md) | [![Routage IA](./assets/schema-routage.png)](./architecture.md#routage-ia) |
+| **Isolation** : filtre du code et RLS PostgreSQL | **Routage IA** : tout passe par la passerelle Hermès |
+| [![Chaîne de livraison](./assets/schema-livraison.png)](./exploitation.md) | [![Droits RGPD](./assets/schema-rgpd.png)](./conformite-rgpd.md) |
+| **Livraison** : PR, contrôles, déploiement, retour arrière | **RGPD** : droits des personnes et traçabilité |
+| [![Déroulé d'un incident](./assets/schema-incident.png)](./runbook-incident.md) | |
+| **Incident** : détecter, contenir, corriger, vérifier | |
+
+Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/docs/generer_schemas.py) et la bannière par [`scripts/docs/generer_banniere.py`](../scripts/docs/generer_banniere.py).
+
 ## Utiliser
 
 | Document | Contenu |

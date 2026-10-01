@@ -6,6 +6,9 @@
 
 ---
 
+
+![Isolation des entreprises : état actuel](./assets/schema-isolation.png)
+
 ## Verdict
 
 **Aucune fuite inter-tenants détectée.** Sur 114 appels de lecture/écriture analysés dans `server.py`, tous sont correctement cloisonnés. Le code respecte partout le motif « vérifier l'appartenance, puis muter par identifiant ».
