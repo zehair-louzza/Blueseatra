@@ -200,6 +200,12 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 6. **Interrupteur « Utiliser pour le chiffrage » :** chaque catalogue interne peut être activé ou désactivé pour le chiffrage des devis. L'interrupteur active la version la plus récente ; désactiver ne supprime rien — le contenu reste et se réactive en un clic.
 7. **Section « Catalogues fournisseurs » :** la liste de vos sources fournisseurs visibles, chacune avec un bouton poussoir « activer / désactiver pour le chiffrage » et un bouton **Afficher le catalogue** qui ouvre le contenu paginé et filtrable de ce fournisseur.
 
+   ![Sources fournisseurs du chiffrage](assets/manuel/06d-sources-chiffrage.jpg)
+
+   ![Afficher le catalogue d'un fournisseur](assets/manuel/06c-afficher-catalogue-fournisseur.jpg)
+
+![Chiffrage sur sources activables](assets/schema-chiffrage.png)
+
 ## 8. Catalogue fournisseurs et comparateur de prix
 
 ![Catalogue fournisseurs](assets/screens/catalogue-fournisseurs.jpg)

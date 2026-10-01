@@ -48,6 +48,8 @@
 
 ## Stack
 
+<img src="docs/assets/schema-architecture.png" alt="Blueseatra architecture: Vercel, Render, Supabase, Hermès gateway and OVH VPS" width="100%">
+
 React 18 and Tailwind CSS on Vercel · FastAPI (Python 3.11) on Render · PostgreSQL 17 on Supabase with RLS · Ollama on an OVH VPS. See [architecture](./docs/architecture.md).
 
 The detailed documentation is written in French.
