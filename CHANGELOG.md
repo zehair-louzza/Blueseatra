@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-02 (6) — Journal d'audit en ajout seul
+
+- **Écart corrigé** : la documentation présentait `audit_logs` comme un journal en ajout seul, mais la base ne l'imposait pas (le rôle `blueseatra_app` gardait `UPDATE` et `DELETE`, aucun trigger).
+- **Migration `20261001230000_journal_audit_ajout_seul.sql`** : fonction `blueseatra.audit_ajout_seul()` sur le modèle de `registre_ajout_seul()`, triggers `BEFORE UPDATE OR DELETE` (par ligne) et `BEFORE TRUNCATE` (par instruction), retrait de `UPDATE`, `DELETE` et `TRUNCATE` au rôle applicatif et à `authenticated`. Idempotente.
+- **Maintenance explicite** : seul un rôle d'administration, jamais `blueseatra_app`, peut purger des traces de test avec `SET LOCAL blueseatra.maintenance_audit = 'on'`, pour sa seule transaction.
+- **Aucun changement fonctionnel** : l'application n'écrit dans le journal que par insertion ; l'export RGPD le lit seulement.
+- 9 tests sur PostgreSQL 17 jetable (`backend/tests_security/test_journal_audit_ajout_seul_sql.py`), ajoutés aux tests métier de la CI ; le prévol du rôle applicatif vérifie désormais que `UPDATE` et `DELETE` sont refusés.
+
 ## 2026-10-02 (5) — Conduits YESSS « par 100 » = 100 m ; pas d'écart entre unités différentes
 
 Constat lors de la vérification en production du comparateur (#159), sur la recherche « conduit icta 20 » : 0,44 €/m chez Rexel était comparé à 1,55 €/pièce chez YESSS, avec un écart affiché de 253 %.
