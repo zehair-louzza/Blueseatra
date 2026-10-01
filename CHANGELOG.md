@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-01 (15) — README anglais : comparateur et catalogue fournisseurs
+
+- **Deux captures ajoutées** au README anglais, après la traduction (#147) : comparateur de prix (« disjoncteur 16a courbe c ») et catalogue fournisseurs. Données personnelles masquées.
+- **Captures « Catalogues » et « Plan and usage » refaites** : badge « Shared » et date « 9 October 2026 » désormais en anglais.
+
 ## 2026-10-01 (14) — Écrans fournisseurs traduits en anglais
 
 - **Comparateur de prix et catalogue fournisseurs traduits** : nouveau dictionnaire `fo` (`frontend/src/i18n_fournisseurs.js`, 129 clés FR/EN, mêmes paramètres des deux côtés). Couvre la recherche, la synthèse, les termes reconnus, le moins cher par fournisseur, le tableau des résultats, les produits isolés, les critères à affiner, le filtre famille, le panneau du catalogue commun (badge « Commun » → « Shared »), la page Catalogue fournisseurs et la boîte de dialogue de contenu d'un catalogue. Les textes français sont repris mot pour mot.
