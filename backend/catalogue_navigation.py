@@ -25,11 +25,13 @@ versions actives de l'entreprise et du catalogue commun non masque.
 """
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import text
 
 import catalogue_commun
 from database import get_current_tenant, tenant_session
-from fournisseur_recherche import _conditions
+from fournisseur_recherche import termes_recherche
 
 TAILLE_DEFAUT = 50
 TAILLE_MAX = 200
@@ -190,48 +192,69 @@ async def _resoudre(session, tenant: str, cle: str) -> tuple[str, dict]:
     return "o.tenant_id = :vt AND o.version_id = :version AND o.is_active", p
 
 
+async def _page_recherche(session, tenant: str, cle: str, p: dict, q: str,
+                          famille: str, page: int, taille: int) -> tuple[list[dict], int]:
+    """Une page de recherche par mot dans un catalogue, via
+    blueseatra.catalogue_page (migration 20261001190000).
+
+    Sous blueseatra_app, une requete directe ne pouvait pas utiliser l'index
+    trigramme (LIKE n'est pas LEAKPROOF) : 26,6 s pour « disjoncteur 16a
+    courbe c » dans Rexel, 43,9 s pour un terme rare, delai depasse avec une
+    famille (mesure le 01/10/2026). La fonction refuse tout tenant autre que
+    l'entreprise ou le catalogue commun et ne renvoie que des identifiants ;
+    les fiches sont relues ici, sous RLS, avec le filtre tenant explicite.
+    """
+    if cle.startswith("hist:"):
+        portee = {"t": tenant, "v": None, "h": cle[5:]}
+    else:
+        # :vt et :version viennent de _resoudre, verifies parmi les
+        # catalogues visibles de l'entreprise -- jamais de la cle client.
+        portee = {"t": p["vt"], "v": p["version"], "h": None}
+    res = (await session.execute(text("""
+        SELECT CAST(blueseatra.catalogue_page(
+                   :t, :v, :h, CAST(:termes AS jsonb), :famille,
+                   :limite, :decalage, :plafond) AS text)
+    """), {**portee, "termes": json.dumps(termes_recherche(q)),
+           "famille": famille or None, "limite": taille + 1,
+           "decalage": (page - 1) * taille,
+           "plafond": PLAFOND_COMPTE_RECHERCHE + 1})).scalar()
+    res = json.loads(res) if res else {"ids": [], "total": 0}
+    ids = res.get("ids") or []
+    if not ids:
+        return [], int(res.get("total") or 0)
+    fiches = {r["id"]: dict(r) for r in (await session.execute(text(f"""
+        SELECT {CHAMPS}
+          FROM blueseatra.supplier_offers o
+          LEFT JOIN blueseatra.suppliers f
+                 ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+         WHERE o.id = ANY(:ids)
+           AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+    """), {"ids": ids, "tenant_id": tenant, "commun": p["commun"]})).mappings()}
+    # Ordre de la fonction (prix croissant, puis id) ; une fiche absente
+    # (RLS) est simplement omise.
+    return [fiches[i] for i in ids if i in fiches], int(res.get("total") or 0)
+
+
 async def produits(cle: str, page: int = 1, taille: int = TAILLE_DEFAUT,
                    q: str = "", famille: str = "") -> dict:
     tenant = _tenant()
     page = max(1, int(page))
     taille = max(1, min(int(taille), TAILLE_MAX))
+    q = (q or "").strip()
     async with tenant_session() as session:
         where, p = await _resoudre(session, tenant, cle)
-        conds = [where]
-        if famille:
-            conds.append("o.raw_row->>'famille' = :famille")
-            p["famille"] = famille
-        q = (q or "").strip()
         if q:
-            c, pq, _ = _conditions(q)
-            conds += c
-            p.update(pq)
-        clause = " AND ".join(conds)
-        plafond = PLAFOND_COMPTE_RECHERCHE if q else PLAFOND_COMPTE
-        p.update(limite=taille + 1, decalage=(page - 1) * taille, plafond=plafond + 1)
-        # Les deux requetes filtrent tenant_id via `clause` (voir _resoudre).
-        if q:
-            # Recherche en deux temps : les identifiants de la page sont lus
-            # dans l'index compact idx_offers_recherche_prix_v2 (tri par
-            # prix, index-only), puis seules ces lignes sont lues en table.
-            # En une seule requete, PostgreSQL lisait chaque fiche candidate
-            # (1,1 ko) : > 60 s pour "disjoncteur" dans Rexel, 1,3 s ainsi.
-            sql = text(f"""
-                WITH page AS MATERIALIZED (
-                    SELECT o.id, o.price_ht
-                      FROM blueseatra.supplier_offers o
-                     WHERE {clause} AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-                     ORDER BY o.price_ht ASC NULLS LAST, o.id
-                     LIMIT :limite OFFSET :decalage)
-                SELECT {CHAMPS}
-                  FROM page
-                  JOIN blueseatra.supplier_offers o ON o.id = page.id
-                  LEFT JOIN blueseatra.suppliers f
-                         ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
-                 WHERE (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-                 ORDER BY page.price_ht ASC NULLS LAST, page.id
-            """)
+            lignes, total = await _page_recherche(session, tenant, cle, p, q, famille,
+                                                  page, taille)
         else:
+            conds = [where]
+            if famille:
+                conds.append("o.raw_row->>'famille' = :famille")
+                p["famille"] = famille
+            clause = " AND ".join(conds)
+            p.update(limite=taille + 1, decalage=(page - 1) * taille,
+                     plafond=PLAFOND_COMPTE + 1)
+            # Les deux requetes filtrent tenant_id via `clause` (voir _resoudre).
             sql = text(f"""
                 SELECT {CHAMPS}
                   FROM blueseatra.supplier_offers o
@@ -241,16 +264,16 @@ async def produits(cle: str, page: int = 1, taille: int = TAILLE_DEFAUT,
                  ORDER BY o.raw_label, o.id
                  LIMIT :limite OFFSET :decalage
             """)
-        lignes = [dict(r) for r in (await session.execute(sql, p)).mappings()]
-        total = None
-        if q or famille:
-            compte = text(f"""
-                SELECT count(*) FROM (
-                    SELECT 1 FROM blueseatra.supplier_offers o
-                     WHERE {clause} AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-                     LIMIT :plafond) s
-            """)
-            total = int((await session.execute(compte, p)).scalar() or 0)
+            lignes = [dict(r) for r in (await session.execute(sql, p)).mappings()]
+            total = None
+            if famille:
+                compte = text(f"""
+                    SELECT count(*) FROM (
+                        SELECT 1 FROM blueseatra.supplier_offers o
+                         WHERE {clause} AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+                         LIMIT :plafond) s
+                """)
+                total = int((await session.execute(compte, p)).scalar() or 0)
 
     suivante = len(lignes) > taille
     lignes = lignes[:taille]

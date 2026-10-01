@@ -1,4 +1,5 @@
-"""Tests de blueseatra.offres_candidates (migration 20261001180000).
+"""Tests de blueseatra.offres_candidates et blueseatra.catalogue_page
+(migrations 20261001180000 et 20261001190000).
 
 La fonction est SECURITY DEFINER : elle lit supplier_offers SANS la RLS.
 Ces tests verifient donc, sur une base JETABLE avec de vraies politiques
@@ -28,7 +29,8 @@ DSN = os.environ.get("TEST_PG_DSN")
 pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 
 RACINE = Path(__file__).resolve().parents[2]
-MIGRATION = RACINE / "supabase/migrations/20261001180000_recherche_offres_sous_rls.sql"
+MIGRATIONS = [RACINE / "supabase/migrations/20261001180000_recherche_offres_sous_rls.sql",
+              RACINE / "supabase/migrations/20261001190000_recherche_dans_catalogue.sql"]
 
 COMMUN = "00000000-0000-4000-8000-000000000c0d"
 A = "aaaaaaaa-0000-4000-8000-00000000000a"   # entreprise testee
@@ -58,7 +60,7 @@ CREATE TABLE blueseatra.catalogs (
 CREATE TABLE blueseatra.supplier_offers (
     id varchar PRIMARY KEY, tenant_id varchar NOT NULL, supplier_id varchar,
     catalog_id varchar, version_id varchar, is_active boolean NOT NULL DEFAULT true,
-    price_ht double precision, recherche_norm text);
+    price_ht double precision, recherche_norm text, raw_row jsonb);
 CREATE INDEX idx_test_trgm ON blueseatra.supplier_offers
     USING gin (recherche_norm gin_trgm_ops);
 CREATE INDEX idx_test_prix ON blueseatra.supplier_offers
@@ -75,6 +77,14 @@ CREATE POLICY lecture_catalogue_commun ON blueseatra.catalogs FOR SELECT TO blue
     USING (tenant_id = blueseatra.tenant_catalogue_commun());
 GRANT SELECT ON blueseatra.supplier_offers, blueseatra.catalogs TO blueseatra_app;
 """
+
+
+def _famille(offre):
+    """Une prise sur dix en Eclairage, le reste en Appareillage."""
+    i = offre[0]
+    if i.startswith("c-prise-") and int(i.rsplit("-", 1)[1]) % 10 == 0:
+        return "Eclairage"
+    return "Distribution" if "dj" in i else "Appareillage"
 
 
 def _cx():
@@ -114,12 +124,13 @@ def base():
         cur.execute(AMORCE)
         cur.executemany("INSERT INTO blueseatra.catalogs VALUES (%s,%s,%s)",
                         [("cat-c", COMMUN, "ver-c2"), ("cat-b", B, "ver-b1")])
-        cur.executemany("INSERT INTO blueseatra.supplier_offers VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                        _offres())
+        cur.executemany("INSERT INTO blueseatra.supplier_offers VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        [(*o, json.dumps({"famille": _famille(o)})) for o in _offres()])
         cur.execute("ANALYZE blueseatra.supplier_offers")
-        sql = MIGRATION.read_text(encoding="utf-8")
-        cur.execute(sql)
-        cur.execute(sql)   # idempotente
+        for migration in MIGRATIONS:
+            sql = migration.read_text(encoding="utf-8")
+            cur.execute(sql)
+            cur.execute(sql)   # idempotente
     yield
 
 
@@ -195,6 +206,17 @@ def test_droit_execute_reserve_a_blueseatra_app():
     assert secdef is True
     assert config == ["search_path=\"\""] or config == ['search_path=""']
     assert public is False
+    with _cx() as c, c.cursor() as cur:
+        cur.execute("""
+            SELECT p.proname, p.prosecdef, has_function_privilege('public', p.oid, 'EXECUTE'),
+                   has_function_privilege('blueseatra_app', p.oid, 'EXECUTE')
+              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'blueseatra'
+               AND p.proname IN ('catalogue_page', 'recherche_conditions')""")
+        droits = {r[0]: r[1:] for r in cur.fetchall()}
+    assert droits["catalogue_page"] == (True, False, True)
+    # Fonction interne : ni SECURITY DEFINER, ni appelable par l'application.
+    assert droits["recherche_conditions"] == (False, False, False)
 
 
 # --- Exactitude ------------------------------------------------------------
@@ -269,3 +291,64 @@ def test_selecteur_lit_les_fiches_sous_rls():
          WHERE (o.tenant_id = %s OR o.tenant_id = %s)""",
         (A, json.dumps(_like("prise")), A, COMMUN))
     assert {r[0] for r in lignes} == {"a-prise-1", "a-hist-1"}
+
+
+# --- Recherche dans un catalogue (catalogue_page) ----------------------------
+
+def _page(tenant, p_tenant, termes, version=None, hist=None, famille=None,
+          limite=51, decalage=0, plafond=1001):
+    r = _app(tenant, """SELECT blueseatra.catalogue_page(%s, %s, %s, %s::jsonb, %s, %s, %s, %s)""",
+             (p_tenant, version, hist, json.dumps(termes), famille, limite, decalage, plafond))[0][0]
+    return r if isinstance(r, dict) else json.loads(r)
+
+
+def _ref_page(cond, params, version, famille=None, limite=51, decalage=0):
+    fam = " AND o.raw_row->>'famille' = %s" if famille else ""
+    with _cx() as c, c.cursor() as cur:
+        cur.execute(f"""SELECT o.id FROM blueseatra.supplier_offers o
+                         WHERE o.tenant_id = %s AND o.version_id = %s AND o.is_active
+                           AND {cond}{fam}
+                         ORDER BY o.price_ht ASC NULLS LAST, o.id LIMIT %s OFFSET %s""",
+                    (COMMUN, version, *params, *([famille] if famille else []), limite, decalage))
+        return [r[0] for r in cur.fetchall()]
+
+
+def test_page_autre_entreprise_rien():
+    assert _page(A, B, _like("prise"), version="ver-b1") == {"ids": [], "total": 0}
+    assert _page(A, B, _like("prise"), hist="concurrent") == {"ids": [], "total": 0}
+    assert _page("", A, _like("prise"), hist="histo") == {"ids": [], "total": 0}
+
+
+def test_page_exige_une_portee_precise():
+    assert _page(A, COMMUN, _like("prise")) == {"ids": [], "total": 0}           # ni version ni hist
+    assert _page(A, COMMUN, _like("prise"), version="ver-c2", hist="x") == {"ids": [], "total": 0}
+    assert _page(A, COMMUN, [[{"op": "sql", "v": "1=1"}]], version="ver-c2") == {"ids": [], "total": 0}
+
+
+@pytest.mark.parametrize("plafond,decalage", [(1001, 0), (1001, 950), (5000, 100)])
+def test_page_identique_a_la_reference(plafond, decalage):
+    # plafond 1001 < 4000 prises : chemin « index par prix » ; 5000 : trigramme.
+    r = _page(A, COMMUN, _like("prise"), version="ver-c2", decalage=decalage, plafond=plafond)
+    assert r["total"] == min(plafond, 4000)
+    assert r["ids"] == _ref_page("o.recherche_norm LIKE %s", ["%prise%"], "ver-c2", decalage=decalage)
+    assert "c-off-1" not in r["ids"] and "c-old-1" not in r["ids"]
+
+
+def test_page_avec_famille_les_deux_chemins():
+    attendu = _ref_page("o.recherche_norm LIKE %s", ["%prise%"], "ver-c2", famille="Eclairage")
+    assert len(attendu) == 51
+    for plafond in (101, 1001):   # 400 prises en Eclairage : >= plafond, puis < plafond
+        r = _page(A, COMMUN, _like("prise"), version="ver-c2", famille="Eclairage", plafond=plafond)
+        assert r["ids"] == attendu and r["total"] == min(plafond, 400)
+
+
+def test_page_historique_et_terme_rare():
+    assert _page(A, A, _like("prise"), hist="histo") == {"ids": ["a-hist-1"], "total": 1}
+    r = _page(A, COMMUN, _like("disjoncteur", "16a"), version="ver-c2")
+    assert r == {"ids": ["c-dj-1", "c-dj-2", "c-dj-3"], "total": 3}
+    assert _page(A, COMMUN, _like("introuvable"), version="ver-c2") == {"ids": [], "total": 0}
+
+
+def test_page_bornes():
+    r = _page(A, COMMUN, _like("prise"), version="ver-c2", limite=10 ** 6, decalage=-5, plafond=10 ** 9)
+    assert len(r["ids"]) == 201 and r["total"] == 4000   # limite <= 201, decalage >= 0

@@ -104,3 +104,88 @@ def test_termes_identiques_a_conditions():
 def test_motif_postgres():
     assert fr.motif_postgres(r"\bph\+n\b") == r"\yph\+n\y"
     assert fr.motif_postgres(r"(?<![2-9])1?p\+n") == r"(?<![2-9])1?p\+n"
+
+
+# --- Recherche dans un catalogue (catalogue_navigation.produits) -------------
+
+import catalogue_navigation as nav  # noqa: E402
+
+VERSION = "22222222-2222-4222-8222-222222222222"
+
+
+class _SessionPage:
+    def __init__(self, page_json, fiches):
+        self.page_json, self.fiches, self.executed = page_json, fiches, []
+
+    async def execute(self, sql, params=None):
+        self.executed.append((str(sql), params))
+        if "catalogue_page(" in str(sql):
+            return _Scalaire(self.page_json)
+        return _Res(self.fiches)
+
+
+class _Scalaire:
+    def __init__(self, v):
+        self.v = v
+
+    def scalar(self):
+        return self.v
+
+
+def _produits(monkeypatch, cle, page_json, fiches, **kw):
+    session = _SessionPage(page_json, fiches)
+    monkeypatch.setattr(nav, "get_current_tenant", lambda: TENANT)
+    monkeypatch.setattr(nav, "tenant_session", lambda: _Ctx(session))
+
+    async def resoudre(_s, tenant, c):
+        p = {"tenant_id": tenant, "commun": catalogue_commun.TENANT_COMMUN, "avec_commun": True}
+        if c.startswith("hist:"):
+            return "o.tenant_id = :tenant_id", p
+        p.update(vt=catalogue_commun.TENANT_COMMUN, version=c)
+        return "o.tenant_id = :vt AND o.version_id = :version", p
+    monkeypatch.setattr(nav, "_resoudre", resoudre)
+    return asyncio.run(nav.produits(cle, **kw)), session
+
+
+def _fiche(i, prix):
+    return {"id": i, "fournisseur": "Rexel", "designation": i, "prix_net_ht": prix,
+            "prix_public_ht": None, "date_prix": None}
+
+
+def test_catalogue_recherche_passe_par_la_fonction(monkeypatch):
+    page = json.dumps({"ids": ["o2", "o1", "o3"], "total": 1001})
+    # Fiches renvoyees dans le desordre : l'ordre de la fonction fait foi.
+    res, session = _produits(monkeypatch, VERSION, page,
+                             [_fiche("o1", 2.0), _fiche("o3", 3.0), _fiche("o2", 1.0)],
+                             q="disjoncteur 16a courbe c", famille="Distribution", page=3, taille=2)
+    sql, params = session.executed[0]
+    assert "blueseatra.catalogue_page(" in sql
+    assert params["t"] == catalogue_commun.TENANT_COMMUN and params["v"] == VERSION
+    assert params["h"] is None and params["famille"] == "Distribution"
+    assert params["limite"] == 3 and params["decalage"] == 4
+    assert params["plafond"] == nav.PLAFOND_COMPTE_RECHERCHE + 1
+    assert "\\b" not in params["termes"]
+    sql2, params2 = session.executed[1]
+    assert "o.id = ANY(:ids)" in sql2 and "(o.tenant_id = :tenant_id OR o.tenant_id = :commun)" in sql2
+    assert params2["ids"] == ["o2", "o1", "o3"] and params2["tenant_id"] == TENANT
+    assert [l["id"] for l in res["produits"]] == ["o2", "o1"]
+    assert res["page_suivante"] is True
+    assert res["total"] == 1001 and res["total_plafonne"] is True
+
+
+def test_catalogue_recherche_historique_et_vide(monkeypatch):
+    res, session = _produits(monkeypatch, "hist:frn-1", json.dumps({"ids": [], "total": 0}), [],
+                             q="prise")
+    params = session.executed[0][1]
+    assert params["t"] == TENANT and params["v"] is None and params["h"] == "frn-1"
+    assert params["famille"] is None
+    assert len(session.executed) == 1          # aucune relecture de fiches
+    assert res["produits"] == [] and res["total"] == 0 and res["page_suivante"] is False
+
+
+def test_catalogue_sans_mot_inchange(monkeypatch):
+    res, session = _produits(monkeypatch, VERSION, None, [_fiche("o1", 1.0)])
+    assert len(session.executed) == 1
+    assert "catalogue_page(" not in session.executed[0][0]
+    assert "ORDER BY o.raw_label, o.id" in session.executed[0][0]
+    assert res["total"] is None

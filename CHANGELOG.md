@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-01 (7) — Recherche rapide à l'intérieur de chaque catalogue
+
+- **Constat en production** (écran « Afficher le catalogue », Rexel 747 771 offres, rôle `blueseatra_app`) : même blocage RLS que pour le comparateur. « disjoncteur 16a courbe c » 26,6 s, terme rare 43,9 s, mot + famille : délai dépassé (erreur).
+- **Nouvelle fonction `blueseatra.catalogue_page`** (migration `20261001190000`, aucune table modifiée) : une page triée par prix d'une version (ou d'un fournisseur sans catalogue), filtre de famille facultatif, total plafonné à 1 001. `SECURITY DEFINER`, `search_path` vide, réservée à `blueseatra_app` ; refuse tout tenant autre que l'entreprise ou le catalogue commun et exige une portée précise. Les fiches sont relues par id sous RLS.
+- **Règles de recherche partagées** : `blueseatra.recherche_conditions(jsonb)` (fonction interne, non appelable par l'application) traduit les termes pour les deux fonctions ; `offres_candidates` réécrite dessus, comportement inchangé.
+- **Chemin choisi selon les correspondances** : moins de 1 001 → index trigramme puis tri ; terme courant → index par prix, arrêt à la page ; terme courant avec famille → index trigramme si le mot est assez sélectif (estimation du planificateur).
+- **Mesures sous RLS** (production, Rexel) : « disjoncteur 16a courbe c » 26,6 s → 1,3 s ; terme rare 43,9 s → 0,24 s ; « prise » 61 ms (page 20 : 0,3 s) une fois en cache ; mot + famille : erreur → 3,5 à 5 s au premier appel, 0,1 s ensuite. Pages identiques à la requête de référence (vérifié en production sur 2 cas, et sur base jetable pour tous les chemins).
+- **Tests** : 8 tests SQL de plus (20 au total : isolation, portée obligatoire, exactitude des deux chemins avec et sans famille, pagination, bornes) ; 3 tests unitaires de `catalogue_navigation.produits`. Deux sabotages (vérification de tenant retirée, tri cassé) font bien échouer les tests.
+
 ## 2026-10-01 (6) — Recherche fournisseurs rapide sous RLS, limites de mot corrigées
 
 - **Cause mesurée en production** : sous le rôle `blueseatra_app`, la RLS de `supplier_offers` empêchait PostgreSQL d'utiliser l'index trigramme (`LIKE` n'est pas « leakproof »). Chaque recherche lisait les offres ligne à ligne : ≈ 27 s au comparateur, plus de 30 s (délai dépassé, liste vide) au sélecteur d'articles du devis et pendant la génération.
