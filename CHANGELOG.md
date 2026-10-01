@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-10-02 (2) — Format unique des offres fournisseurs (étape 1)
+
+- **Spécification validée** : `docs/specs/format-unique-catalogue-fournisseur.md`, avec son modèle Excel `docs/specs/modele-format-unique-catalogue.xlsx` (55 colonnes, listes fermées, exemples réels). Elle suit GTIN (GS1), ETIM et UN/CEFACT Rec. 20.
+- **Migration `20261002010000_format_unique_offres.sql`** :
+  - nouvelle table 1-1 `offres_normalisees` ; `supplier_offers` (2,5 Go) n'est pas modifiée ;
+  - clé produit : `GTIN:` (clé GS1 vérifiée) ou `MR:marque:référence` ;
+  - marque canonique (`marques`, `marques_alias` : alias prouvés par au moins 5 GTIN partagés, distributeurs jamais fusionnés) ;
+  - unité de base, conditionnement et **prix par unité de base** ;
+  - anomalies et score de qualité.
+- **Unités corrigées** :
+  - chez YESSS, « 100 » et « 1000 » sont des prix pour 100 ou 1 000 (le comparateur comparait 146,61 € les 100 m à 1,08 € le mètre) ; pour un câble, c'est un prix au mètre ;
+  - « sac de 25 kg » → 25 KG ;
+  - « boîte de 1,08 m² » → 1,08 M2.
+- **Normalisation automatique à l'import** : déclencheur de fin d'instruction, qui ne bloque jamais un import.
+- **Calcul des offres existantes** par lots : `normaliser_offres_lot`, `recalculer_marques`, `rattacher_produits`.
+- **Testé sur 2 513 offres réelles** (les 9 fournisseurs), sur PostgreSQL local, en tant que `blueseatra_app` avec cloisonnement entre entreprises : migration idempotente, 16 contrôles intégrés.
+
 ## 2026-10-02 (1) — search_path fixé sur 10 fonctions (Security Advisor)
 
 - **10 avertissements « Function Search Path Mutable » corrigés** par la migration `20261002000000_search_path_fixe.sql` :
