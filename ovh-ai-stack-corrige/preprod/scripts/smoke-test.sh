@@ -32,7 +32,11 @@ cleanup() {
   docker compose --env-file .env.preprod exec -T postgres \
     psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
     -v tenant_id="$TEST_TENANT_ID" -v user_id="$TEST_USER_ID" <<'SQL' >/dev/null
+-- audit_logs est en ajout seul : purge des traces de test par maintenance explicite.
+BEGIN;
+SET LOCAL blueseatra.maintenance_audit = 'on';
 DELETE FROM blueseatra.audit_logs WHERE tenant_id = :'tenant_id';
+COMMIT;
 DELETE FROM blueseatra.quote_versions WHERE tenant_id = :'tenant_id';
 DELETE FROM blueseatra.quotes WHERE tenant_id = :'tenant_id';
 DELETE FROM blueseatra.requests WHERE tenant_id = :'tenant_id';
