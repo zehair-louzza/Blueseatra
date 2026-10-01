@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-02 (1) — search_path fixé sur 10 fonctions (Security Advisor)
+
+- **10 avertissements « Function Search Path Mutable » corrigés** par la migration `20261002000000_search_path_fixe.sql` :
+  - `search_path = ''` sur les 9 fonctions de quotas, de registre et d'échanges, et sur `tenant_catalogue_commun` ;
+  - `search_path = public, pg_temp` sur `normalise_recherche`, car `unaccent` est installée dans `public`.
+- **Vérifié avant d'écrire la migration** :
+  - aucune de ces fonctions n'est SECURITY DEFINER ;
+  - toutes les tables sont qualifiées `blueseatra.` ;
+  - les seuls appels sont des fonctions de `pg_catalog`.
+- **Aucun effet sur la recherche** : sur 200 000 lignes, `recherche_norm` est identique (0 différence), avec +3 % de temps d'import.
+- **Contrôle intégré à la migration** : elle échoue si une fonction du schéma `blueseatra` reste sans `search_path` fixe, ou si `normalise_recherche` ne trouve plus `unaccent`. Elle est idempotente.
+- **Non traité : « Extension in Public »** (`unaccent`, `pg_trgm`). Les extensions appartiennent à `supabase_admin`, et les recréer supprimerait les index trigrammes des 967 563 offres. Le risque est faible : seuls `postgres` et `dashboard_user` peuvent créer des objets dans `public`.
+
 ## 2026-10-01 (19) — Montants de la page d'accueil et du module Clients traduits
 
 - **Page d'accueil** : grille de prix dans la langue de la page, « 59 € » et « soit 1 490 € HT facturés par an » en français, « €59 » et « €1,490 excl. VAT billed yearly » en anglais.
