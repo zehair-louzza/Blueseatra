@@ -46,6 +46,7 @@ from sqlalchemy import text
 
 from database import get_current_tenant, tenant_session
 import catalogue_commun
+from designation_fournisseur import nettoyer_ligne
 from vocabulaire_btp import (
     QUALIFIANTS,
     est_regex,
@@ -456,6 +457,10 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     # Les lignes detaillees reprennent l'ordre et le perimetre du premier
     # passage ; les autres gardent seulement prix/fournisseur/recherche.
     retenus = [fiches.get(l["id"], l) for l in retenus]
+    # Libelles amputes a la source (« , D 350 H 1, blanc ») : affichage
+    # seulement, la base garde le libelle brut.
+    for l in retenus:
+        nettoyer_ligne(l)
 
     criteres = _criteres_a_affiner(retenus, requete)
 

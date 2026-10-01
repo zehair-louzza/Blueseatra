@@ -38,6 +38,7 @@ import asyncio
 
 import catalogue_navigation
 import catalogue_commun
+from designation_fournisseur import designation_affichee
 from database import get_current_tenant, tenant_context, tenant_session
 from fournisseur_recherche import termes_recherche
 
@@ -234,7 +235,9 @@ def _en_article(offre: dict) -> dict:
     return {
         "id": f"frn:{offre['id']}",
         "item_code": offre.get("reference_fournisseur") or offre["id"],
-        "item_label": offre.get("designation"),
+        "item_label": designation_affichee(
+            offre.get("designation"), offre.get("marque"),
+            offre.get("reference_fabricant"), offre.get("reference_fournisseur")),
         "label_norm": None,
         "category": offre.get("famille"),
         "family": offre.get("famille"),

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-01 (18) — Désignations fournisseurs amputées lisibles
+
+- **47 libellés Rexel amputés à la source** (45 accessoires RZB « , D 350 H 1, blanc », un Daikin « .ERAMIC FIBRE… », un Blm « - Boite de dérivation… ») : affichés « RZB 982552.002 · D 350 H 1, blanc », soit marque, référence fabricant et texte sans la ponctuation de tête.
+- **Affichage seulement** : `raw_label` reste intact en base, aucune migration. Nouveau module `backend/designation_fournisseur.py`, appliqué au catalogue fournisseurs, au comparateur (résultats et moins cher par fournisseur) et à la recherche d'articles du devis. Un libellé normal est rendu au caractère près.
+- **Tri inchangé** : ces lignes restent en tête du tri alphabétique. Changer le tri demanderait un nouvel index sur 967 563 offres pour 47 lignes.
+- 16 tests (`backend/tests/test_designation_fournisseur.py`), ajoutés aux tests métier de la CI.
+
 ## 2026-10-01 (17) — Cartes d'offre traduites
 
 - **Prix des offres dans la langue de l'interface** : « 59 € HT / mois » en français, « €59 excl. VAT / month » en anglais, sur les cartes d'offre, les recharges et la ligne de l'offre actuelle (page Offre et consommation). Nouvelle clé `cl.p_ht`.
