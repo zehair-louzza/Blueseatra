@@ -64,8 +64,8 @@ jobs:
           # Une suite entièrement ignorée ne doit pas passer pour un succès.
           PASSES=$(grep -oE '[0-9]+ passed' resultat.txt | grep -oE '[0-9]+' || echo 0)
           echo "Tests réussis : $PASSES"
-          if [ "$PASSES" -lt 42 ]; then
-            echo "::error::Seulement $PASSES tests réussis (42 attendus au minimum)."
+          if [ "$PASSES" -lt 50 ]; then
+            echo "::error::Seulement $PASSES tests réussis (50 attendus au minimum)."
             exit 1
           fi
 
