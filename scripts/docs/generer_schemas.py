@@ -273,16 +273,16 @@ def build_chiffrage() -> None:
           fill=AMBER_BG, tag="ACTIVABLE", tag_color=AMBER)
 
     # Centre : recherche en deux temps
-    c.box((520, 110, 880, 371), "Recherche en deux temps", [
+    c.box((520, 110, 880, 371), "Recherche sous RLS", [
         "par libellé de la demande,",
-        "UNION ALL d'une branche par source,",
-        "tenant exact par branche :",
+        "une branche par source activée :",
         "",
-        "1. filtre trigramme (index GIN),",
-        "   sous-requête sans tri, 200 id max",
-        "2. tri par prix sur ce petit résultat",
-        "",
-        "sous RLS : index trigramme à rétablir",
+        "1. offres_candidates : index",
+        "   trigramme, 200 id par source,",
+        "   tenant courant ou commun seul",
+        "2. fiches relues par id, sous RLS",
+        "3. tri par prix sur ce petit résultat",
+        "« prise » : > 30 s (vide) → 2,3 s",
     ], fill=ACCENT_BG)
     c.arrow([(400, 162), (520, 162)])
     c.arrow([(400, 308), (520, 308)])
@@ -340,7 +340,7 @@ def build_livraison() -> None:
 
 
 def build_isolation() -> None:
-    c = Canvas(1400, 520)
+    c = Canvas(1400, 540)
     c.title("Isolation des entreprises", "Deux verrous indépendants : le filtre du code ET la RLS imposée par PostgreSQL.")
     c.box((40, 110, 300, 231), "Requête", ["Authorization: Bearer", "X-Tenant-Id (choix", "de l'entreprise)"])
     c.box((340, 110, 640, 231), "API : tenant résolu", ["côté serveur depuis le jeton", "et l'appartenance du membre,", "jamais pris tel quel du client"])
@@ -355,6 +355,9 @@ def build_isolation() -> None:
                       "et sans app.tenant_id positionné,", F_FOOT, FOOT)
     c.text((40, 436), "elle ne renvoie rien du tout (get_db() sans tenant est désactivée). Audit d'isolation : "
                       "docs/audit-isolation-tenants-2026-09-12.md.", F_FOOT, FOOT)
+    c.text((40, 462), "Seules exceptions à la RLS : 3 fonctions de recherche SECURITY DEFINER, qui vérifient elles-mêmes "
+                      "le tenant et ne renvoient que des identifiants,", F_FOOT, FOOT)
+    c.text((40, 488), "relus ensuite sous RLS (schéma schema-recherche-rls.png).", F_FOOT, FOOT)
     c.save("schema-isolation.png")
 
 
@@ -489,6 +492,42 @@ def build_incident() -> None:
     c.save("schema-incident.png")
 
 
+def build_recherche_rls() -> None:
+    c = Canvas(1400, 640)
+    c.title("Recherche fournisseurs sous RLS",
+            "L'index trigramme redevient utilisable, et l'isolation garde ses deux verrous.")
+    c.box((40, 110, 330, 252), "Écran", ["comparateur de prix,", "sélecteur du devis,", "génération, catalogue,",
+                                          "menu Famille"])
+    c.box((370, 110, 680, 252), "API", ["termes normalisés en JSON,", "\\b → \\y (mots PostgreSQL),",
+                                         "tenant résolu côté serveur,", "jamais pris du client"])
+    c.box((720, 110, 1040, 252), "Fonction SECURITY DEFINER", ["refuse tout tenant autre que", "l'entreprise ou le commun ;",
+                                                               "index trigramme ou par prix ;", "renvoie des identifiants"],
+          fill=ACCENT_BG, tag="HORS RLS", tag_color=AMBER)
+    c.box((1080, 110, 1360, 252), "Relecture des fiches", ["par identifiant,", "SOUS RLS, avec filtre", "tenant explicite :",
+                                                           "second verrou"], fill=GREEN_BG)
+    for a, b in ((330, 370), (680, 720), (1040, 1080)):
+        c.arrow([(a, 181), (b, 181)])
+
+    c.zone((40, 290, 1360, 470), "Fonctions de recherche (search_path vide ; les 3 premières : SECURITY DEFINER, réservées à blueseatra_app)")
+    cols = [
+        (60, "offres_candidates", ["comparateur, sélecteur", "du devis, génération ;", "filtre famille facultatif"]),
+        (390, "catalogue_page", ["recherche par mot dans", "un catalogue, page triée", "par prix, total plafonné"]),
+        (720, "familles_catalogue", ["familles d'un catalogue :", "parcours en saut de", "l'index, une lecture par famille"]),
+        (1050, "recherche_conditions", ["règles des motifs (LIKE, ~),", "littéraux échappés %L ;", "interne, non appelable"]),
+    ]
+    for x, titre, lignes in cols:
+        c.text((x, 330), titre, F_BOX_TITLE)
+        for i, l in enumerate(lignes):
+            c.text((x, 360 + 21 * i), l, F_BOX_BODY, BODY)
+
+    c.zone((40, 490, 1360, 610), "Mesures en direct depuis le navigateur, avant → après (Rexel, 747 771 offres)")
+    c.text((60, 530), "« disjoncteur 16a courbe c » dans un catalogue : 26,6 s → 1,4 s      terme rare : 43,9 s → 0,8 s      sélecteur « prise » : > 30 s → 2,3 s",
+           F_BOX_BODY, HEADING)
+    c.text((60, 556), "comparateur « dalle LED 600x600 » : 27 s → 0,9 s      liste des familles : 75 s → 3,4 s      "
+                      "« courbe c » : 0 → 320 offres (\\b)", F_BOX_BODY, HEADING)
+    c.save("schema-recherche-rls.png")
+
+
 if __name__ == "__main__":
     build_architecture()
     build_parcours()
@@ -501,3 +540,4 @@ if __name__ == "__main__":
     build_import_catalogue()
     build_rgpd()
     build_incident()
+    build_recherche_rls()

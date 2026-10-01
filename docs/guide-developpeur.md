@@ -154,7 +154,7 @@ Consultez `backend/SUPABASE_MIGRATION.md` pour le guide complet de migration dep
 
 | Suite | Contenu | Commande |
 |---|---|---|
-| `backend/tests_security` | Isolation entre entreprises (statique et réelle), garde-fou `DB_SCHEMA` | `cd backend && python -m pytest tests_security -q` |
+| `backend/tests_security` | Isolation entre entreprises (statique et réelle), garde-fou `DB_SCHEMA`, fonctions de recherche sous RLS (sur base jetable) | `cd backend && python -m pytest tests_security -q` |
 | `backend/tests_clients` | Règles de relance, migration Clients, API de bout en bout | voir ci-dessous |
 | `backend/tests_quotas` | Registre de consommation, réservation, remboursement | voir ci-dessous |
 | `backend/tests` | Extraction IA, cache catalogue, file d'extraction | `cd backend && python -m pytest tests -q` |
@@ -166,8 +166,11 @@ createdb ci && psql -d ci -f .github/ci/amorce_tests.sql
 TEST_PG_DSN='postgresql://postgres@localhost:5432/ci' \
   python -m pytest backend/tests_clients/test_relances_regles.py \
                    backend/tests_clients/test_module_clients_sql.py \
-                   backend/tests_quotas/test_quotas_sql.py -q
+                   backend/tests_quotas/test_quotas_sql.py \
+                   backend/tests_security/test_offres_candidates_sql.py -q
 ```
+
+`test_offres_candidates_sql.py` crée lui-même un jeu d'offres avec les vraies politiques RLS (extension `pg_trgm` requise) et vérifie les fonctions de recherche : isolation, injection, droits, exactitude des deux chemins (trigramme et index par prix), filtre de famille.
 
 Les tests de bout en bout de l'API (`test_module_clients_api.py`, `test_quotas_module.py`) demandent une base complète et un rôle de connexion membre de `blueseatra_app` : variables `TEST_PG_URL` et `TEST_PG_URL_APP`.
 

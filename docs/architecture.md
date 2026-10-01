@@ -60,10 +60,25 @@ sequenceDiagram
 
 ![Chiffrage sur sources activables](./assets/schema-chiffrage.png)
 
+## Recherche fournisseurs sous RLS
+
+![Recherche fournisseurs sous RLS](./assets/schema-recherche-rls.png)
+
+Sous le rôle `blueseatra_app`, la RLS empêchait PostgreSQL d'utiliser l'index trigramme de `supplier_offers` : `LIKE` n'est pas « leakproof », il ne peut donc pas être évalué avant les politiques, et chaque recherche lisait les offres ligne à ligne (27 s au comparateur, plus de 30 s au sélecteur du devis). Trois fonctions `SECURITY DEFINER` font désormais la recherche à la place de l'application. Elles refusent tout tenant autre que l'entreprise courante ou le catalogue commun et ne renvoient que des identifiants ; les fiches sont ensuite relues **sous RLS**, avec le filtre `tenant_id` explicite.
+
+| Fonction | Utilisée par | Migration |
+|---|---|---|
+| `offres_candidates` | comparateur de prix (filtre famille facultatif), sélecteur d'articles du devis, génération | `20261001180000`, `20261001200000` |
+| `catalogue_page` | recherche par mot dans un catalogue (« Afficher le catalogue ») | `20261001190000` |
+| `familles_catalogue` | menu Famille du comparateur (parcours en saut de l'index des familles) | `20261001210000` |
+| `recherche_conditions` | règles des motifs partagées (interne, non appelable par l'application) | `20261001190000` |
+
+Les motifs sont injectés en littéraux échappés (`format %L`), les limites de mot du vocabulaire passent de `\b` (Python) à `\y` (PostgreSQL), et chaque fonction est couverte par des tests sur base jetable avec les vraies politiques RLS (`backend/tests_security/test_offres_candidates_sql.py`).
+
 ## Principes non négociables
 
 1. **L'IA ne fixe jamais un prix.** Elle lit et structure ; les prix viennent du catalogue interne ou des catalogues fournisseurs **activés par l'entreprise pour le chiffrage** (boutons poussoirs, table `chiffrage_sources`), puis les remises, marges et TVA sont calculées par des règles (`matching.py`). Sans catalogue interne, les sources fournisseurs activées prennent le relais ; sans aucune des deux, la génération refuse avec un message explicite — mais jamais à cause d'offres simplement introuvables (le devis est produit, lignes à confirmer).
-2. **Isolation des entreprises à deux niveaux.** Le code filtre `tenant_id`, et PostgreSQL l'impose par RLS sous le rôle `blueseatra_app`. Un identifiant d'une autre entreprise renvoie 404.
+2. **Isolation des entreprises à deux niveaux.** Le code filtre `tenant_id`, et PostgreSQL l'impose par RLS sous le rôle `blueseatra_app`. Un identifiant d'une autre entreprise renvoie 404. Les trois fonctions de recherche `SECURITY DEFINER` (ci-dessus) vérifient elles-mêmes le tenant et ne renvoient que des identifiants, relus sous RLS.
 3. **Aucune suppression silencieuse.** Le catalogue commun est masquable mais jamais supprimé. Les clients sont archivés et les contacts anonymisés. Le registre de consommation et les échanges clients sont en ajout seul, protégés par un trigger.
 4. **Validation humaine.** Un devis reste un brouillon tant qu'une personne ne l'a pas validé.
 

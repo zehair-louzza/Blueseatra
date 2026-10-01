@@ -25,9 +25,9 @@
 ![Vercel](https://img.shields.io/badge/Site-Vercel-3AAFB9?logo=vercel&logoColor=white)
 ![Ollama](https://img.shields.io/badge/IA-Ollama%20%C2%B7%20OVH-3AAFB9?logo=ollama&logoColor=white)
 
-![Routes API](https://img.shields.io/badge/routes%20API-113-0F2747)
-![Migrations](https://img.shields.io/badge/migrations-18-0F2747)
-![Tests](https://img.shields.io/badge/tests%20automatis%C3%A9s-200%2B-0F2747)
+![Routes API](https://img.shields.io/badge/routes%20API-114-0F2747)
+![Migrations](https://img.shields.io/badge/migrations-22-0F2747)
+![Tests](https://img.shields.io/badge/tests%20automatis%C3%A9s-300%2B-0F2747)
 ![Isolation](https://img.shields.io/badge/isolation-RLS%20par%20entreprise-0F2747)
 ![RGPD](https://img.shields.io/badge/RGPD-anonymisation%20%C2%B7%20opposition-0F2747)
 ![Langues](https://img.shields.io/badge/langues-FR%20%C2%B7%20EN-0F2747)
@@ -95,14 +95,14 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 | **Lecture IA** | PDF, DOCX, XLSX, CSV, TXT, images ; cascade OCR ; file d'extraction séquentielle ; score de confiance ; brouillon généré automatiquement | ✅ |
 | **Devis** | Lots et sous-lots, matériaux, main-d'œuvre, déplacement, notes ; TVA 20 / 10 / 5,5 / 0 % ; marge masquée ; variantes ; PDF Pro Forma | ✅ |
 | **Catalogues sur mesure** | Import CSV de n'importe quel format, correspondance des colonnes, versions, activation atomique, fichiers volumineux | ✅ |
-| **Catalogue fournisseurs** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux ; partagé, masquable, jamais supprimé | ✅ |
-| **Chiffrage sur sources activables** | Chaque catalogue fournisseur s'active ou se désactive pour le chiffrage (bouton poussoir, contenu conservé) ; sans catalogue interne, les sources activées génèrent le devis ; recherche rapide en deux temps (trigramme) | ✅ |
-| **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, termes équivalents reconnus | ✅ |
+| **Catalogue fournisseurs** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux ; partagé, masquable, jamais supprimé ; recherche par mot et par famille dans chaque catalogue | ✅ |
+| **Chiffrage sur sources activables** | Chaque catalogue fournisseur s'active ou se désactive pour le chiffrage (bouton poussoir, contenu conservé) ; sans catalogue interne, les sources activées génèrent le devis ; recherche rapide sous RLS (index trigramme via fonctions sécurisées) | ✅ |
+| **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, termes équivalents reconnus (« courbe c », « 2p », « ph+n »…), filtre par famille | ✅ |
 | **Clients** | Fiches, contacts, chantiers, journal des échanges, import et export CSV, indicateurs | ✅ |
 | **Suggestions IA** | Donneur d'ordre et client final proposés avec la phrase source ; rattachement automatique seulement sur SIRET ou e-mail identique | ✅ |
 | **Relances** | Jours ouvrés et fériés, urgence, rappel d'expiration, appel au-delà d'un seuil, opposition RGPD, textes FR / EN | ✅ |
 | **Multi-entreprises** | Rôles owner, admin, operator, viewer, billing_admin ; sélecteur d'entreprise ; RLS PostgreSQL | ✅ |
-| **Offres et quotas** | Découverte, Initial, Pilotage, Performance, Signature ; registre de consommation en ajout seul | 🟡 observation jusqu'au 01/10 |
+| **Offres et quotas** | Découverte, Initial, Pilotage, Performance, Signature ; registre de consommation en ajout seul ; blocage activable (`BLUESEATRA_QUOTAS_APPLIQUES`) | ✅ |
 | **Intégrations** | Webhook n8n par entreprise, pont MCP, choix du moteur IA | ✅ |
 | **Paiement en ligne** | Stripe | 🔜 ticket #90 |
 
@@ -130,6 +130,8 @@ Le détail (variables, base locale, tests) est dans le [guide développeur](./do
 
 <img src="docs/assets/schema-chiffrage.png" alt="Chiffrage sur sources activables" width="100%">
 
+<img src="docs/assets/schema-recherche-rls.png" alt="Recherche fournisseurs sous RLS : fonctions sécurisées puis relecture sous RLS" width="100%">
+
 <details>
 <summary>Vue texte (Mermaid)</summary>
 
@@ -146,7 +148,7 @@ flowchart LR
 
 **Principes**
 - L'IA ne fixe jamais un prix.
-- Chaque entreprise est isolée dans le code et dans la base.
+- Chaque entreprise est isolée dans le code et dans la base ; les rares fonctions qui contournent la RLS (recherche) vérifient elles-mêmes l'entreprise.
 - Rien n'est supprimé en silence.
 - Un devis ne part qu'après validation humaine.
 
@@ -170,6 +172,7 @@ Détails : [architecture.md](./docs/architecture.md).
 | Contrôle | Où |
 |---|---|
 | Isolation entre entreprises (statique et réelle) | `backend/tests_security`, workflow `securite.yml` |
+| Fonctions de recherche sous RLS : isolation, injection, droits, exactitude (base jetable) | `backend/tests_security/test_offres_candidates_sql.py`, workflow `tests-metier.yml` |
 | Règles de relance, quotas, migration Clients sur PostgreSQL 17 | `backend/tests_clients`, `backend/tests_quotas`, workflow `tests-metier.yml` |
 | Lint, cohérence des migrations, recherche de secrets | workflow `ci-infra.yml` |
 | Relecture obligatoire des zones sensibles | [`CODEOWNERS`](./.github/CODEOWNERS) |
@@ -189,7 +192,8 @@ Détails : [architecture.md](./docs/architecture.md).
 - [x] Refonte visuelle et tarification
 - [x] Compteurs de consommation (mode observation)
 - [x] Module Clients et relances
-- [ ] Blocage des quotas, prévu le 01/10/2026 après contrôle ([#89](https://github.com/zehair-louzza/Blueseatra/issues/89))
+- [x] Registre et quotas ([#89](https://github.com/zehair-louzza/Blueseatra/issues/89)), blocage activable
+- [x] Recherche fournisseurs rapide sous RLS, filtre par famille
 - [ ] Paiement Stripe et recharges ([#90](https://github.com/zehair-louzza/Blueseatra/issues/90))
 - [ ] Envoi des relances par e-mail depuis Blueseatra
 

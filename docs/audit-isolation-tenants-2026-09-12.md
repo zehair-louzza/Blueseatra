@@ -227,6 +227,17 @@ Correctif et tests livrés dans la PR #70.
 
 ---
 
+## Addendum du 01/10/2026 — fonctions de recherche `SECURITY DEFINER`
+
+Pour rendre l'index trigramme utilisable sous RLS (recherche fournisseurs de 27 à 44 s en production), trois fonctions s'exécutent **hors RLS** avec les droits de leur propriétaire : `offres_candidates`, `catalogue_page` et `familles_catalogue` (migrations `20261001180000` à `20261001210000`). Elles sont donc une surface d'isolation à part entière, encadrée ainsi :
+
+- **Vérification du tenant dans la fonction** : tout tenant demandé doit être `current_tenant()` (posé par `tenant_session()`, y compris en mode repli) ou le catalogue commun ; sinon, aucune ligne. Une portée précise (version **ou** fournisseur historique) est exigée là où elle a un sens.
+- **Second verrou** : les fonctions ne renvoient que des identifiants ; les fiches sont relues sous RLS avec le filtre `tenant_id` explicite.
+- **Surface réduite** : `search_path` vide, `EXECUTE` réservé à `blueseatra_app` (ni `anon` ni `authenticated`, vérifié en production), motifs en littéraux échappés (`format %L`), opérateurs limités à `LIKE` et `~`.
+- **Tests** : `backend/tests_security/test_offres_candidates_sql.py` (25 tests sur base jetable avec les vraies politiques), exécutés par le workflow `tests-metier.yml`. Vérification par mutation : retirer la vérification de tenant fait échouer les tests d'isolation, casser le tri fait échouer les tests d'exactitude.
+
+---
+
 ## Synthèse des actions
 
 | Priorité | Action | Effort | Statut |
