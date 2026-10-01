@@ -1640,13 +1640,25 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
     if not req.get("extracted"):
         raise ValueError("Request not yet processed")
     cat, items = await get_active_catalog(tenant_id)
-    if not cat:
-        raise ValueError("No active pricing catalog. Import and activate one first.")
-    ver = await db.catalog_versions.find_one({"id": cat["active_version_id"]}, {"_id": 0})
 
     extracted0 = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    # 01/10/2026 : tout type de catalogue activé par l'entreprise est
+    # utilisable pour le chiffrage. Les sources fournisseurs activées
+    # (boutons de la page Catalogues / Catalogue fournisseurs) complètent le
+    # catalogue tarifaire interne pour le rapprochement — et le remplacent
+    # s'il n'y en a pas. Le catalogue interne reste prioritaire (marges et
+    # prix de vente maîtrisés) : il est placé en tête du pool de matching.
+    candidats_fournisseurs = await catalogue_chiffrage.candidats_rapprochement(
+        tenant_id, extracted0)
+    if not cat and not candidats_fournisseurs:
+        raise ValueError("Aucun catalogue actif : importez et activez un catalogue, "
+                          "ou activez un catalogue fournisseur pour le chiffrage.")
+    ver = (await db.catalog_versions.find_one(
+        {"id": cat["active_version_id"]}, {"_id": 0})) if cat else {}
+
+    pool_matching = (items or []) + candidats_fournisseurs
     settings = await get_tenant_ai_settings(tenant_id)
-    labels = [it.get("item_label") for it in items if it.get("item_label")]
+    labels = [it.get("item_label") for it in pool_matching if it.get("item_label")]
     scenarios = quote_scenarios.split_quote_scenarios(extracted0, req.get("raw_text") or "")
     count = await db.quotes.count_documents({"tenant_id": tenant_id})
     ex = req["extracted"] or {}
@@ -1667,7 +1679,7 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
                 )
             except Exception:
                 logger.warning("expand_work_into_materials skipped for request %s", request_id)
-        lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, items)
+        lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, pool_matching)
         # role=describe (redaction uniquement) : glm-4.7-flash enrichit
         # description + etapes, jamais les quantites/prix de ce devis --
         # repli automatique et transparent sur le gabarit deterministe en
@@ -1701,11 +1713,14 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
             },
             "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
             "total_ttc": round(total_ht + total_vat, 2),
-            "currency": items[0]["currency"] if items else "EUR",
+            "currency": pool_matching[0]["currency"] if pool_matching else "EUR",
             "pricing_snapshot": {
-                "catalog_id": cat["id"], "catalog_name": cat["name"],
-                "version_id": cat["active_version_id"],
-                "version_number": ver["version_number"] if ver else 1, "snapshot_at": now_iso(),
+                "catalog_id": cat["id"] if cat else None,
+                "catalog_name": cat["name"] if cat else "Catalogues fournisseurs",
+                "version_id": cat["active_version_id"] if cat else None,
+                "version_number": ver.get("version_number", 1) if ver else 1,
+                "snapshot_at": now_iso(),
+                "sources_fournisseurs": bool(candidats_fournisseurs and not cat),
             },
             "created_by": created_by, "created_at": now_iso(),
         }

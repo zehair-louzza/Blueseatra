@@ -35,7 +35,7 @@ from sqlalchemy import text
 
 import catalogue_navigation
 import catalogue_commun
-from database import get_current_tenant, tenant_session
+from database import get_current_tenant, tenant_context, tenant_session
 from fournisseur_recherche import _conditions
 
 log = logging.getLogger("blueseatra.catalogue_chiffrage")
@@ -128,6 +128,60 @@ async def basculer(cle: str, actif: bool, utilisateur: str | None = None) -> dic
     log.info("source chiffrage %s (%s) par %s (tenant %s)",
              "activee" if actif else "desactivee", cle, utilisateur, tenant)
     return {"cle": cle, "actif": actif}
+
+
+# --- Candidats fournisseurs pour le rapprochement d'un devis --------------
+
+def _libelles_extraits(extraits: dict, maxi: int = 15) -> list[str]:
+    """Libelles a chercher dans les catalogues fournisseurs : ceux des lignes
+    de la demande, sinon la description generale. Uniques, dans l'ordre."""
+    libelles = []
+    for li in (extraits.get("line_items") or []):
+        lb = str(li.get("label") or li.get("description") or "").strip()
+        if lb:
+            libelles.append(lb)
+    if not libelles:
+        lb = str(extraits.get("description") or extraits.get("work_type") or "").strip()
+        if lb:
+            libelles.append(lb)
+    vus, uniq = set(), []
+    for lb in libelles:
+        cle = lb.lower()
+        if cle not in vus:
+            vus.add(cle)
+            uniq.append(lb)
+    return uniq[:maxi]
+
+
+async def candidats_rapprochement(tenant_id: str, extraits: dict,
+                                  par_ligne: int = 8) -> list[dict]:
+    """Articles candidats des sources fournisseurs ACTIVEES par l'entreprise,
+    pour le rapprochement automatique d'un devis.
+
+    Complète le catalogue tarifaire interne (s'il existe) et le remplace
+    s'il n'y en a pas : c'est l'entreprise qui choisit ses catalogues de
+    chiffrage via les boutons d'activation. Chaque libellé de la demande est
+    recherché dans les sources actives (index trigramme) et les meilleures
+    offres par libellé deviennent candidates.
+
+    Ne lève JAMAIS : sans source active, sans libellé ou en cas d'erreur,
+    retourne [] — la génération du devis ne doit pas échouer pour ça.
+    """
+    libelles = _libelles_extraits(extraits or {})
+    if not libelles:
+        return []
+    try:
+        async with tenant_context(tenant_id):
+            vus, candidats = set(), []
+            for lb in libelles:
+                for article in await rechercher(lb, par_ligne):
+                    if article["id"] not in vus:
+                        vus.add(article["id"])
+                        candidats.append(article)
+            return candidats[:120]
+    except Exception:
+        log.exception("candidats fournisseurs indisponibles (tenant %s)", tenant_id)
+        return []
 
 
 # --- Recherche des articles pour le selecteur du devis ---------------------
