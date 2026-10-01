@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { localeCourante } from '@/lib/locale';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowRight, Check, Mail, FileText, Camera, Layers, Receipt, ShieldCheck, Search,
@@ -287,7 +288,8 @@ function Plans({ t }) {
     { key: 'performance', icon: Rocket, mensuel: 399, items: ['seat10', 'q1000', 'p3000', 'imp1g'] },
     { key: 'signature', icon: Building, mensuel: null, items: ['sig_seats', 'sig_vol', 'sig_sla', 'sig_int'] },
   ];
-  const fmt = (n) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(n);
+  // Prix dans la langue de la page : « 59 € » en français, « €59 » en anglais.
+  const eur = (n) => new Intl.NumberFormat(localeCourante(), { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
   return (
     <section id="offres" className="relative scroll-mt-20 overflow-hidden bg-[hsl(218_52%_14%)] text-white">
       <div aria-hidden className="pointer-events-none absolute -left-40 top-0 h-[520px] w-[520px] rounded-full bg-[hsl(var(--brand-teal)/0.22)] blur-3xl" />
@@ -355,11 +357,11 @@ function Plans({ t }) {
                 <p className={`mt-1 text-sm ${p.featured ? 'text-muted-foreground' : 'text-white/60'}`}>{t(`lp.for_${p.key}`)}</p>
                 <div className="mt-6 min-h-[76px]">
                   <p className="tabular font-display text-5xl font-semibold tracking-tight">
-                    {prix ? `${fmt(prix)} €` : t('lp.plan_custom')}
+                    {prix ? eur(prix) : t('lp.plan_custom')}
                     {prix && <span className={`ml-1 text-sm font-normal ${p.featured ? 'text-muted-foreground' : 'text-white/60'}`}>{t('lp.per_month_ht')}</span>}
                   </p>
                   {prix && annuel && (
-                    <p className={`mt-1 text-xs ${p.featured ? 'text-accent' : 'text-[hsl(var(--brand-teal))]'}`}>{t('lp.billed_year', { n: fmt(p.mensuel * 10) })}</p>
+                    <p className={`mt-1 text-xs ${p.featured ? 'text-accent' : 'text-[hsl(var(--brand-teal))]'}`}>{t('lp.billed_year', { n: eur(p.mensuel * 10) })}</p>
                   )}
                 </div>
                 <ul className={`mt-5 flex-1 space-y-3 text-sm ${p.featured ? 'text-foreground/80' : 'text-white/80'}`}>

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-01 (19) — Montants de la page d'accueil et du module Clients traduits
+
+- **Page d'accueil** : grille de prix dans la langue de la page, « 59 € » et « soit 1 490 € HT facturés par an » en français, « €59 » et « €1,490 excl. VAT billed yearly » en anglais.
+- **Module Clients** (liste, fiche client, relances, panneau client du devis) : montants « 1 250 € HT » / « €1,250 excl. VAT », dates et heures selon la langue. Les formateurs partagés de `ClientForm.js` passent par `localeCourante()`.
+
 ## 2026-10-01 (18) — Désignations fournisseurs amputées lisibles
 
 - **47 libellés Rexel amputés à la source** (45 accessoires RZB « , D 350 H 1, blanc », un Daikin « .ERAMIC FIBRE… », un Blm « - Boite de dérivation… ») : affichés « RZB 982552.002 · D 350 H 1, blanc », soit marque, référence fabricant et texte sans la ponctuation de tête.
