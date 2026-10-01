@@ -1,0 +1,106 @@
+"""Comparateur de prix : appel de blueseatra.offres_candidates.
+
+Tests sans base : on verifie le CONTRAT envoye a PostgreSQL (tenants,
+termes, chemin choisi). Le comportement SQL lui-meme (isolation, injection,
+exactitude) est teste sur base jetable dans
+tests_security/test_offres_candidates_sql.py.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import catalogue_commun  # noqa: E402
+import fournisseur_recherche as fr  # noqa: E402
+
+TENANT = "11111111-1111-4111-8111-111111111111"
+
+
+class _Res:
+    def __init__(self, lignes):
+        self.lignes = lignes
+
+    def mappings(self):
+        return self
+
+    def all(self):
+        return self.lignes
+
+    def __iter__(self):
+        return iter(self.lignes)
+
+
+class _Session:
+    def __init__(self, candidats):
+        self.candidats = candidats
+        self.executed = []
+
+    async def execute(self, sql, params=None):
+        self.executed.append((str(sql), params))
+        if len(self.executed) == 1:
+            return _Res(self.candidats)
+        if len(self.executed) == 2:   # noms des fournisseurs
+            return _Res([{"tenant_id": catalogue_commun.TENANT_COMMUN, "id": "s1", "name": "Rexel"}])
+        return _Res([])                 # fiches
+
+
+class _Ctx:
+    def __init__(self, s):
+        self.s = s
+
+    async def __aenter__(self):
+        return self.s
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _lancer(monkeypatch, requete, masque=False):
+    session = _Session([{"id": "o1", "tenant_id": catalogue_commun.TENANT_COMMUN,
+                         "supplier_id": "s1", "price_ht": 6.83,
+                         "recherche_norm": "disjoncteur 16a courbe c"}])
+    monkeypatch.setattr(fr, "get_current_tenant", lambda: TENANT)
+    monkeypatch.setattr(fr, "tenant_session", lambda: _Ctx(session))
+
+    async def est_masque(_s, _t):
+        return masque
+    monkeypatch.setattr(catalogue_commun, "est_masque", est_masque)
+    return asyncio.run(fr.recherche(requete)), session
+
+
+def test_comparateur_passe_par_la_fonction_avec_tenant_courant_et_commun(monkeypatch):
+    resultat, session = _lancer(monkeypatch, "disjoncteur 16a courbe c")
+    sql, params = session.executed[0]
+    assert "blueseatra.offres_candidates(" in sql
+    assert "ORDER BY c.price_ht ASC NULLS LAST, c.id" in sql
+    assert params["tenants"] == [TENANT, catalogue_commun.TENANT_COMMUN]
+    assert params["versions_actives"] is True and params["tri_prix"] is True
+    assert params["limite"] == fr.PLAFOND_LIGNES
+    assert params["version"] is None and params["hist"] is None
+    termes = json.loads(params["termes"])
+    assert termes[0] == [{"op": "like", "v": "%disjoncteur%"}]
+    assert "\\b" not in params["termes"]          # limite de mot PostgreSQL : \y
+    assert isinstance(resultat, dict)
+
+
+def test_catalogue_commun_masque_seul_le_tenant(monkeypatch):
+    _, session = _lancer(monkeypatch, "prise", masque=True)
+    assert session.executed[0][1]["tenants"] == [TENANT]
+
+
+def test_termes_identiques_a_conditions():
+    """termes_recherche() et _conditions() doivent porter les memes motifs."""
+    for q in ["disjoncteur 16a courbe c ph+n", "interrupteur differentiel 2p 40a",
+              "dalle LED 600x600", "cable rigide 3g2.5", "tube alu"]:
+        _, params, _ = fr._conditions(q)
+        a_plat = [alt["v"] for terme in fr.termes_recherche(q) for alt in terme]
+        assert sorted(a_plat) == sorted(params.values()), q
+
+
+def test_motif_postgres():
+    assert fr.motif_postgres(r"\bph\+n\b") == r"\yph\+n\y"
+    assert fr.motif_postgres(r"(?<![2-9])1?p\+n") == r"(?<![2-9])1?p\+n"

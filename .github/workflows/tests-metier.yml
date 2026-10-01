@@ -1,6 +1,6 @@
 name: Tests métier
 
-# Règles de relance, quotas et module Clients, exécutés sur un PostgreSQL 17
+# Règles de relance, quotas, module Clients et recherche d'offres sous RLS, exécutés sur un PostgreSQL 17
 # jetable (même version que Supabase). Aucune donnée ni secret de production.
 
 on:
@@ -59,12 +59,13 @@ jobs:
             backend/tests_clients/test_relances_regles.py \
             backend/tests_clients/test_module_clients_sql.py \
             backend/tests_quotas/test_quotas_sql.py \
+            backend/tests_security/test_offres_candidates_sql.py \
             -v --tb=short | tee resultat.txt
           # Une suite entièrement ignorée ne doit pas passer pour un succès.
           PASSES=$(grep -oE '[0-9]+ passed' resultat.txt | grep -oE '[0-9]+' || echo 0)
           echo "Tests réussis : $PASSES"
-          if [ "$PASSES" -lt 30 ]; then
-            echo "::error::Seulement $PASSES tests réussis (30 attendus au minimum)."
+          if [ "$PASSES" -lt 42 ]; then
+            echo "::error::Seulement $PASSES tests réussis (42 attendus au minimum)."
             exit 1
           fi
 
@@ -97,7 +98,7 @@ jobs:
           python -m pytest \
             tests/test_ai_service_unit.py tests/test_description_role_isolation.py \
             tests/test_matching_material_detail.py tests/test_ocr_model_preference.py \
-            tests/test_queue_watchdog.py tests/test_ia_garde_fous.py tests/test_corpus_ia.py tests/test_catalogue_comparaison.py tests/test_facturation_stripe.py tests/test_mistral.py tests/test_schemas_devis.py tests_clients/test_versions_devis.py \
+            tests/test_queue_watchdog.py tests/test_ia_garde_fous.py tests/test_corpus_ia.py tests/test_catalogue_comparaison.py tests/test_facturation_stripe.py tests/test_mistral.py tests/test_schemas_devis.py tests/test_catalogue_chiffrage.py tests/test_fournisseur_recherche_sql.py tests_clients/test_versions_devis.py \
             tests_quotas/test_quotas_branchement.py tests_quotas/test_projection.py tests_security/test_observabilite.py \
             -v --tb=short | tee resultat.txt
           PASSES=$(grep -oE '[0-9]+ passed' resultat.txt | grep -oE '[0-9]+' || echo 0)

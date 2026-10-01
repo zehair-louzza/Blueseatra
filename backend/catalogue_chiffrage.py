@@ -29,6 +29,7 @@ BYPASSRLS).
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from sqlalchemy import text
@@ -38,7 +39,7 @@ import asyncio
 import catalogue_navigation
 import catalogue_commun
 from database import get_current_tenant, tenant_context, tenant_session
-from fournisseur_recherche import _conditions
+from fournisseur_recherche import termes_recherche
 
 log = logging.getLogger("blueseatra.catalogue_chiffrage")
 
@@ -280,52 +281,42 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         if not cles:
             return []
 
-        conds, params, _ = _conditions(q)
-        params.update(tenant_id=tenant, commun=catalogue_commun.TENANT_COMMUN, limite=limite)
-        # UNION ALL par source : chaque branche profite de l'index
-        # (tenant_id, version_id) et de l'index trigramme recherche_norm,
-        # puis renvoie ses k meilleures offres. Une clause OR unique sur les
-        # 8+ sources actives forçait un parcours quasi complet (30-50 s en
-        # production) ; chaque branche top-k coute quelques centaines de ms.
+        termes = termes_recherche(q)
+        if not termes:
+            return []
+        params = {"tenant_id": tenant, "commun": catalogue_commun.TENANT_COMMUN,
+                  "limite": limite, "termes": json.dumps(termes)}
+        # Une branche par source active : blueseatra.offres_candidates
+        # renvoie jusqu'a 200 identifiants par source via l'index
+        # trigramme. Sous RLS, une requete directe ne pouvait pas l'utiliser
+        # (LIKE n'est pas LEAKPROOF) : TimeoutError (command_timeout 30 s)
+        # constate en production le 01/10/2026 sur "prise". La fonction
+        # refuse tout tenant autre que l'entreprise ou le catalogue commun ;
+        # le tenant de chaque branche vient du parcours, jamais du client.
         branches = []
         for i, cle in enumerate(cles):
-            params[f"t{i}"] = (catalogue_commun.TENANT_COMMUN
-                                 if visibles[cle].get("catalogue_commun") else tenant)
-            if cle.startswith("hist:"):
-                params[f"h{i}"] = cle[5:]
-                filtre = f"""o.tenant_id = :t{i} AND o.supplier_id = :h{i}
-                    AND o.is_active
-                    AND (o.catalog_id IS NULL OR o.catalog_id NOT IN (
-                        SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id = :t{i}))"""
-            else:
-                # Cle de version : UUID globalement unique, resolue ci-dessus
-                # parmi les fournisseurs visibles de cette entreprise, et son
-                # tenant derive du parcours (entreprise ou commun) -- jamais
-                # de la cle client.
-                params[f"v{i}"] = cle
-                filtre = f"o.tenant_id = :t{i} AND o.version_id = :v{i} AND o.is_active"
-            # Deux temps, comme fournisseur_recherche : (1) la sous-requete
-            # SANS tri filtre par trigramme (idx_offers_recherche_trgm) —
-            # avec un ORDER BY price dans la branche, le planificateur
-            # choisissait le scan de l'index par prix en filtrant les termes
-            # rares : 960k lignes parcourues, TimeoutError command_timeout
-            # 30 s (constate en production sur "trou evacuation rongeurs") ;
-            # (2) le tri par prix se fait ensuite sur les <= 200 id retenus.
-            branches.append(f"""
-                (SELECT {catalogue_navigation.CHAMPS}
-                   FROM (SELECT o.id
-                           FROM blueseatra.supplier_offers o
-                          WHERE ({filtre})
-                            AND ({' AND '.join(conds)})
-                          LIMIT 200) sel
-                   JOIN blueseatra.supplier_offers o ON o.id = sel.id
-                   LEFT JOIN blueseatra.suppliers f
-                          ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id)
-            """)
+            params[f"t{i}"] = [catalogue_commun.TENANT_COMMUN
+                               if visibles[cle].get("catalogue_commun") else tenant]
+            # Cle de version : UUID resolu parmi les fournisseurs visibles de
+            # cette entreprise. Cle "hist:" : fournisseur sans catalogue.
+            params[f"v{i}"] = None if cle.startswith("hist:") else cle
+            params[f"h{i}"] = cle[5:] if cle.startswith("hist:") else None
+            branches.append(
+                f"SELECT c.id FROM blueseatra.offres_candidates("
+                f"CAST(:t{i} AS text[]), CAST(:termes AS jsonb), 200, "
+                f":v{i}, :h{i}, false, false) c")
+        # Les fiches sont relues par id SOUS RLS, avec le filtre tenant
+        # explicite (mode repli sous postgres) ; tri par prix sur <= 200 x n.
         sql = text(f"""
-            SELECT * FROM ({' UNION ALL '.join(branches)}) offres
-            ORDER BY prix_net_ht ASC NULLS LAST, id
-            LIMIT :limite
+            WITH sel AS MATERIALIZED ({' UNION ALL '.join(branches)})
+            SELECT {catalogue_navigation.CHAMPS}
+              FROM sel
+              JOIN blueseatra.supplier_offers o ON o.id = sel.id
+              LEFT JOIN blueseatra.suppliers f
+                     ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+             WHERE (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+             ORDER BY o.price_ht ASC NULLS LAST, o.id
+             LIMIT :limite
         """)
         async with tenant_session() as session:
             lignes = [dict(r) for r in (await session.execute(sql, params)).mappings()]

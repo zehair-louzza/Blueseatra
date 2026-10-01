@@ -10,6 +10,7 @@ objets, catalogue_navigation par des doubles. On verifie surtout :
   activer, UPDATE actif = false pour desactiver).
 """
 import asyncio
+import json
 import os
 import sys
 
@@ -159,24 +160,23 @@ def test_recherche_construit_les_clauses_par_source(monkeypatch):
     articles = asyncio.run(catalogue_chiffrage.rechercher("disjoncteur 16a"))
     sql, params = session.executed[0]
     sql_text = str(sql)
-    # Une branche par source activee, verrouillee sur son tenant EXACT et sa
-    # version ou son fournisseur (l'ordre d'iteration est libre) — un OR sur
-    # deux tenants par branche empêcherait l'index (tenant_id, version_id)
-    # et provoquait un TimeoutError en production.
-    assert "o.version_id = :v" in sql_text
-    assert "o.tenant_id = :t" in sql_text
-    assert "(o.tenant_id = :tenant_id OR" not in sql_text
-    assert "o.supplier_id = :h" in sql_text
-    assert "recherche_norm" in sql_text
+    # Une branche par source activee, chacune verrouillee sur son tenant
+    # EXACT et sa version ou son fournisseur (ordre d'iteration libre), via
+    # blueseatra.offres_candidates : sous RLS, une requete directe ne pouvait
+    # pas utiliser l'index trigramme (TimeoutError en production, 01/10/2026).
+    assert sql_text.count("blueseatra.offres_candidates(") == 2
     assert "UNION ALL" in sql_text
-    assert set(params.values()) >= {CLE_VERSION, CLE_HIST[5:], TENANT}
-    # Deux temps par branche : filtrage trigramme dans la sous-requete SANS
-    # tri (sinon le planificateur scanne l'index par prix sur 960k lignes
-    # pour des termes rares → TimeoutError), tri par prix ensuite à
-    # l'exterieur, sur le petit resultat.
-    assert "LIMIT 200) sel" in sql_text
-    assert "ORDER BY o.price_ht" not in sql_text
-    assert "ORDER BY prix_net_ht ASC" in sql_text
+    assert "CAST(:termes AS jsonb), 200" in sql_text
+    branches = {(tuple(params[f"t{i}"]), params[f"v{i}"], params[f"h{i}"]) for i in range(2)}
+    assert branches == {((TENANT,), CLE_VERSION, None), ((TENANT,), None, CLE_HIST[5:])}
+    termes = json.loads(params["termes"])
+    assert termes == [[{"op": "like", "v": "%disjoncteur%"}], [{"op": "like", "v": "%16a%"}]]
+    # Second temps : relecture des fiches par id, filtre tenant explicite
+    # (mode repli sous postgres) et RLS ; tri par prix sur le petit resultat.
+    assert "JOIN blueseatra.supplier_offers o ON o.id = sel.id" in sql_text
+    assert "(o.tenant_id = :tenant_id OR o.tenant_id = :commun)" in sql_text
+    assert "ORDER BY o.price_ht ASC NULLS LAST, o.id" in sql_text
+    assert params["tenant_id"] == TENANT
     # Resultat marque fournisseur, dans l'ordre prix croissant.
     assert len(articles) == 1 and articles[0]["source"] == "fournisseur"
 

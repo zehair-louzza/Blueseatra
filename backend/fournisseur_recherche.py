@@ -38,6 +38,7 @@ colonne generee recherche_norm et son index trigramme
 """
 from __future__ import annotations
 
+import json
 import re
 import statistics
 
@@ -131,6 +132,18 @@ def normalise(texte: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9.+]+", " ", texte).split())
 
 
+def motif_postgres(motif: str) -> str:
+    """Expression reguliere du vocabulaire (syntaxe Python) -> PostgreSQL.
+
+    Le vocabulaire ecrit les limites de mot en \\b, comme Python. Or en
+    PostgreSQL, \\b signifie RETOUR ARRIERE (caractere 0x08) : les motifs
+    "courbe c", "2p", "ph+n", "alu", "diff"... ne trouvaient AUCUNE ligne
+    (constate le 01/10/2026 : "disjoncteur 16a courbe c" -> 0 resultat).
+    La limite de mot PostgreSQL s'ecrit \\y.
+    """
+    return motif.replace("\\b", "\\y")
+
+
 def _conditions(requete: str) -> tuple[list[str], dict, list[dict]]:
     """Traduit la requete en conditions SQL parametrees.
 
@@ -161,7 +174,7 @@ def _conditions(requete: str) -> tuple[list[str], dict, list[dict]]:
                 # ~ et non ~* : recherche_norm est deja en minuscules,
                 # l'insensibilite a la casse serait un cout inutile.
                 morceaux.append(f"o.recherche_norm ~ :{cle}")
-                parametres[cle] = nu(motif)
+                parametres[cle] = motif_postgres(nu(motif))
             else:
                 # LIKE '%...%' : accelere par l'index trigramme.
                 morceaux.append(f"o.recherche_norm LIKE :{cle}")
@@ -175,6 +188,35 @@ def _conditions(requete: str) -> tuple[list[str], dict, list[dict]]:
             reconnus.append({"saisi": libelle_terme, "equivalences": clair})
 
     return conditions, parametres, reconnus
+
+
+def termes_recherche(requete: str) -> list[list[dict]]:
+    """Memes termes que _conditions(), au format de offres_candidates().
+
+    ET entre les termes, OU entre les ecritures d'un meme terme. Les motifs
+    sont identiques a ceux de _conditions() (meme normalisation, memes
+    jokers) : la fonction SQL les injecte en litteraux echappes (%L).
+    """
+    termes = fusionne_composes([t for t in normalise(requete).split() if t])
+    return [[{"op": "regex", "v": motif_postgres(nu(m))} if est_regex(m)
+             else {"op": "like", "v": f"%{nu(m)}%"} for m in alternatives]
+            for _, alternatives in termes]
+
+
+# Appel de blueseatra.offres_candidates (migration 20261001180000).
+# POURQUOI UNE FONCTION SQL : sous blueseatra_app, la RLS empeche
+# PostgreSQL d'utiliser l'index trigramme (LIKE n'est pas LEAKPROOF) ;
+# chaque recherche filtrait ligne a ligne (27 s au comparateur, > 30 s au
+# selecteur du devis, constate le 01/10/2026). La fonction, SECURITY
+# DEFINER, ne renvoie que des identifiants et colonnes de tri, et refuse
+# tout tenant autre que l'entreprise courante ou le catalogue commun. Les
+# fiches sont relues ENSUITE par id, sous RLS, avec filtre tenant explicite.
+SQL_CANDIDATES = """
+    SELECT c.id, c.tenant_id, c.supplier_id, c.price_ht, c.recherche_norm
+      FROM blueseatra.offres_candidates(
+               CAST(:tenants AS text[]), CAST(:termes AS jsonb), :limite,
+               :version, :hist, :versions_actives, :tri_prix) c
+"""
 
 
 def _separe_qualifiants(lignes: list[dict], requete: str):
@@ -338,25 +380,20 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     parametres["tenant_id"] = tenant
     parametres["commun"] = catalogue_commun.TENANT_COMMUN
 
-    # RECHERCHE EN DEUX TEMPS. Les 5 000 candidats (tri par prix) sont lus
-    # dans l'index compact idx_offers_recherche_prix_v2, qui contient toutes
-    # les colonnes utiles au filtrage, aux statistiques et au tri
-    # (index-only, ~250 Mo). Les fiches completes (1,1 ko chacune) ne sont
+    # RECHERCHE EN DEUX TEMPS. (1) Les 5 000 candidats les moins chers
+    # viennent de blueseatra.offres_candidates (voir SQL_CANDIDATES) :
+    # filtre trigramme ou index par prix selon l'estimation, versions
+    # actives seulement. (2) Les fiches completes (1,1 ko chacune) ne sont
     # lues ensuite QUE pour les lignes affichees et les meilleurs prix par
-    # fournisseur. En une seule passe, lire 5 000 fiches depassait 60 s sur
-    # un terme courant. Memes lignes, meme ordre, memes statistiques.
-    sql = text(f"""
-        SELECT o.id, o.tenant_id, o.supplier_id,
-               o.price_ht AS prix_net_ht, o.recherche_norm
-        FROM blueseatra.supplier_offers o
-        WHERE {FILTRE_PERIMETRE}
-          AND (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-          AND {FILTRE_VERSION_ACTIVE}
-          AND {' AND '.join(conditions)}
-        ORDER BY o.price_ht ASC NULLS LAST, o.id
-        LIMIT :plafond
+    # fournisseur. Memes lignes, meme ordre, memes statistiques qu'avant.
+    sql = text(SQL_CANDIDATES + """
+        ORDER BY c.price_ht ASC NULLS LAST, c.id
     """)
-    parametres["plafond"] = PLAFOND_LIGNES
+    parametres_fonction = {
+        "termes": json.dumps(termes_recherche(requete)),
+        "limite": PLAFOND_LIGNES, "version": None, "hist": None,
+        "versions_actives": True, "tri_prix": True,
+    }
     sql_noms = text("""
         SELECT f.tenant_id, f.id, f.name FROM blueseatra.suppliers f
          WHERE f.tenant_id = :tenant_id OR f.tenant_id = :commun
@@ -372,9 +409,13 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     """)
 
     async with tenant_session() as session:
-        parametres["avec_commun"] = not await catalogue_commun.est_masque(session, tenant)
-        resultat = await session.execute(sql, parametres)
+        avec_commun = not await catalogue_commun.est_masque(session, tenant)
+        parametres_fonction["tenants"] = (
+            [tenant, catalogue_commun.TENANT_COMMUN] if avec_commun else [tenant])
+        resultat = await session.execute(sql, parametres_fonction)
         lignes = [dict(r) for r in resultat.mappings().all()]
+        for l in lignes:
+            l["prix_net_ht"] = l.pop("price_ht")
         noms = {(r["tenant_id"], r["id"]): r["name"] for r in (await session.execute(
             sql_noms, {"tenant_id": tenant, "commun": parametres["commun"]})).mappings()}
         for l in lignes:
