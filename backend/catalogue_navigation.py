@@ -31,6 +31,7 @@ import unicodedata
 from sqlalchemy import text
 
 import catalogue_commun
+from designation_fournisseur import nettoyer_ligne
 from database import get_current_tenant, tenant_session
 from fournisseur_recherche import termes_recherche
 
@@ -279,6 +280,7 @@ async def produits(cle: str, page: int = 1, taille: int = TAILLE_DEFAUT,
     suivante = len(lignes) > taille
     lignes = lignes[:taille]
     for l in lignes:
+        nettoyer_ligne(l)  # libelles amputes a la source (« , D 350 H 1, blanc »)
         pp = l.get("prix_public_ht")
         try:
             l["prix_public_ht"] = round(float(pp), 4) if pp not in (None, "") else None
