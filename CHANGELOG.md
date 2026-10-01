@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-02 (3) — Alias de marques : preuve plus stricte
+
+- **Premier calcul en production : 25 alias.** 10 étaient des libellés de groupe, pas des écritures d'une même marque :
+  - « DeWalt Stanley Black & Decker » → Stanley (14 % de GTIN partagés) ;
+  - « Milwaukee Ryobi AEG » → Milwaukee (15 %) ;
+  - Sicame → Catu, et Sewosy → Faac (5 %).
+- **Les vrais alias partagent 53 à 100 %** des GTIN de la plus petite marque, par exemple Modul Modelec → Modelec (100 %) ou Evicom Golmar → Golmar (98 %).
+- **Règle** : au moins 5 GTIN partagés **et** au moins 50 % des GTIN de la plus petite marque. Migration `20261002020000_marques_alias_recouvrement.sql`.
+
 ## 2026-10-02 (2) — Format unique des offres fournisseurs (étape 1)
 
 - **Spécification validée** : `docs/specs/format-unique-catalogue-fournisseur.md`, avec son modèle Excel `docs/specs/modele-format-unique-catalogue.xlsx` (55 colonnes, listes fermées, exemples réels). Elle suit GTIN (GS1), ETIM et UN/CEFACT Rec. 20.
