@@ -128,13 +128,12 @@ Details (variables, local database, tests) are in the [developer guide (FR)](./d
 
 ## Architecture
 
-<img src="docs/assets/schema-architecture.png" alt="Blueseatra architecture: Vercel, Render, Supabase, Hermès gateway and OVH VPS" width="100%">
+<img src="docs/assets/schema-architecture-en.png" alt="Blueseatra architecture: Vercel, Render, Supabase, Hermès gateway and OVH VPS" width="100%">
 
-<img src="docs/assets/schema-chiffrage.png" alt="Quoting on activatable sources" width="100%">
+<img src="docs/assets/schema-chiffrage-en.png" alt="Quoting on activatable sources" width="100%">
 
-<img src="docs/assets/schema-recherche-rls.png" alt="Supplier search under RLS: secured functions, then records read back under RLS" width="100%">
+<img src="docs/assets/schema-recherche-rls-en.png" alt="Supplier search under RLS: secured functions, then records read back under RLS" width="100%">
 
-<sub>Diagrams are in French. In order: overall architecture; quoting on activatable sources; supplier search under row-level security.</sub>
 
 <details>
 <summary>Text view (Mermaid)</summary>

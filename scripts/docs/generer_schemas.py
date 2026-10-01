@@ -166,9 +166,9 @@ def build_architecture() -> None:
 
     # Rangee 2 : API → Supabase <- catalogues fournisseurs
     c.box((60, 320, 400, 420), "API FastAPI (Render)", ["blueseatra-api.onrender.com",
-                                                        "Francfort, Python 3.11, 113 routes"])
+                                                        "Francfort, Python 3.11, 114 routes"])
     c.box((520, 320, 900, 420), "Supabase PostgreSQL 17", ["schéma blueseatra, RLS par entreprise",
-                                                         "rôle blueseatra_app, 18 migrations"])
+                                                         "rôle blueseatra_app, 22 migrations"])
     c.box((1000, 320, 1340, 441), "Catalogues fournisseurs", ["~970 000 offres, 9 distributeurs",
                                                             "activables : chiffrage_sources",
                                                             "import : Fournisseur-Blueseatra"],
