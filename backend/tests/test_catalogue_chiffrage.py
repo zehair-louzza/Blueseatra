@@ -159,14 +159,16 @@ def test_recherche_construit_les_clauses_par_source(monkeypatch):
     articles = asyncio.run(catalogue_chiffrage.rechercher("disjoncteur 16a"))
     sql, params = session.executed[0]
     sql_text = str(sql)
-    # Une clause par source activee, verrouillee sur sa version ou son
-    # fournisseur (l'ordre d'iteration est libre), ET avec les conditions
-    # de recherche. Defense en profondeur : le filtre tenant reste
-    # explicite meme sur les cles de version.
+    # Une branche par source activee, verrouillee sur son tenant EXACT et sa
+    # version ou son fournisseur (l'ordre d'iteration est libre) — un OR sur
+    # deux tenants par branche empêcherait l'index (tenant_id, version_id)
+    # et provoquait un TimeoutError en production.
     assert "o.version_id = :v" in sql_text
-    assert "(o.tenant_id = :tenant_id OR o.tenant_id = :commun)" in sql_text
+    assert "o.tenant_id = :t" in sql_text
+    assert "(o.tenant_id = :tenant_id OR" not in sql_text
     assert "o.supplier_id = :h" in sql_text
     assert "recherche_norm" in sql_text
+    assert "UNION ALL" in sql_text
     assert set(params.values()) >= {CLE_VERSION, CLE_HIST[5:], TENANT}
     # Resultat marque fournisseur, dans l'ordre prix croissant.
     assert len(articles) == 1 and articles[0]["source"] == "fournisseur"
