@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TruncatedText } from '@/components/TruncatedText';
 import { prixHT } from '@/lib/fournisseursFormat';
+import { useTranslation } from 'react-i18next';
 
 // Tableau des resultats, trie par prix net HT croissant.
 // Le tri est refait cote client : meme si le backend renvoie un ordre de
@@ -18,30 +19,31 @@ const triParPrix = (resultats) =>
   });
 
 export const SupplierResultsTable = ({ resultats }) => {
+  const { t } = useTranslation();
   const lignes = triParPrix(resultats);
 
   return (
     <Card className="card-shadow overflow-hidden border-0" data-testid="fournisseurs-resultats">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3 sm:px-5">
-        <h2 className="font-display text-base font-semibold">Résultats comparables</h2>
-        <p className="text-xs text-muted-foreground">Triés par prix net HT croissant</p>
+        <h2 className="font-display text-base font-semibold">{t('fo.r_titre')}</h2>
+        <p className="text-xs text-muted-foreground">{t('fo.r_tri')}</p>
       </div>
 
       {/* Tablette et ordinateur : tableau dense, defilement horizontal si besoin. */}
       <div className="hidden overflow-x-auto md:block">
         <Table>
           <caption className="sr-only">
-            Offres fournisseurs comparables, triées par prix net hors taxes croissant
+            {t('fo.r_legende')}
           </caption>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-40 min-w-[9rem]">Fournisseur</TableHead>
-              <TableHead className="min-w-[18rem]">Désignation</TableHead>
-              <TableHead className="w-36 min-w-[8rem]">Marque</TableHead>
-              <TableHead className="w-36 min-w-[8rem]">Référence</TableHead>
-              <TableHead className="w-28 text-right">Prix net HT</TableHead>
-              <TableHead className="w-28 text-right">Prix public HT</TableHead>
-              <TableHead className="w-28 min-w-[6rem]">Unité de vente</TableHead>
+              <TableHead className="w-40 min-w-[9rem]">{t('fo.col_fournisseur')}</TableHead>
+              <TableHead className="min-w-[18rem]">{t('fo.col_designation')}</TableHead>
+              <TableHead className="w-36 min-w-[8rem]">{t('fo.col_marque')}</TableHead>
+              <TableHead className="w-36 min-w-[8rem]">{t('fo.col_reference')}</TableHead>
+              <TableHead className="w-28 text-right">{t('fo.col_prix_net')}</TableHead>
+              <TableHead className="w-28 text-right">{t('fo.col_prix_public')}</TableHead>
+              <TableHead className="w-28 min-w-[6rem]">{t('fo.col_unite_vente')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -83,27 +85,27 @@ export const SupplierResultsTable = ({ resultats }) => {
               <p className="min-w-0 flex-1 text-sm font-medium">{o.fournisseur}{o.catalogue_commun && <BadgeCommun />}</p>
               <p className="shrink-0 text-right text-sm font-semibold tabular-nums">
                 {prixHT(o.prix_net_ht)}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">HT</span>
+                <span className="ml-1 text-xs font-normal text-muted-foreground">{t('fo.ht')}</span>
               </p>
             </div>
             <p className="mt-1 text-sm leading-snug text-foreground/90">{o.designation}</p>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <div className="flex min-w-0 gap-1">
-                <dt>Marque&nbsp;:</dt>
+                <dt>{t('fo.carte_marque')}</dt>
                 <dd className="truncate font-medium text-foreground">{o.marque || '\u2014'}</dd>
               </div>
               <div className="flex min-w-0 gap-1">
-                <dt>Réf.&nbsp;:</dt>
+                <dt>{t('fo.carte_ref')}</dt>
                 <dd className="truncate font-mono text-foreground">
                   {o.reference_fournisseur || o.reference_fabricant || '\u2014'}
                 </dd>
               </div>
               <div className="flex min-w-0 gap-1">
-                <dt>Public HT&nbsp;:</dt>
+                <dt>{t('fo.carte_public')}</dt>
                 <dd className="tabular-nums">{prixHT(o.prix_public_ht)}</dd>
               </div>
               <div className="flex min-w-0 gap-1">
-                <dt>Unité&nbsp;:</dt>
+                <dt>{t('fo.carte_unite')}</dt>
                 <dd className="truncate">{o.unite_vente || '\u2014'}</dd>
               </div>
             </dl>

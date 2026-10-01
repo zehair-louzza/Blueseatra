@@ -4,14 +4,17 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/context/AuthContext';
 import { api, apiError } from '@/lib/api';
+import { localeCourante } from '@/lib/locale';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CreditCard, FileText, ScanText, Users, Info, ArrowRight } from 'lucide-react';
 
-const nf = new Intl.NumberFormat('fr-FR');
-const df = (iso) => (iso ? new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '');
-const dtf = (iso) => (iso ? new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+// Nombres et dates dans la langue de l'interface : « 9 octobre 2026 » en
+// français, « 9 October 2026 » en anglais.
+const nf = { format: (n) => new Intl.NumberFormat(localeCourante()).format(n) };
+const df = (iso) => (iso ? new Date(iso).toLocaleDateString(localeCourante(), { day: 'numeric', month: 'long', year: 'numeric' }) : '');
+const dtf = (iso) => (iso ? new Date(iso).toLocaleString(localeCourante(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 
 function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein = false, projection = null, epuisement = null }) {
   const illimite = inclus === null || inclus === undefined;
@@ -41,7 +44,7 @@ function Jauge({ icon: Icon, label, inclus, utilise, restant, recharge, t, plein
           {projection != null && utilise > 0 && (
             <p className={`mt-1 text-xs ${epuisement ? 'font-medium text-amber-700' : 'text-muted-foreground'}`} data-testid="billing-projection">
               {epuisement
-                ? t('cl.b_epuisement', { d: new Date(epuisement).toLocaleDateString('fr-FR') })
+                ? t('cl.b_epuisement', { d: new Date(epuisement).toLocaleDateString(localeCourante()) })
                 : t('cl.b_projection', { n: nf.format(projection) })}
             </p>
           )}

@@ -4,6 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '@/components/ui/command';
+import { useTranslation } from 'react-i18next';
 import { Check, ChevronsUpDown, Layers } from 'lucide-react';
 
 // Filtre « Famille » du comparateur de prix.
@@ -21,6 +22,7 @@ const sansAccent = (s) => (s || '')
   .toLowerCase();
 
 export const SupplierFamilyFilter = ({ familles, valeur, onChange, desactive = false, chargement = false }) => {
+  const { t } = useTranslation();
   const [ouvert, setOuvert] = useState(false);
   const [saisie, setSaisie] = useState('');
 
@@ -40,7 +42,7 @@ export const SupplierFamilyFilter = ({ familles, valeur, onChange, desactive = f
     <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
       <span id="fournisseurs-famille-label" className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <Layers className="h-4 w-4" />
-        Famille
+        {t('fo.famille')}
       </span>
       <Popover open={ouvert} onOpenChange={setOuvert}>
         <PopoverTrigger asChild>
@@ -54,27 +56,27 @@ export const SupplierFamilyFilter = ({ familles, valeur, onChange, desactive = f
             disabled={desactive}
             data-testid="fournisseurs-famille"
           >
-            <span className="truncate">{valeur || 'Toutes les familles'}</span>
+            <span className="truncate">{valeur || t('fo.toutes_familles')}</span>
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[min(24rem,calc(100vw-2rem))] p-0" align="start">
           <Command shouldFilter={false}>
             <CommandInput
-              placeholder="Filtrer les familles…"
+              placeholder={t('fo.filtrer_familles')}
               value={saisie}
               onValueChange={setSaisie}
               data-testid="fournisseurs-famille-saisie"
             />
             <CommandList className="max-h-80">
               <CommandEmpty>
-                {chargement ? 'Chargement des familles…' : 'Aucune famille ne correspond.'}
+                {chargement ? t('fo.familles_chargement') : t('fo.aucune_famille')}
               </CommandEmpty>
               <CommandGroup>
                 {!saisie.trim() && (
                   <CommandItem value="__toutes__" onSelect={() => choisir('')}>
                     <Check className={`mr-2 h-4 w-4 ${valeur ? 'opacity-0' : 'opacity-100'}`} />
-                    Toutes les familles
+                    {t('fo.toutes_familles')}
                   </CommandItem>
                 )}
                 {correspondances.affichees.map((f) => (
@@ -95,7 +97,7 @@ export const SupplierFamilyFilter = ({ familles, valeur, onChange, desactive = f
               </CommandGroup>
               {correspondances.total > MAX_AFFICHEES && (
                 <p className="px-3 py-2 text-xs text-muted-foreground">
-                  {correspondances.total - MAX_AFFICHEES} autres familles : précisez la saisie.
+                  {t('fo.autres_familles', { n: correspondances.total - MAX_AFFICHEES })}
                 </p>
               )}
             </CommandList>

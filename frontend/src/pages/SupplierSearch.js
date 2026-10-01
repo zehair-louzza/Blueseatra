@@ -1,10 +1,9 @@
 // Recherche et comparaison fournisseurs.
 //
-// Texte d'interface volontairement en francais en dur (et non via i18n) :
-// l'ecran manipule du vocabulaire de negoce electrique francais (« 1P+N »,
-// « courbe C », « prix net HT », « unite de vente ») et le catalogue source
-// est francais. Une traduction anglaise donnerait un ecran illisible pour le
-// chiffreur. Les autres conventions du projet sont respectees : alias `@/`,
+// Interface traduite (dictionnaire `fo`, src/i18n_fournisseurs.js). Les
+// donnees restent en francais : designations, familles, termes reconnus
+// (« 1P+N », « courbe C ») et exemples de requete, qui doivent trouver des
+// produits dans des catalogues francais. Conventions du projet : alias `@/`,
 // composants shadcn/ui existants, `api`/`apiError` de `@/lib/api`, toasts
 // sonner, `Spinner`/`EmptyState`, data-testid.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,6 +22,8 @@ import { SupplierResultsTable } from '@/components/SupplierResultsTable';
 import { CatalogueCommunPanel } from '@/components/CatalogueCommunPanel';
 import { IsolatedQualifiers, RefineCriteria } from '@/components/SupplierRefinePanels';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { entier } from '@/lib/fournisseursFormat';
 import { Search, Loader2, AlertTriangle, PackageSearch, FlaskConical, RotateCcw, Layers, X } from 'lucide-react';
 
@@ -34,41 +35,16 @@ const EXEMPLES = [
   'câble r2v 3g2.5',
 ];
 
-// Message francais utile pour chaque code d'erreur du contrat.
+// Message utile pour chaque code d'erreur du contrat, dans la langue de
+// l'interface.
 const messageErreur = (err) => {
+  const t = i18n.t.bind(i18n);
   const status = err?.response?.status;
-  const detail = apiError(err, 'La recherche a échoué.');
-  if (status === 400) {
-    return {
-      titre: 'Requête vide',
-      texte: 'Saisissez au moins un terme à rechercher, par exemple « disjoncteur 16a courbe c ph+n ».',
-      detail,
-    };
-  }
-  if (status === 401) {
-    return {
-      titre: 'Session expirée',
-      texte: 'Votre jeton d’accès n’est plus valide. Reconnectez-vous, puis relancez la recherche.',
-      detail,
-    };
-  }
-  if (status === 403) {
-    return {
-      titre: 'Accès refusé',
-      texte: 'Votre rôle ne donne pas accès au catalogue fournisseurs de cet espace. Demandez l’autorisation à un owner.',
-      detail,
-    };
-  }
-  if (status === 422) {
-    return {
-      titre: 'Paramètre hors bornes',
-      texte: `La limite doit être comprise entre 1 et 200. Elle a été ramenée à ${LIMITE_PAR_DEFAUT} lignes.`,
-      detail,
-    };
-  }
+  const detail = apiError(err, t('fo.e_echec'));
+  const code = { 400: 'e400', 401: 'e401', 403: 'e403', 422: 'e422' }[status] || 'e';
   return {
-    titre: 'Recherche impossible',
-    texte: 'Le catalogue fournisseurs n’a pas répondu. Vérifiez votre connexion puis réessayez.',
+    titre: t(`fo.${code}_t`),
+    texte: t(`fo.${code}_d`, { n: LIMITE_PAR_DEFAUT }),
     detail,
   };
 };
@@ -78,6 +54,7 @@ const messageErreur = (err) => {
 const TOUTES_FAMILLES = '__toutes__';
 
 export default function SupplierSearch() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const requeteUrl = params.get('q') || '';
   const inclureUrl = params.get('inclure_qualifiants') === 'true';
@@ -161,7 +138,7 @@ export default function SupplierSearch() {
   const soumettre = (e) => {
     e.preventDefault();
     if (!saisie.trim()) {
-      setErreur(messageErreur({ response: { status: 400, data: { detail: 'La requête est obligatoire.' } } }));
+      setErreur(messageErreur({ response: { status: 400, data: { detail: t('fo.requete_obligatoire') } } }));
       champRef.current?.focus();
       return;
     }
@@ -172,7 +149,7 @@ export default function SupplierSearch() {
   // inclure_qualifiants=true (cf. contrat d'API).
   const inclureQualifiants = (libelle) => {
     lancer({ q: requeteUrl, inclure: true, limite: limiteUrl });
-    toast.success(`Produits « ${libelle} » réintégrés à la liste principale`);
+    toast.success(t('fo.qualifiants_reintegres', { l: libelle }));
   };
 
   // Un clic sur une valeur de criteres_a_affiner ajoute le terme a la requete
@@ -190,16 +167,16 @@ export default function SupplierSearch() {
   const rechercheVierge = !requeteUrl.trim();
 
   const sousTitre = useMemo(() => {
-    if (!reponse) return 'Tout produit contenant vos termes est renvoyé. La pertinence trie, elle ne filtre jamais.';
-    return `Requête analysée : « ${reponse.requete} »`;
-  }, [reponse]);
+    if (!reponse) return t('fo.sous_titre_vierge');
+    return t('fo.sous_titre_requete', { q: reponse.requete });
+  }, [reponse, t]);
 
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-2xl font-semibold tracking-tight">
-            Recherche et comparaison fournisseurs
+            {t('fo.titre')}
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{sousTitre}</p>
         </div>
@@ -207,10 +184,10 @@ export default function SupplierSearch() {
           <span
             className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200"
             data-testid="fournisseurs-badge-exemple"
-            title="Le backend /fournisseurs/recherche n’est pas encore déployé : l’écran fonctionne sur un jeu de données d’exemple conforme au contrat d’API."
+            title={t('fo.exemple_aide')}
           >
             <FlaskConical className="h-3.5 w-3.5" />
-            Jeu de données d’exemple
+            {t('fo.exemple_badge')}
           </span>
         )}
       </div>
@@ -220,7 +197,7 @@ export default function SupplierSearch() {
       <Card className="card-shadow mt-5 border-0 p-4 sm:p-5">
         <form onSubmit={soumettre} className="space-y-3" role="search">
           <Label htmlFor="fournisseurs-q" className="text-sm">
-            Que cherchez-vous&nbsp;?
+            {t('fo.question')}
           </Label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Input
@@ -236,7 +213,7 @@ export default function SupplierSearch() {
             />
             <Button type="submit" className="gap-2 sm:w-auto" disabled={chargement} data-testid="fournisseurs-search-button">
               {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              Rechercher
+              {t('fo.rechercher')}
             </Button>
           </div>
           <SupplierFamilyFilter
@@ -247,7 +224,7 @@ export default function SupplierSearch() {
             chargement={famillesEnCours}
           />
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>Exemples&nbsp;:</span>
+            <span>{t('fo.exemples')}</span>
             {EXEMPLES.map((ex) => (
               <button
                 key={ex}
@@ -263,7 +240,7 @@ export default function SupplierSearch() {
           {inclureUrl && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg bg-muted/60 px-3 py-2 text-xs">
               <span>
-                Les produits d’une autre nature sont inclus dans la liste principale.
+                {t('fo.qualifiants_inclus')}
               </span>
               <Button
                 type="button"
@@ -274,7 +251,7 @@ export default function SupplierSearch() {
                 data-testid="fournisseurs-exclure-qualifiants"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                Les remettre à part
+                {t('fo.remettre_a_part')}
               </Button>
             </div>
           )}
@@ -282,7 +259,7 @@ export default function SupplierSearch() {
       </Card>
 
       <div className="mt-5 space-y-4">
-        {chargement && <Spinner label="Recherche dans les catalogues fournisseurs…" />}
+        {chargement && <Spinner label={t('fo.recherche_en_cours')} />}
 
         {!chargement && erreur && (
           <Card
@@ -296,7 +273,7 @@ export default function SupplierSearch() {
                 <p className="mt-1 text-sm text-foreground/90">{erreur.texte}</p>
                 {erreur.detail && (
                   <p className="mt-1 break-words text-xs text-muted-foreground">
-                    Détail du serveur&nbsp;: {erreur.detail}
+                    {t('fo.detail_serveur', { d: erreur.detail })}
                   </p>
                 )}
                 <Button
@@ -308,7 +285,7 @@ export default function SupplierSearch() {
                   data-testid="fournisseurs-reessayer"
                 >
                   <RotateCcw className="h-4 w-4" />
-                  Réessayer
+                  {t('fo.reessayer')}
                 </Button>
               </div>
             </div>
@@ -318,7 +295,7 @@ export default function SupplierSearch() {
         {!chargement && !erreur && rechercheVierge && (
           <EmptyState
             icon={Search}
-            title="Saisissez une désignation, une référence ou une marque pour comparer les offres de vos fournisseurs."
+            title={t('fo.vierge')}
           />
         )}
 
@@ -331,8 +308,8 @@ export default function SupplierSearch() {
               >
                 <Layers className="h-3.5 w-3.5" />
                 <span>
-                  Famille « {reponse.famille} » uniquement
-                  {reponse.tronque ? ` : les ${entier(reponse.plafond)} offres les moins chères sont comparées.` : '.'}
+                  {t('fo.famille_seule', { f: reponse.famille })}
+                  {reponse.tronque ? t('fo.famille_tronque', { n: entier(reponse.plafond) }) : '.'}
                 </span>
                 <Button
                   type="button"
@@ -343,7 +320,7 @@ export default function SupplierSearch() {
                   data-testid="fournisseurs-famille-retirer"
                 >
                   <X className="h-3.5 w-3.5" />
-                  Toutes les familles
+                  {t('fo.toutes_familles')}
                 </Button>
               </div>
             )}
@@ -353,7 +330,7 @@ export default function SupplierSearch() {
             {aucunResultat ? (
               <EmptyState
                 icon={PackageSearch}
-                title="Aucun produit ne contient ces termes dans les catalogues de cet espace. Vérifiez ci-dessus comment vos termes ont été interprétés, puis retirez le terme le plus restrictif."
+                title={t('fo.aucun_resultat')}
               />
             ) : (
               <>

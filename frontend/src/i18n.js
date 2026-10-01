@@ -2,6 +2,7 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import { lpFr, lpEn } from './i18n_lp';
 import { clFr, clEn } from './i18n_clients';
+import { foFr, foEn } from './i18n_fournisseurs';
 
 const resources = {
   en: {
@@ -172,6 +173,8 @@ resources.fr.translation.lp = lpFr;
 resources.en.translation.lp = lpEn;
 resources.fr.translation.cl = clFr;
 resources.en.translation.cl = clEn;
+resources.fr.translation.fo = foFr;
+resources.en.translation.fo = foEn;
 
 i18n.use(initReactI18next).init({
   resources,

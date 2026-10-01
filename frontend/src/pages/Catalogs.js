@@ -220,7 +220,7 @@ export default function Catalogs() {
                     {s.catalogue_commun && <BadgeCommun />}
                   </div>
                   <p className="mt-2 text-lg font-semibold tabular-nums">{entier(s.references)}</p>
-                  <p className="text-xs text-muted-foreground">produits</p>
+                  <p className="text-xs text-muted-foreground">{t('fo.c_produits')}</p>
                   <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
                     <Button variant="secondary" size="sm" className="gap-1"
                       onClick={() => setVoirFournisseur(s)} data-testid="voir-catalogue-fournisseur">
@@ -248,8 +248,8 @@ export default function Catalogs() {
           {columns.length === 0 ? (
             <Table>
               <TableHeader><TableRow>
-                <TableHead>Code</TableHead><TableHead>Libellé</TableHead><TableHead>Cat.</TableHead>
-                <TableHead>Unité</TableHead><TableHead className="text-right">PU HT</TableHead><TableHead className="text-right">TVA</TableHead>
+                <TableHead>{t('fo.i_code')}</TableHead><TableHead>{t('fo.i_libelle')}</TableHead><TableHead>{t('fo.i_cat')}</TableHead>
+                <TableHead>{t('fo.i_unite')}</TableHead><TableHead className="text-right">{t('fo.i_pu')}</TableHead><TableHead className="text-right">{t('fo.i_tva')}</TableHead>
               </TableRow></TableHeader>
               <TableBody>
                 {items.map((it) => (

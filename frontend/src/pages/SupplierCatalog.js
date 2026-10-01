@@ -2,9 +2,9 @@
 // (ses propres imports + le catalogue commun), puis consultation de leurs
 // produits page par page, avec filtre par famille et par mot.
 //
-// Texte en francais en dur, comme l'ecran de recherche fournisseurs : le
-// vocabulaire (prix net HT, unite de vente, famille) vient des catalogues
-// francais eux-memes.
+// Interface traduite (dictionnaire `fo`, src/i18n_fournisseurs.js). Les
+// donnees restent telles que les fournisseurs les publient : designations,
+// familles et unites de vente ne sont pas traduites.
 import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { apiError } from '@/lib/api';
@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import {
   Store, Search, ChevronLeft, ChevronRight, ExternalLink, PackageSearch, Loader2, X,
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import {
 const TAILLE = 50;
 
 export default function SupplierCatalog() {
+  const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const cle = params.get('f') || '';
   const page = Math.max(1, Number(params.get('page')) || 1);
@@ -51,7 +53,7 @@ export default function SupplierCatalog() {
   useEffect(() => {
     listerCatalogueFournisseurs()
       .then((d) => { setFournisseurs(d.fournisseurs || []); setTotal(d.total_references || 0); })
-      .catch((e) => { setFournisseurs([]); toast.error(apiError(e, 'Liste des fournisseurs indisponible.')); });
+      .catch((e) => { setFournisseurs([]); toast.error(apiError(e, t('fo.c_liste_ko'))); });
   }, []);
 
   // Bouton poussoir : active/desactive le catalogue de CE fournisseur pour le
@@ -63,11 +65,11 @@ export default function SupplierCatalog() {
     try {
       await basculerSourceChiffrage(f.cle, actif);
       toast.success(actif
-        ? `Catalogue ${f.fournisseur} activé pour le chiffrage. Ses produits apparaissent dans la recherche d'articles du devis.`
-        : `Catalogue ${f.fournisseur} désactivé pour le chiffrage — contenu conservé.`);
+        ? t('fo.c_active', { f: f.fournisseur })
+        : t('fo.c_desactive', { f: f.fournisseur }));
       setFournisseurs((prev) => (prev || []).map((x) =>
         (x.cle === f.cle ? { ...x, actif_chiffrage: actif } : x)));
-    } catch (e) { toast.error(apiError(e, 'Bascule impossible.')); }
+    } catch (e) { toast.error(apiError(e, t('fo.c_bascule_ko'))); }
     finally { setBascule(null); }
   };
 
@@ -84,7 +86,7 @@ export default function SupplierCatalog() {
     setChargement(true);
     produitsFournisseur({ cle, page, taille: TAILLE, q, famille })
       .then((d) => { if (!annule) setDonnees(d); })
-      .catch((e) => { if (!annule) { setDonnees(null); toast.error(apiError(e, 'Produits indisponibles.')); } })
+      .catch((e) => { if (!annule) { setDonnees(null); toast.error(apiError(e, t('fo.c_produits_ko'))); } })
       .finally(() => { if (!annule) setChargement(false); });
     return () => { annule = true; };
   }, [cle, page, q, famille]);
@@ -97,18 +99,18 @@ export default function SupplierCatalog() {
     <div className="space-y-6" data-testid="catalogue-fournisseurs">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Catalogue fournisseurs</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">{t('fo.c_titre')}</h1>
           <p className="text-sm text-muted-foreground">
-            {fournisseurs ? `${fournisseurs.length} fournisseurs · ${entier(total)} produits` : 'Chargement…'}
+            {fournisseurs ? t('fo.c_volume', { n: entier(fournisseurs.length), p: entier(total) }) : t('fo.c_chargement')}
           </p>
         </div>
         <Button asChild variant="outline" size="sm">
-          <Link to="/app/fournisseurs"><Search className="mr-1.5 h-4 w-4" />Comparer les prix</Link>
+          <Link to="/app/fournisseurs"><Search className="mr-1.5 h-4 w-4" />{t('fo.c_comparer')}</Link>
         </Button>
       </div>
 
       {!fournisseurs ? <Spinner /> : fournisseurs.length === 0 ? (
-        <EmptyState icon={Store} title="Aucun catalogue fournisseur visible pour votre entreprise." />
+        <EmptyState icon={Store} title={t('fo.c_aucun')} />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-testid="liste-fournisseurs">
           {fournisseurs.map((f) => (
@@ -123,14 +125,14 @@ export default function SupplierCatalog() {
                   {f.catalogue_commun && <BadgeCommun />}
                 </div>
                 <p className="mt-2 text-lg font-semibold tabular-nums">{entier(f.references)}</p>
-                <p className="text-xs text-muted-foreground">produits</p>
+                <p className="text-xs text-muted-foreground">{t('fo.c_produits')}</p>
               </button>
               <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3"
                 data-testid={`chiffrage-fournisseur-${f.fournisseur}`}>
-                <span className="text-xs text-muted-foreground">Chiffrage</span>
+                <span className="text-xs text-muted-foreground">{t('fo.c_chiffrage')}</span>
                 <Switch checked={!!f.actif_chiffrage} disabled={bascule === f.cle}
                   onCheckedChange={(v) => basculerChiffrage(f, v)}
-                  aria-label={`Utiliser ${f.fournisseur} dans le chiffrage`} />
+                  aria-label={t('fo.c_chiffrage_aria', { f: f.fournisseur })} />
               </div>
             </div>
           ))}
@@ -140,38 +142,38 @@ export default function SupplierCatalog() {
       {cle && (
         <Card className="card-shadow overflow-hidden border-0" data-testid="produits-fournisseur">
           <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3 sm:px-5">
-            <h2 className="mr-auto font-display text-base font-semibold">{choisi?.fournisseur || 'Fournisseur'}</h2>
+            <h2 className="mr-auto font-display text-base font-semibold">{choisi?.fournisseur || t('fo.c_fournisseur')}</h2>
             <form className="flex items-center gap-2"
               onSubmit={(e) => { e.preventDefault(); maj({ q: saisie.trim(), page: null }); }}>
               <Input value={saisie} onChange={(e) => setSaisie(e.target.value)}
-                placeholder="Filtrer : désignation, référence, marque…" className="h-9 w-64"
+                placeholder={t('fo.c_filtre')} className="h-9 w-64"
                 data-testid="filtre-produits" />
-              <Button type="submit" size="sm" variant="secondary">Filtrer</Button>
+              <Button type="submit" size="sm" variant="secondary">{t('fo.c_filtrer')}</Button>
               {q && <Button type="button" size="sm" variant="ghost" onClick={() => maj({ q: null, page: null })}><X className="h-4 w-4" /></Button>}
             </form>
             <select value={famille} onChange={(e) => maj({ famille: e.target.value, page: null })}
               className="h-9 max-w-[16rem] rounded-md border bg-background px-2 text-sm" data-testid="filtre-famille">
-              <option value="">Toutes les familles</option>
+              <option value="">{t('fo.toutes_familles')}</option>
               {familles.map((fa) => <option key={fa.famille} value={fa.famille}>{fa.famille} ({entier(fa.nb)})</option>)}
             </select>
           </div>
 
           {chargement && !donnees ? <Spinner /> : !donnees || donnees.produits.length === 0 ? (
-            <div className="p-6"><EmptyState icon={PackageSearch} title="Aucun produit ne correspond à ce filtre." /></div>
+            <div className="p-6"><EmptyState icon={PackageSearch} title={t('fo.c_aucun_produit')} /></div>
           ) : (
             <>
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[22rem]">Désignation</TableHead>
-                      <TableHead>Marque</TableHead>
-                      <TableHead>Réf. fournisseur</TableHead>
-                      <TableHead>EAN</TableHead>
-                      <TableHead className="text-right">Prix net HT</TableHead>
-                      <TableHead className="text-right">Prix public HT</TableHead>
-                      <TableHead>Unité</TableHead>
-                      <TableHead>Famille</TableHead>
+                      <TableHead className="min-w-[22rem]">{t('fo.col_designation')}</TableHead>
+                      <TableHead>{t('fo.col_marque')}</TableHead>
+                      <TableHead>{t('fo.col_ref_fournisseur')}</TableHead>
+                      <TableHead>{t('fo.col_ean')}</TableHead>
+                      <TableHead className="text-right">{t('fo.col_prix_net')}</TableHead>
+                      <TableHead className="text-right">{t('fo.col_prix_public')}</TableHead>
+                      <TableHead>{t('fo.col_unite')}</TableHead>
+                      <TableHead>{t('fo.col_famille')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -203,18 +205,21 @@ export default function SupplierCatalog() {
               <div className="flex flex-wrap items-center justify-between gap-2 border-t px-4 py-3 text-sm sm:px-5">
                 <span className="text-muted-foreground">
                   {nbTotal != null
-                    ? `${donnees.total_plafonne ? 'Plus de ' : ''}${entier(nbTotal)} produits · page ${page}${nbPages ? ` / ${entier(nbPages)}` : ''}`
-                    : `Page ${page}`}
+                    ? t('fo.c_pagination', {
+                      plus: donnees.total_plafonne ? t('fo.c_plus_de') : '',
+                      n: entier(nbTotal), page, pages: nbPages ? ` / ${entier(nbPages)}` : '',
+                    })
+                    : t('fo.c_page', { page })}
                   {chargement && <Loader2 className="ml-2 inline h-4 w-4 animate-spin" />}
                 </span>
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" disabled={page <= 1 || chargement}
                     onClick={() => maj({ page: page - 1 > 1 ? page - 1 : null })} data-testid="page-precedente">
-                    <ChevronLeft className="h-4 w-4" />Précédente
+                    <ChevronLeft className="h-4 w-4" />{t('fo.c_precedente')}
                   </Button>
                   <Button size="sm" variant="outline" disabled={!donnees.page_suivante || chargement}
                     onClick={() => maj({ page: page + 1 })} data-testid="page-suivante">
-                    Suivante<ChevronRight className="h-4 w-4" />
+                    {t('fo.c_suivante')}<ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
