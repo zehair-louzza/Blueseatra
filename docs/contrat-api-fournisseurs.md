@@ -24,6 +24,9 @@ Recherche par inclusion sur le catalogue fournisseurs du tenant.
 | `q` | string | — | requête libre, obligatoire |
 | `limite` | int | 50 | nombre de lignes de la liste principale (max 200) |
 | `inclure_qualifiants` | bool | false | si `true`, les produits d'une autre nature réintègrent la liste principale |
+| `famille` | string | — | restreint à une famille de produits (`raw_row.famille`, valeurs de `GET /fournisseurs/familles`) ; plafond de comparaison ramené à 1 000 offres |
+
+La réponse rappelle `famille` (ou `null`) et `plafond` (5 000, ou 1 000 avec une famille) : `tronque` vaut `true` quand `total` atteint ce plafond — ce sont alors les offres **les moins chères** qui sont comparées.
 
 ### Réponse `200`
 
@@ -97,6 +100,21 @@ Fiche d'une offre, avec les autres offres du même fournisseur sur la même fami
   ],
   "meme_famille_chez_autres_fournisseurs": [
     {"fournisseur": "Prolians", "designation": "...", "prix_net_ht": 18.02, "id": "uuid"}
+  ]
+}
+```
+
+---
+
+## `GET /fournisseurs/familles`
+
+Familles de produits de tous les catalogues visibles par l'entreprise (les siens + le catalogue commun s'il n'est pas masqué), pour alimenter le filtre du comparateur. Les libellés sont propres à chaque fournisseur : ils sont regroupés tels quels.
+
+```json
+{
+  "familles": [
+    {"famille": "Eclairage", "nb": 242359, "fournisseurs": ["Rexel"]},
+    {"famille": "Chauffage électrique climatisation ventilation", "nb": 224652, "fournisseurs": ["Rexel"]}
   ]
 }
 ```

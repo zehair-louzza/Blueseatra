@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-01 (8) — Filtre par famille dans le comparateur de prix
+
+- **Comparateur** : nouveau paramètre `famille` sur `GET /fournisseurs/recherche` et nouveau `GET /fournisseurs/familles` (familles de tous les catalogues visibles, avec leur nombre de produits et les fournisseurs qui les emploient ; lues dans l'index `(tenant_id, version_id, famille, …)` déjà en place et mises en cache par catalogue). Écran : menu **Famille** sous le champ de recherche, bandeau du filtre actif, filtre conservé dans l'URL.
+- **Migration `20261001200000`** : `offres_candidates` reçoit `p_famille` (8ᵉ paramètre, `NULL` par défaut). Signature remplacée par `DROP` + `CREATE` dans la même transaction, pour qu'il n'existe jamais deux surcharges ; les appels à 7 arguments du code déjà déployé restent valides pendant la bascule. Aucune table modifiée.
+- **Plafond de comparaison ramené à 1 000 offres avec une famille** : la famille n'est pas dans l'index par prix, chaque offre parcourue coûte une lecture de fiche. Mesuré sous RLS (production) : « led » + Éclairage 17 s à 5 000 offres, 3,4 s à 1 000 ; « disjoncteur 16a courbe c » + Distribution 44 ms ; « prise » + Éclairage 6 s. La réponse rappelle `famille` et `plafond`.
+- **Tests** : 3 tests SQL de plus (23 au total : filtre identique à la référence, famille inconnue, autre entreprise, injection, appel à 7 arguments, signature unique) ; 2 tests unitaires (plafond réduit, agrégation des familles). Référence API régénérée (114 routes).
+
 ## 2026-10-01 (7) — Recherche rapide à l'intérieur de chaque catalogue
 
 - **Constat en production** (écran « Afficher le catalogue », Rexel 747 771 offres, rôle `blueseatra_app`) : même blocage RLS que pour le comparateur. « disjoncteur 16a courbe c » 26,6 s, terme rare 43,9 s, mot + famille : délai dépassé (erreur).
