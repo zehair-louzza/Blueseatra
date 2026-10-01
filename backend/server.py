@@ -1650,9 +1650,13 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
     # prix de vente maîtrisés) : il est placé en tête du pool de matching.
     candidats_fournisseurs = await catalogue_chiffrage.candidats_rapprochement(
         tenant_id, extracted0)
-    if not cat and not candidats_fournisseurs:
+    if not cat and not await catalogue_chiffrage.a_sources_actives(tenant_id):
         raise ValueError("Aucun catalogue actif : importez et activez un catalogue, "
                           "ou activez un catalogue fournisseur pour le chiffrage.")
+    # Sources actives mais aucune offre correspondante : la generation
+    # PRODUIT quand meme un devis (lignes a confirmer, prix vides) -- le
+    # chiffreur complete via le selecteur d'articles ; elle ne refuse que
+    # s'il n'y a ni catalogue interne ni source fournisseur activee.
     ver = (await db.catalog_versions.find_one(
         {"id": cat["active_version_id"]}, {"_id": 0})) if cat else {}
 

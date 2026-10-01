@@ -271,6 +271,81 @@ def test_candidats_rapprochement_n_echoue_jamais(monkeypatch):
     assert resultat == []  # repli silencieux : la generation ne doit pas echouer
 
 
+# --- Sources actives : generation refusee seulement si AUCUNE -----------------
+
+def test_a_sources_actives_vrai_si_active_et_visible(monkeypatch):
+    class _CtxT:
+        def __init__(self, tenant):
+            pass
+
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_context", _CtxT)
+
+    async def etats(t):
+        return {CLE_VERSION: True, "cle_morte": True}
+
+    async def fournisseurs():
+        return {"fournisseurs": [{"cle": CLE_VERSION, "fournisseur": "Rexel"}]}
+
+    monkeypatch.setattr(catalogue_chiffrage, "_etats_tenant", etats)
+    monkeypatch.setattr(catalogue_navigation, "fournisseurs", fournisseurs)
+    assert asyncio.run(catalogue_chiffrage.a_sources_actives(TENANT)) is True
+
+
+def test_a_sources_actives_faux_si_aucune_active_ou_plus_visible(monkeypatch):
+    class _CtxT:
+        def __init__(self, tenant):
+            pass
+
+        async def __aenter__(self):
+            return None
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_context", _CtxT)
+
+    async def toutes_deactivees(t):
+        return {CLE_VERSION: False}
+
+    async def fournisseurs():
+        return {"fournisseurs": [{"cle": CLE_VERSION}]}
+
+    monkeypatch.setattr(catalogue_chiffrage, "_etats_tenant", toutes_deactivees)
+    monkeypatch.setattr(catalogue_navigation, "fournisseurs", fournisseurs)
+    assert asyncio.run(catalogue_chiffrage.a_sources_actives(TENANT)) is False
+
+    async def activee(t):
+        return {CLE_VERSION: True}
+
+    async def aucune_visible():
+        return {"fournisseurs": []}
+
+    monkeypatch.setattr(catalogue_chiffrage, "_etats_tenant", activee)
+    monkeypatch.setattr(catalogue_navigation, "fournisseurs", aucune_visible)
+    assert asyncio.run(catalogue_chiffrage.a_sources_actives(TENANT)) is False
+
+
+def test_a_sources_actives_nechoue_jamais(monkeypatch):
+    class _CtxKO:
+        def __init__(self, tenant):
+            pass
+
+        async def __aenter__(self):
+            raise RuntimeError("indisponible")
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_context", _CtxKO)
+    assert asyncio.run(catalogue_chiffrage.a_sources_actives(TENANT)) is False
+
+
 # --- Bascule activer / desactiver --------------------------------------------
 
 def test_basculer_refuse_une_cle_invalide(monkeypatch):

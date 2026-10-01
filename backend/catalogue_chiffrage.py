@@ -197,6 +197,28 @@ async def candidats_rapprochement(tenant_id: str, extraits: dict,
         return []
 
 
+async def a_sources_actives(tenant_id: str) -> bool:
+    """L'entreprise a-t-elle au moins une source fournisseur activee ET
+    encore visible ? Distingue « aucune source activee » (la generation de
+    devis doit refuser avec le message explicite) de « sources actives mais
+    aucune offre ne correspond » (la generation doit produire un devis avec
+    des lignes a confirmer, jamais echouer — constate en production le
+    01/10/2026 sur « trou evacuation rongeurs » : 0 offre sur 967 563,
+    requete refusee a tort).
+    """
+    try:
+        async with tenant_context(tenant_id):
+            actifs = {c for c, a in (await _etats_tenant(tenant_id)).items() if a}
+            if not actifs:
+                return False
+            visibles = {f["cle"] for f in
+                        (await catalogue_navigation.fournisseurs()).get("fournisseurs", [])}
+            return bool(actifs & visibles)
+    except Exception:
+        log.exception("etat des sources indisponible (tenant %s)", tenant_id)
+        return False
+
+
 # --- Recherche des articles pour le selecteur du devis ---------------------
 
 def _en_article(offre: dict) -> dict:
