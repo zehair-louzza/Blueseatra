@@ -174,10 +174,10 @@ async def candidats_rapprochement(tenant_id: str, extraits: dict,
         return []
     try:
         async with tenant_context(tenant_id):
-            # Reches par libelle en parallele (jeton borne : la base est
-            # lointaine, chaque recherche coute quelques secondes) : sequentiel,
-            # 15 libelles x 3 s = 45 s ; parallele x4, ~12 s.
-            sem = asyncio.Semaphore(4)
+            # Recherches par libellé en parallele (jeton borne : la base est
+            # lointaine et le pool de connexions limite, command_timeout
+            # 30 s) : sequentiel, 15 libelles x 3 s = 45 s ; x3, ~15 s.
+            sem = asyncio.Semaphore(3)
 
             async def une_recherche(lb):
                 async with sem:
@@ -245,8 +245,14 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         actifs = {c for c, a in (await _etats_tenant(tenant)).items() if a}
         if not actifs:
             return []
-        # Ne garder que les sources encore visibles (resolution securisee).
-        visibles = {f["cle"] for f in
+        # Ne garder que les sources encore visibles (resolution securisee),
+        # AVEC leur tenant : chaque source appartient soit a l'entreprise,
+        # soit au tenant du catalogue commun -- jamais devine, lu sur le
+        # parcours lui-meme. Un filtre par tenant EXACT par branche permet a
+        # l'index (tenant_id, version_id) de servir chaque branche ; un OR
+        # sur deux tenants, lui, l'empêchait et la requête finissait en
+        # TimeoutError (command_timeout 30 s, constate en production).
+        visibles = {f["cle"]: f for f in
                     (await catalogue_navigation.fournisseurs()).get("fournisseurs", [])}
         cles = [c for c in actifs if c in visibles]
         if not cles:
@@ -262,20 +268,21 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         # production) ; chaque branche top-k coute quelques centaines de ms.
         branches = []
         for i, cle in enumerate(cles):
+            params[f"t{i}"] = (catalogue_commun.TENANT_COMMUN
+                                 if visibles[cle].get("catalogue_commun") else tenant)
             if cle.startswith("hist:"):
                 params[f"h{i}"] = cle[5:]
-                filtre = f"""o.tenant_id = :tenant_id AND o.supplier_id = :h{i}
+                filtre = f"""o.tenant_id = :t{i} AND o.supplier_id = :h{i}
                     AND o.is_active
                     AND (o.catalog_id IS NULL OR o.catalog_id NOT IN (
-                        SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id = :tenant_id))"""
+                        SELECT c.id FROM blueseatra.catalogs c WHERE c.tenant_id = :t{i}))"""
             else:
-                # Cle de version : UUID globalement unique, resolu ci-dessus
-                # parmi les fournisseurs visibles de cette entreprise. Le
-                # filtre tenant reste explicite par defense en profondeur,
-                # comme partout dans le parcours fournisseurs.
+                # Cle de version : UUID globalement unique, resolue ci-dessus
+                # parmi les fournisseurs visibles de cette entreprise, et son
+                # tenant derive du parcours (entreprise ou commun) -- jamais
+                # de la cle client.
                 params[f"v{i}"] = cle
-                filtre = ("(o.tenant_id = :tenant_id OR o.tenant_id = :commun)"
-                          f" AND o.version_id = :v{i} AND o.is_active")
+                filtre = f"o.tenant_id = :t{i} AND o.version_id = :v{i} AND o.is_active"
             branches.append(f"""
                 (SELECT {catalogue_navigation.CHAMPS}
                      FROM blueseatra.supplier_offers o
