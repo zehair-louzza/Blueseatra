@@ -128,7 +128,7 @@ Fournisseurs (catalogue commun et propres). `discount_rules`/`agencies` en jsonb
 
 ### `supplier_offers`
 
-Offres des catalogues fournisseurs (~970 000 lignes actives). Recherche en **deux temps** : filtre trigramme sur `recherche_norm` (index GIN `idx_offers_recherche_trgm`) dans une sous-requête sans tri, puis tri par prix sur le petit résultat (index `idx_offers_recherche_prix_v2` pour le sélecteur paginé). Un `ORDER BY price` dans la branche filtrante faisait parcourir tout l'index par prix et dépassait le `command_timeout` de 30 s (correctif PR #133).
+Offres des catalogues fournisseurs (~970 000 lignes actives). Recherche en **deux temps** : les identifiants sont trouvés par les [fonctions de recherche](#fonctions-de-recherche-security-definer) (index trigramme `idx_offers_recherche_trgm` ou index par prix `idx_offers_recherche_prix_v2`, selon le nombre estimé de correspondances), puis les fiches sont relues par identifiant sous RLS. Interroger directement la table sous `blueseatra_app` ne permet pas d'utiliser l'index trigramme (`LIKE` non « leakproof » face aux politiques RLS) : 27 à 44 s mesurés en production avant le correctif (PR #139 à #142).
 
 | Colonne | Type | Null | Défaut | Rôle |
 |---|---|---|---|---|
@@ -190,6 +190,19 @@ Historique des versions émises d'un devis (ajout seul).
 | `version` | entier | oui | Numéro de version |
 | `snapshot` | jsonb | oui | Contenu figé de la version |
 | `created_at` | varchar (ISO UTC) | oui | Création |
+
+### Fonctions de recherche (`SECURITY DEFINER`)
+
+Propriétaire `postgres`, `search_path` vide, `EXECUTE` révoqué à `PUBLIC` et accordé au seul rôle `blueseatra_app`. Chacune refuse tout tenant autre que `current_tenant()` ou le catalogue commun et ne renvoie que des identifiants ou des colonnes de tri.
+
+| Fonction | Paramètres | Renvoie |
+|---|---|---|
+| `offres_candidates` | `p_tenants text[]` (1 ou 2), `p_termes jsonb`, `p_limite` (≤ 5 000), `p_version`, `p_hist`, `p_versions_actives`, `p_tri_prix`, `p_famille` | `id, tenant_id, supplier_id, version_id, price_ht, recherche_norm` |
+| `catalogue_page` | `p_tenant`, `p_version` **ou** `p_hist`, `p_termes`, `p_famille`, `p_limite` (≤ 201), `p_decalage`, `p_plafond` (≤ 10 001) | `{"ids": [...], "total": n}` |
+| `familles_catalogue` | `p_tenant`, `p_version` **ou** `p_hist` | familles distinctes (`SETOF text`, ≤ 5 000) |
+| `recherche_conditions` | `p_termes jsonb` | clause SQL (interne, non `SECURITY DEFINER`, non appelable par l'application) |
+
+`p_termes` : `[[{"op": "like", "v": "%prise%"}, …], …]` — ET entre les termes, OU entre les écritures d'un terme ; opérateurs `like` et `regex` uniquement, 12 termes et 200 caractères au plus.
 
 ---
 

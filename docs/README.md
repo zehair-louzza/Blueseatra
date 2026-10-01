@@ -17,7 +17,7 @@ Toute la documentation du projet, classée par usage.
 | **Isolation** : filtre du code et RLS PostgreSQL | **Routage IA** : tout passe par la passerelle Hermès |
 | [![Chaîne de livraison](./assets/schema-livraison.png)](./exploitation.md) | [![Droits RGPD](./assets/schema-rgpd.png)](./conformite-rgpd.md) |
 | **Livraison** : PR, contrôles, déploiement, retour arrière | **RGPD** : droits des personnes et traçabilité |
-| [![Déroulé d'un incident](./assets/schema-incident.png)](./runbook-incident.md) | |
+| [![Déroulé d'un incident](./assets/schema-incident.png)](./runbook-incident.md) | [![Recherche fournisseurs sous RLS](./assets/schema-recherche-rls.png)](./architecture.md#recherche-fournisseurs-sous-rls) |
 | **Incident** : détecter, contenir, corriger, vérifier | |
 
 Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/docs/generer_schemas.py) et la bannière par [`scripts/docs/generer_banniere.py`](../scripts/docs/generer_banniere.py).

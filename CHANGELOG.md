@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-01 (11) — Documentation à jour, README anglais complet
+
+- **README anglais complet**, aligné section par section sur le README français (pourquoi, aperçu, fonctionnalités, démarrage rapide, architecture, documentation, qualité et sécurité, écosystème, feuille de route) ; il ne comptait que 3 sections.
+- **README français** : badges à jour (114 routes, 22 migrations, 300+ tests), fonctionnalités du jour (recherche rapide sous RLS, recherche dans chaque catalogue, filtre par famille, équivalences « courbe c »), quotas et feuille de route alignés sur l'état réel (#89 clos, blocage activable).
+- **Nouveau schéma** `schema-recherche-rls.png` (recherche fournisseurs sous RLS, les 4 fonctions, mesures avant/après relevées depuis le navigateur) ; `schema-chiffrage` mis à jour (il annonçait encore « index trigramme à rétablir ») ; `schema-isolation` mentionne les 3 fonctions `SECURITY DEFINER`.
+- **Documentation** : section « Recherche fournisseurs sous RLS » dans l'architecture ; fonctions de recherche dans le schéma de base ; addendum à l'audit d'isolation (surface hors RLS et ses garde-fous) ; tests SQL des fonctions dans le guide développeur ; symptôme « recherche lente ou vide » dans le runbook ; galerie des schémas.
+
 ## 2026-10-01 (10) — Lisibilité du menu Famille
 
 - **Comparateur, menu Famille** : sur la ligne survolée (fond accent), le nom du fournisseur restait en gris standard et devenait presque illisible. Il passe en blanc sur cette ligne (contraste ≈ 4,7:1, niveau AA pour le texte).

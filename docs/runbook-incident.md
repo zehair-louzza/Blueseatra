@@ -43,6 +43,7 @@ Les requêtes en erreur 5xx ou de plus de 3 secondes sont journalisées automati
 | API en 5xx après un déploiement | Render → Rollback vers le déploiement précédent |
 | Quotas qui bloquent à tort (402) | `BLUESEATRA_QUOTAS_APPLIQUES=0` sur Render |
 | Extraction IA en échec | Vérifier le VPS (`/api/tags` sur `HERMES_BASE_URL`). Pour tout le monde : `BLUESEATRA_IA_COUPURE=repli` (avec `BLUESEATRA_IA_REPLI_*`) ou `=arret` sur Render. Pour une seule entreprise : fournisseur de repli dans ses paramètres |
+| Recherche fournisseurs lente ou vide | Mesurer sous le vrai rôle : `BEGIN; SET LOCAL ROLE blueseatra_app; SELECT set_config('app.tenant_id', '<tenant>', true); EXPLAIN ANALYZE …; ROLLBACK;` (une mesure sous `postgres` ignore la RLS). Premier appel d'un terme plus lent : cache de la base (224 Mo) à froid. Vérifier que les fonctions `offres_candidates`, `catalogue_page`, `familles_catalogue` existent et que `blueseatra_app` peut les exécuter |
 | Base inaccessible | Tableau de bord Supabase ; vérifier `DATABASE_URL_APP` et le pooler (port 6543) |
 | Soupçon de fuite entre entreprises | Couper l'accès (suspension Render), conserver les journaux, prévenir les entreprises concernées sous 72 h si des données personnelles sont touchées (art. 33 RGPD) |
 
