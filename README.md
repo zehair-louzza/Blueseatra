@@ -128,6 +128,10 @@ Le détail (variables, base locale, tests) est dans le [guide développeur](./do
 
 <img src="docs/assets/schema-architecture.png" alt="Architecture Blueseatra : Vercel, Render, Supabase, passerelle Hermès et VPS OVH" width="100%">
 
+<img src="docs/assets/schema-parcours-complet.png" alt="Parcours complet d'un devis, de la réception au PDF final : qui agit, qui réagit" width="100%">
+
+Détail des dix phases, vues Supabase et Render : [Infrastructure et parcours complet d'un devis](./docs/infrastructure.md).
+
 <img src="docs/assets/schema-chiffrage.png" alt="Chiffrage sur sources activables" width="100%">
 
 <img src="docs/assets/schema-recherche-rls.png" alt="Recherche fournisseurs sous RLS : fonctions sécurisées puis relecture sous RLS" width="100%">
@@ -159,7 +163,7 @@ Détails : [architecture.md](./docs/architecture.md).
 | Pour | Document |
 |---|---|
 | Utiliser l'application | [Manuel d'utilisation](./docs/manuel-utilisateur.md) |
-| Comprendre le système | [Architecture](./docs/architecture.md) · [Décisions (ADR)](./docs/decisions) |
+| Comprendre le système | [Architecture](./docs/architecture.md) · [Infrastructure et parcours complet d'un devis](./docs/infrastructure.md) · [Décisions (ADR)](./docs/decisions) |
 | Développer | [Guide développeur](./docs/guide-developpeur.md) · [Référence API](./docs/reference-api.md) · [Contribuer](./CONTRIBUTING.md) |
 | Mettre en production | [Exploitation](./docs/exploitation.md) · [DEPLOIEMENT.md](./DEPLOIEMENT.md) |
 | Offres et prix | [Tarification](./docs/tarification-2026-09.md) |
