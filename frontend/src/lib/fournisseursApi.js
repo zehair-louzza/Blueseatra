@@ -425,3 +425,18 @@ export async function famillesFournisseur(cle) {
   const { data } = await api.get(`/fournisseurs/catalogue/${encodeURIComponent(cle)}/familles`);
   return data;
 }
+
+// --- Sources fournisseurs du chiffrage des devis --------------------------
+// Chaque catalogue fournisseur visible peut etre active/desactive pour le
+// chiffrage (bouton poussoir). L'etat est persiste cote serveur : desactiver
+// ne supprime jamais le contenu du fournisseur.
+export async function sourcesChiffrageFournisseurs() {
+  const { data } = await api.get('/catalogs/fournisseurs');
+  return data;
+}
+
+export async function basculerSourceChiffrage(cle, actif) {
+  const { data } = await api.post(
+    `/catalogs/fournisseurs/${encodeURIComponent(cle)}/${actif ? 'activer' : 'desactiver'}`);
+  return data;
+}

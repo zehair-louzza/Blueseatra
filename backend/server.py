@@ -28,6 +28,7 @@ import pdf_service
 import fournisseur_recherche
 import catalogue_commun
 import catalogue_navigation
+import catalogue_chiffrage
 import quotas
 import clients_module
 import quote_versions_diff
@@ -1592,19 +1593,35 @@ async def catalog_active(cu: CurrentUser = Depends(get_current)):
 async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80),
                          cu: CurrentUser = Depends(get_current)):
     cat, items = await get_active_catalog(cu.tenant_id)
-    if not cat:
-        return {"catalog": None, "items": []}
+    infos_cat = {"name": cat.get("name"), "id": cat.get("id")} if cat else None
     needle = (q or "").strip().lower()
     if not needle:
-        return {"catalog": {"name": cat.get("name"), "id": cat.get("id")}, "items": items[:limit]}
+        return {"catalog": infos_cat, "items": (items or [])[:limit]}
     hits = []
-    for it in items:
+    for it in (items or []):
         blob = " ".join(str(it.get(k) or "") for k in ("item_label", "item_code", "category", "family", "brand")).lower()
         if needle in blob:
             hits.append(it)
         if len(hits) >= limit:
             break
-    return {"catalog": {"name": cat.get("name"), "id": cat.get("id")}, "items": hits}
+    # Sources fournisseurs activees pour le chiffrage (table chiffrage_sources)
+    # : complements marques `source: fournisseur`. Aucune copie de donnees --
+    # lecture SQL directe des offres. Un incident cote fournisseurs ne doit
+    # jamais bloquer le chiffrage : la recherche rend alors [] silencieusement.
+    fournisseur_items = []
+    try:
+        # Quota RESERVE aux fournisseurs : sans lui, un catalogue interne
+        # pleinement rempli (hits == limit) affamerait completement les
+        # resultats fournisseurs, qui ne seraient jamais visibles.
+        reserve = max(5, min(20, limit // 2))
+        fournisseur_items = await catalogue_chiffrage.rechercher(needle, reserve)
+    except Exception:
+        logger.warning("recherche fournisseurs indisponible pour le selecteur de devis",
+                       exc_info=True)
+    if fournisseur_items:
+        propres = hits[:max(0, limit - len(fournisseur_items))]
+        return {"catalog": infos_cat, "items": propres + fournisseur_items[:limit]}
+    return {"catalog": infos_cat, "items": hits[:limit]}
 
 
 # ===========================================================================
@@ -2286,8 +2303,13 @@ async def fournisseurs_liste(cu: CurrentUser = Depends(get_current)):
 # --- Parcours des catalogues fournisseurs (voir catalogue_navigation.py) ---
 @api.get("/fournisseurs/catalogue")
 async def catalogue_fournisseurs(cu: CurrentUser = Depends(get_current)):
-    """Fournisseurs visibles par l'entreprise (siens + catalogue commun non masque)."""
-    return await catalogue_navigation.fournisseurs()
+    """Fournisseurs visibles par l'entreprise (siens + catalogue commun non masque),
+    avec l'etat d'activation de chacun pour le chiffrage des devis."""
+    donnees = await catalogue_navigation.fournisseurs()
+    etats = await catalogue_chiffrage.etats()
+    for f in donnees.get("fournisseurs", []):
+        f["actif_chiffrage"] = bool(etats.get(f["cle"], False))
+    return donnees
 
 
 @api.get("/fournisseurs/catalogue/{cle}/produits")
@@ -2313,6 +2335,46 @@ async def catalogue_familles(cle: str, cu: CurrentUser = Depends(get_current)):
         return await catalogue_navigation.familles(cle)
     except LookupError as exc:
         raise HTTPException(404, str(exc))
+
+
+# --- Sources fournisseurs du chiffrage (voir catalogue_chiffrage.py) ------
+@api.get("/catalogs/fournisseurs")
+async def catalogs_fournisseurs(cu: CurrentUser = Depends(get_current)):
+    """Catalogues fournisseurs visibles par l'entreprise, chacun avec son
+    bouton poussoir : actif ou non pour le chiffrage des devis. Le contenu
+    n'est jamais copie ni supprime -- seulement active/desactive."""
+    return await catalogue_chiffrage.liste()
+
+
+@api.post("/catalogs/fournisseurs/{cle}/activer")
+async def activer_source_chiffrage(
+    cle: str,
+    cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
+):
+    """Active un catalogue fournisseur pour le chiffrage : ses articles
+    apparaissent dans la recherche d'articles du devis, marques comme
+    provenant de ce fournisseur."""
+    try:
+        resultat = await catalogue_chiffrage.basculer(cle, True, cu.email)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    await audit(cu.tenant_id, cu.email, "chiffrage.source.activer", cle, {})
+    return resultat
+
+
+@api.post("/catalogs/fournisseurs/{cle}/desactiver")
+async def desactiver_source_chiffrage(
+    cle: str,
+    cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
+):
+    """Desactive une source : le contenu du fournisseur est conserve
+    integralement (aucune ligne ne bouge), elle se reactive en un clic."""
+    try:
+        resultat = await catalogue_chiffrage.basculer(cle, False, cu.email)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    await audit(cu.tenant_id, cu.email, "chiffrage.source.desactiver", cle, {})
+    return resultat
 
 
 # --- Catalogue commun a toutes les entreprises (voir catalogue_commun.py) ---

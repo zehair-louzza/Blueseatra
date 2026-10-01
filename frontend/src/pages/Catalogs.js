@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api, API } from '@/lib/api';
+import { sourcesChiffrageFournisseurs, basculerSourceChiffrage } from '@/lib/fournisseursApi';
+import { entier } from '@/lib/fournisseursFormat';
+import { BadgeCommun } from '@/components/CatalogueCommunPanel';
+import SupplierCatalogDialog from '@/components/SupplierCatalogDialog';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,8 +14,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { BookOpen, Plus, Download, Eye, CheckCircle2, Info, PowerOff, Trash2, Pencil, Check, X } from 'lucide-react';
+import { BookOpen, Plus, Download, Eye, CheckCircle2, Info, Library, Trash2, Pencil, Check, X } from 'lucide-react';
 
 const verBadge = {
   active: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
@@ -28,9 +33,15 @@ export default function Catalogs() {
   const [columns, setColumns] = useState([]);
   const [editingCode, setEditingCode] = useState(null);
   const [codeDraft, setCodeDraft] = useState('');
+  const [sources, setSources] = useState(null);
+  const [bascule, setBascule] = useState(null); // cle en cours de bascule
+  const [voirFournisseur, setVoirFournisseur] = useState(null);
 
   const load = () => api.get('/catalogs').then((r) => setCats(r.data));
-  useEffect(() => { load(); }, []);
+  const loadSources = () => sourcesChiffrageFournisseurs()
+    .then((d) => setSources(d.sources || []))
+    .catch(() => setSources([]));
+  useEffect(() => { load(); loadSources(); }, []);
 
   const startEditCode = (c) => { setEditingCode(c.id); setCodeDraft(c.client_code === 'N/A' ? '' : (c.client_code || '')); };
   const saveCode = async (catId) => {
@@ -42,11 +53,39 @@ export default function Catalogs() {
     } catch (e) { toast.error(e?.response?.data?.detail || 'Error'); }
   };
 
-  const activate = async (catId, verId) => { await api.post(`/catalogs/${catId}/activate/${verId}`); toast.success(t('cat.active')); load(); };
-  const deactivate = async (catId) => {
-    try { await api.post(`/catalogs/${catId}/deactivate`); toast.success(t('cat.deactivated')); load(); }
-    catch { toast.error(t('common.loading')); }
+  // Bouton poussoir d'un de NOS catalogues : un seul catalogue chiffre les
+  // devis a la fois. Desactiver n'efface rien (versions et articles restent),
+  // reactiver reprend la version la plus recente.
+  const toggleChiffrage = async (c, actif) => {
+    try {
+      if (actif) {
+        const v = (c.versions || [])[0]; // triees par version decroissante
+        if (!v) { toast.error(t('cat.no_version')); return; }
+        await api.post(`/catalogs/${c.id}/activate/${v.id}`);
+        toast.success(t('cat.active'));
+      } else {
+        await api.post(`/catalogs/${c.id}/deactivate`);
+        toast.success(t('cat.deactivated'));
+      }
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || e?.response?.data?.message || 'Error'); }
   };
+
+  // Bouton poussoir d'une SOURCE fournisseur : activee, ses articles
+  // apparaissent dans la recherche d'articles du devis. Le contenu du
+  // fournisseur n'est jamais modifie ni supprime.
+  const toggleSource = async (s, actif) => {
+    if (bascule) return;
+    setBascule(s.cle);
+    try {
+      await basculerSourceChiffrage(s.cle, actif);
+      toast.success(actif ? t('cat.source_activated') : t('cat.source_deactivated'));
+      setSources((prev) => (prev || []).map((x) => (x.cle === s.cle ? { ...x, actif_chiffrage: actif } : x)));
+    } catch (e) { toast.error(e?.response?.data?.detail || 'Error'); }
+    finally { setBascule(null); }
+  };
+
+  const activate = async (catId, verId) => { await api.post(`/catalogs/${catId}/activate/${verId}`); toast.success(t('cat.active')); load(); };
   const remove = async (catId) => {
     try { await api.delete(`/catalogs/${catId}`); toast.success(t('cat.deleted')); load(); }
     catch (e) { toast.error(e?.response?.data?.detail || 'Error'); }
@@ -77,6 +116,7 @@ export default function Catalogs() {
       </div>
 
       <div className="mt-5">
+        <p className="mb-4 max-w-3xl text-sm text-muted-foreground">{t('cat.title_hint')}</p>
         {!cats ? <Spinner /> : cats.length === 0 ? (
           <EmptyState icon={BookOpen} title={t('cat.no_catalogs')} action={<Button onClick={() => navigate('/app/catalogs/import')} className="gap-2"><Plus className="h-4 w-4" />{t('cat.import')}</Button>} />
         ) : (
@@ -84,35 +124,38 @@ export default function Catalogs() {
             {cats.map((c) => (
               <Card key={c.id} className="card-shadow border-0 p-5" data-testid="catalog-card">
                 <div className="space-y-3">
-                  <div>
-                    <h2 className="font-display text-base font-semibold">{c.name}</h2>
-                    {editingCode === c.id ? (
-                      <div className="mt-1 flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground">client_code:</span>
-                        <Input
-                          value={codeDraft}
-                          onChange={(e) => setCodeDraft(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') saveCode(c.id); if (e.key === 'Escape') setEditingCode(null); }}
-                          className="h-7 w-40 font-mono text-xs"
-                          placeholder="N/A"
-                          autoFocus
-                          data-testid="client-code-input"
-                        />
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600 hover:text-emerald-700" onClick={() => saveCode(c.id)} data-testid="client-code-save"><Check className="h-4 w-4" /></Button>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingCode(null)} data-testid="client-code-cancel"><X className="h-4 w-4" /></Button>
-                      </div>
-                    ) : (
-                      <button type="button" className="group mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => startEditCode(c)} data-testid="client-code-edit">
-                        client_code: <span className="font-mono">{c.client_code}</span>
-                        <Pencil className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
-                      </button>
-                    )}
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="font-display text-base font-semibold">{c.name}</h2>
+                      {editingCode === c.id ? (
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">client_code:</span>
+                          <Input
+                            value={codeDraft}
+                            onChange={(e) => setCodeDraft(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') saveCode(c.id); if (e.key === 'Escape') setEditingCode(null); }}
+                            className="h-7 w-40 font-mono text-xs"
+                            placeholder="N/A"
+                            autoFocus
+                            data-testid="client-code-input"
+                          />
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600 hover:text-emerald-700" onClick={() => saveCode(c.id)} data-testid="client-code-save"><Check className="h-4 w-4" /></Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditingCode(null)} data-testid="client-code-cancel"><X className="h-4 w-4" /></Button>
+                        </div>
+                      ) : (
+                        <button type="button" className="group mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => startEditCode(c)} data-testid="client-code-edit">
+                          client_code: <span className="font-mono">{c.client_code}</span>
+                          <Pencil className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2" data-testid="chiffrage-toggle">
+                      <label className="text-xs text-muted-foreground" htmlFor={`chiffrage-${c.id}`}>{t('cat.use_for_chiffrage')}</label>
+                      <Switch id={`chiffrage-${c.id}`} checked={!!c.active_version_id} onCheckedChange={(v) => toggleChiffrage(c, v)} />
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Button variant="secondary" size="sm" className="gap-1" onClick={() => viewItems(c)} data-testid="view-items-button"><Eye className="h-4 w-4" />{t('cat.view_items')}</Button>
-                    {c.active_version_id && (
-                      <Button variant="outline" size="sm" className="gap-1" onClick={() => deactivate(c.id)} data-testid="deactivate-catalog-button"><PowerOff className="h-4 w-4" />{t('cat.deactivate')}</Button>
-                    )}
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="sm" className="gap-1 text-destructive hover:text-destructive" data-testid="delete-catalog-button"><Trash2 className="h-4 w-4" />{t('cat.delete')}</Button>
@@ -155,6 +198,49 @@ export default function Catalogs() {
           </div>
         )}
       </div>
+
+      <div className="mt-10">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="flex items-center gap-2 font-display text-xl font-semibold tracking-tight">
+              <Library className="h-5 w-5" />{t('cat.supplier_sources_title')}
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('cat.supplier_sources_desc')}</p>
+          </div>
+        </div>
+        <div className="mt-4" data-testid="supplier-sources">
+          {!sources ? <Spinner /> : sources.length === 0 ? (
+            <EmptyState icon={Library} title={t('cat.no_supplier_sources')} />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {sources.map((s) => (
+                <Card key={s.cle} className="card-shadow border-0 p-4" data-testid="supplier-source-card">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-medium leading-tight">{s.fournisseur}</span>
+                    {s.catalogue_commun && <BadgeCommun />}
+                  </div>
+                  <p className="mt-2 text-lg font-semibold tabular-nums">{entier(s.references)}</p>
+                  <p className="text-xs text-muted-foreground">produits</p>
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+                    <Button variant="secondary" size="sm" className="gap-1"
+                      onClick={() => setVoirFournisseur(s)} data-testid="voir-catalogue-fournisseur">
+                      <Eye className="h-4 w-4" />{t('cat.show_supplier_catalog')}
+                    </Button>
+                    <div className="flex items-center gap-1.5" data-testid="source-chiffrage-toggle">
+                      <label className="text-xs text-muted-foreground" htmlFor={`src-${s.cle}`}>{t('cat.chiffrage')}</label>
+                      <Switch id={`src-${s.cle}`} checked={!!s.actif_chiffrage} disabled={bascule === s.cle}
+                        onCheckedChange={(v) => toggleSource(s, v)} />
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <SupplierCatalogDialog source={voirFournisseur} open={!!voirFournisseur}
+        onOpenChange={(o) => !o && setVoirFournisseur(null)} />
 
       <Dialog open={!!viewing} onOpenChange={(o) => !o && setViewing(null)}>
         <DialogContent className="max-h-[80vh] overflow-auto sm:max-w-5xl">

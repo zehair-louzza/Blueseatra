@@ -10,6 +10,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { apiError } from '@/lib/api';
 import {
   listerCatalogueFournisseurs, produitsFournisseur, famillesFournisseur,
+  basculerSourceChiffrage,
 } from '@/lib/fournisseursApi';
 import { prixHT, entier } from '@/lib/fournisseursFormat';
 import { BadgeCommun } from '@/components/CatalogueCommunPanel';
@@ -17,6 +18,7 @@ import { Spinner, EmptyState } from '@/components/Spinner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { toast } from 'sonner';
 import {
@@ -38,6 +40,7 @@ export default function SupplierCatalog() {
   const [donnees, setDonnees] = useState(null);
   const [chargement, setChargement] = useState(false);
   const [saisie, setSaisie] = useState(q);
+  const [bascule, setBascule] = useState(null); // cle en cours de bascule chiffrage
 
   const maj = useCallback((changes) => {
     const p = new URLSearchParams(params);
@@ -50,6 +53,23 @@ export default function SupplierCatalog() {
       .then((d) => { setFournisseurs(d.fournisseurs || []); setTotal(d.total_references || 0); })
       .catch((e) => { setFournisseurs([]); toast.error(apiError(e, 'Liste des fournisseurs indisponible.')); });
   }, []);
+
+  // Bouton poussoir : active/desactive le catalogue de CE fournisseur pour le
+  // chiffrage des devis (visible ensuite dans Catalogues -> chiffrage). Le
+  // contenu du fournisseur n'est jamais modifie ni supprime.
+  const basculerChiffrage = async (f, actif) => {
+    if (bascule) return;
+    setBascule(f.cle);
+    try {
+      await basculerSourceChiffrage(f.cle, actif);
+      toast.success(actif
+        ? `Catalogue ${f.fournisseur} activé pour le chiffrage. Ses produits apparaissent dans la recherche d'articles du devis.`
+        : `Catalogue ${f.fournisseur} désactivé pour le chiffrage — contenu conservé.`);
+      setFournisseurs((prev) => (prev || []).map((x) =>
+        (x.cle === f.cle ? { ...x, actif_chiffrage: actif } : x)));
+    } catch (e) { toast.error(apiError(e, 'Bascule impossible.')); }
+    finally { setBascule(null); }
+  };
 
   useEffect(() => { setSaisie(q); }, [q, cle]);
 
@@ -92,17 +112,27 @@ export default function SupplierCatalog() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" data-testid="liste-fournisseurs">
           {fournisseurs.map((f) => (
-            <button key={f.cle} type="button"
-              onClick={() => maj({ f: f.cle, page: null, q: null, famille: null })}
-              data-testid={`fournisseur-${f.fournisseur}`}
-              className={`rounded-xl border bg-card p-4 text-left transition hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${f.cle === cle ? 'border-primary ring-1 ring-primary' : ''}`}>
-              <div className="flex items-start justify-between gap-2">
-                <span className="font-medium leading-tight">{f.fournisseur}</span>
-                {f.catalogue_commun && <BadgeCommun />}
+            <div key={f.cle}
+              className={`rounded-xl border bg-card p-4 transition ${f.cle === cle ? 'border-primary ring-1 ring-primary' : ''}`}>
+              <button type="button"
+                onClick={() => maj({ f: f.cle, page: null, q: null, famille: null })}
+                data-testid={`fournisseur-${f.fournisseur}`}
+                className="w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <div className="flex items-start justify-between gap-2">
+                  <span className="font-medium leading-tight">{f.fournisseur}</span>
+                  {f.catalogue_commun && <BadgeCommun />}
+                </div>
+                <p className="mt-2 text-lg font-semibold tabular-nums">{entier(f.references)}</p>
+                <p className="text-xs text-muted-foreground">produits</p>
+              </button>
+              <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3"
+                data-testid={`chiffrage-fournisseur-${f.fournisseur}`}>
+                <span className="text-xs text-muted-foreground">Chiffrage</span>
+                <Switch checked={!!f.actif_chiffrage} disabled={bascule === f.cle}
+                  onCheckedChange={(v) => basculerChiffrage(f, v)}
+                  aria-label={`Utiliser ${f.fournisseur} dans le chiffrage`} />
               </div>
-              <p className="mt-2 text-lg font-semibold tabular-nums">{entier(f.references)}</p>
-              <p className="text-xs text-muted-foreground">produits</p>
-            </button>
+            </div>
           ))}
         </div>
       )}
