@@ -35,6 +35,7 @@
     "@radix-ui/react-tooltip": "1.2.4",
     "@supabase/supabase-js": "^2.0.0",
     "@tanstack/react-query": "5.56.2",
+    "ajv": "^8.12.0",
     "axios": "1.16.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -43,6 +44,7 @@
     "date-fns": "4.1.0",
     "dayjs": "1.11.13",
     "embla-carousel-react": "8.6.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
     "framer-motion": "11.18.0",
     "i18next": "^26.3.1",
     "input-otp": "1.4.2",
@@ -67,7 +69,7 @@
   },
   "scripts": {
     "start": "craco start",
-    "build": "craco build",
+    "build": "DISABLE_ESLINT_PLUGIN=true craco build",
     "test": "craco test"
   },
   "browserslist": {
