@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import uuid
 from pathlib import Path
 
@@ -30,7 +29,6 @@ pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 
 RACINE = Path(__file__).resolve().parents[2]
 MIGRATION = RACINE / "supabase/migrations/20261001180000_recherche_offres_sous_rls.sql"
-sys.path.insert(0, str(RACINE / "backend"))
 
 COMMUN = "00000000-0000-4000-8000-000000000c0d"
 A = "aaaaaaaa-0000-4000-8000-00000000000a"   # entreprise testee
@@ -245,12 +243,20 @@ def test_selecteur_par_version_et_par_historique():
 # --- Expressions regulieres du vocabulaire ---------------------------------
 
 def test_limite_de_mot_traduite_pour_postgresql():
-    """\\b vaut RETOUR ARRIERE en PostgreSQL : "courbe c" ne trouvait rien."""
-    from fournisseur_recherche import termes_recherche
-    termes = termes_recherche("disjoncteur 16a courbe c")
-    assert "\\b" not in json.dumps(termes) and "\\\\y" in json.dumps(termes)
-    ids = [r[0] for r in _candidats(A, [A, COMMUN], termes, 5000, actives=True, tri=True)]
-    assert ids == ["c-dj-1", "c-dj-2"]   # pas la courbe D
+    """\\b vaut RETOUR ARRIERE en PostgreSQL : "courbe c" ne trouvait rien.
+
+    Motifs ecrits en dur (ce job n'installe que pytest et psycopg2) ; la
+    traduction elle-meme (motif_postgres) est testee dans
+    tests/test_fournisseur_recherche_sql.py.
+    """
+    def termes(limite_de_mot):
+        motif = rf"{limite_de_mot}(?:courbe|cbe|crb) ?c{limite_de_mot}"
+        return _like("disjoncteur", "16a") + [[{"op": "regex", "v": motif}]]
+
+    avant = _candidats(A, [A, COMMUN], termes("\\b"), 5000, actives=True, tri=True)
+    assert avant == []                          # le bug, documente
+    ids = [r[0] for r in _candidats(A, [A, COMMUN], termes("\\y"), 5000, actives=True, tri=True)]
+    assert ids == ["c-dj-1", "c-dj-2"]          # pas la courbe D
 
 
 def test_selecteur_lit_les_fiches_sous_rls():
