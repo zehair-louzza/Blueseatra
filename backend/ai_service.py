@@ -41,7 +41,7 @@ _OLLAMA_SEMAPHORE = asyncio.Semaphore(_OLLAMA_MAX_CONCURRENCY)
 
 # ── Hermes AI / Ollama (OVH VPS) ────────────────────────────────────────────
 HERMES_BASE_URL = os.environ.get("HERMES_BASE_URL", "http://localhost:11434")
-HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3")
+HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3:latest")  # nom exact du VPS (ollama list 02/10/2026) ; « hermes-3 » = même image
 # 2026-08-23 : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b,
 # qwen2.5:14b et Phi-4-reasoning-vision-15B ont ete supprimes du VPS a la
 # demande de l'utilisateur (63 Go liberes). Les modeles de reference
@@ -133,7 +133,14 @@ HERMES_DESCRIPTION_FALLBACK_MODELS = [
 # de simuler une redondance qui n'existe pas).
 HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL") or os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b")
 HERMES_VISION_FALLBACK_MODELS: list[str] = []
-MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3"}
+# 02/10/2026 : « hermes-3:latest » et « hermes3:latest » (ollama list du
+# VPS, deux tags de la même image 4f6b83f30b62) rejoignent les alias
+# existants : la passerelle Hermès du VPS déclare « hermes3 »
+# (hermes/passerelle/config.yaml) -- le nom envoyé sur le réseau est donc
+# toujours « hermes3 », le sélecteur des réglages affiche lui le nom exact
+# du VPS tel que le voit l'utilisateur dans `ollama list`.
+MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3",
+                 "hermes-3:latest": "hermes3", "hermes3:latest": "hermes3"}
 
 # Cascade de STRUCTURATION (texte deja extrait -> JSON final), routage
 # sequentiel via Hermes (decision du 2026-08-19). Distincte de la cascade
@@ -306,6 +313,15 @@ HERMES_OCR_ESCALATION_MODEL = os.environ.get("HERMES_OCR_ESCALATION_MODEL", "qwe
 # Base sur Qwen2.5-VL-7B, affine par renforcement (RLVR) specifiquement
 # pour l'OCR (allenai/olmOCR-2-7B-1025). Decision du 2026-08-19.
 HERMES_OCR_TERTIARY_MODEL = os.environ.get("HERMES_OCR_TERTIARY_MODEL", "richardyoung/olmocr2:7b-q8")
+# Sixieme etape OCR (02/10/2026) : PaddleOCR-VL-1.6-0.9B, reinstalle sur le
+# VPS (AuditAid/PaddleOCR-VL-1.6-0.9B:latest). Retire de la tete de cascade
+# le 29/09/2026 (lectures erronees via la passerelle Hermes : « Pome » au lieu
+# de « DEVIS TEST 4217 / Pompe de relevage ») : il revient en DERNIER etage
+# OCR, apres olmocr2 -- selectable via le reglage « Modele OCR prefere"
+# (cle paddleocr-vl) qui le fait passer en tete, mais plus prioritaire par
+# defaut tant que GLM-OCR reste en tete. ~110s/page mesure (le plus rapide
+# des modeles OCR specialises du VPS).
+HERMES_OCR_PADDLE_MODEL = os.environ.get("HERMES_OCR_PADDLE_MODEL", "AuditAid/PaddleOCR-VL-1.6-0.9B:latest")
 
 # Duree moyenne mesuree en conditions reelles sur ce VPS (2026-08-18/19,
 # document de test : PDF francais dense avec tableaux, incident reel
@@ -348,6 +364,7 @@ OCR_MODEL_PREFERENCE_LABELS = {
     "lightonocr": "LightOnOCR-2-1B",
     "qwen25vl": "Qwen2.5-VL-7B",
     "olmocr2": "olmOCR-2-7B",
+    "paddleocr-vl": "PaddleOCR-VL-1.6",  # 02/10/2026 : modèle réinstallé sur le VPS
 }
 
 
@@ -394,6 +411,9 @@ def _ocr_cascade_stages(preferred: str | None = None) -> list[tuple[str, str, fl
         ("LightOnOCR-2-1B", HERMES_OCR_SECONDARY_MODEL),
         ("Qwen2.5-VL-7B", HERMES_OCR_ESCALATION_MODEL),
         ("olmOCR-2-7B", HERMES_OCR_TERTIARY_MODEL),
+        # 02/10/2026 : PaddleOCR-VL en dernier etage OCR (reinstalle sur le
+        # VPS) -- voir HERMES_OCR_PADDLE_MODEL ci-dessus pour le pourquoi.
+        ("PaddleOCR-VL-1.6", HERMES_OCR_PADDLE_MODEL),
     ]
     preferred_label = OCR_MODEL_PREFERENCE_LABELS.get((preferred or "").strip())
     if preferred_label:
@@ -409,7 +429,16 @@ def _ocr_cascade_stages(preferred: str | None = None) -> list[tuple[str, str, fl
     stages = []
     for i, (label, model) in enumerate(deduped):
         next_label = deduped[i + 1][0] if i + 1 < len(deduped) else "Vision-fallback"
-        timeout = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * _OCR_STAGE_MEASURED_SECONDS.get(next_label, 300))
+        # 02/10/2026 : max(duree de l'etage, duree de la suivante) -- une
+        # etape ne doit jamais etre coupee avant SA propre duree mesuree.
+        # Avant, le timeout n'utilisait que l'etape suivante : insérer un
+        # etage rapide (PaddleOCR-VL ~110s) apres un etage lent (olmocr2
+        # ~587s) aurait reduit le timeout de ce dernier a 132s, et un
+        # olmocr2 passe en tete via la preference etait deja coupe a 220s
+        # malgre ses ~587s mesures -- desormais 1.2x sa propre duree.
+        base = max(_OCR_STAGE_MEASURED_SECONDS.get(label, 300),
+                   _OCR_STAGE_MEASURED_SECONDS.get(next_label, 300))
+        timeout = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * base)
         stages.append((label, model, timeout))
     return stages
 # Modele d'escalade manuelle uniquement (jamais automatique), reserve a un

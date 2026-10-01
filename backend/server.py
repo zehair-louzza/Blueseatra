@@ -430,8 +430,10 @@ class IntegrationSettings(BaseModel):
     effacer_cle: bool = False
 
 
-PROVIDER_LABELS = {"mistral": "Mistral AI (via Hermès)", "hermes": "Moteur intégré (Hermès)", "openai": "OpenAI",
-                   "gemini": "Google Gemini", "anthropic": "Anthropic"}
+# 02/10/2026 : OpenAI / Gemini / Anthropic retirés des réglages (demande
+# utilisateur) : leurs modèles n'existent pas sur le VPS. Seuls restent le
+# moteur intégré (modèles locaux du VPS) et Mistral (API UE via Hermès).
+PROVIDER_LABELS = {"mistral": "Mistral AI (via Hermès)", "hermes": "Moteur intégré (Hermès)"}
 
 
 def _apercu_cle(chiffree: Optional[str]) -> Optional[str]:
@@ -452,31 +454,38 @@ def _apercu_cle(chiffree: Optional[str]) -> Optional[str]:
 # N'affecte QUE l'ordre de priorite d'un PDF/image importé AU MOMENT de son
 # traitement initial -- ne s'applique jamais retroactivement (un PDF n'est
 # jamais conserve, voir create_request).
+# 02/10/2026 : ordre = `ollama list` exact du VPS (demande utilisateur,
+# chaque modèle dans sa position). PaddleOCR-VL-1.6-0.9B réintégré au
+# sélecteur : le modèle est de nouveau installé sur le VPS
+# (AuditAid/PaddleOCR-VL-1.6-0.9B:latest, ollama list du 02/10/2026).
+# "auto" reste en 2e position (mode, pas un modèle).
 OCR_MODEL_CHOICES = {
     "glm-ocr": "GLM-OCR — local sur le VPS, par défaut (~183s/page)",
     "auto": "Automatique (ordre par défaut, GLM-OCR en premier)",
-    "lightonocr": "LightOnOCR-2-1B (français, ~200s/page)",
     "qwen25vl": "Qwen2.5-VL-7B (~246s/page)",
+    "lightonocr": "LightOnOCR-2-1B (français, ~200s/page)",
     "olmocr2": "olmOCR-2-7B (meilleurs tableaux, le plus lent, ~587s/page)",
+    "paddleocr-vl": "PaddleOCR-VL-1.6-0.9B (~110s/page)",
 }
 
 
 PROVIDER_MODELS = {
     # Ticket #88 : IA de production (remplace Cerebras). Tous lisent le texte et les images.
+    # 02/10/2026 : openai/gemini/anthropic retirés (modèles absents du VPS,
+    # demande utilisateur) -- seuls Mistral (API UE) et le moteur intégré
+    # restent proposés dans les réglages.
     "mistral": ["mistral-medium-latest", "mistral-large-latest", "mistral-small-latest"],
-    "openai": ["gpt-5.4", "gpt-5.4-mini", "gpt-4o", "gpt-4.1"],
-    "gemini": ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"],
-    "anthropic": ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5-20251001"],
-    # Noms réels sur le VPS OVH (ovh-ai-stack / ollama list). 2026-08-23 :
-    # qwen3.6:27b et qwen2.5:14b ont ete supprimes du VPS (63 Go liberes) --
-    # un tenant qui aurait choisi l'un des deux ici verrait CHAQUE extraction
-    # echouer silencieusement (resolve_ai_config ne reecrit l'override d'un
-    # tenant que si son modele commence par "hermes", donc un nom de modele
-    # explicite comme celui-ci n'est jamais corrige automatiquement). Aligne
-    # sur les modeles reellement installes.
+    # 02/10/2026 : noms et ordre = `ollama list` EXACT du VPS OVH (ovh-ai-stack,
+    # relevé du 02/10/2026) pour les modèles texte/LLM ; chaque modèle dans sa
+    # position. qwen2.5vl:7b (vision) quitte cette liste : il vit dans le
+    # sélecteur « Modèle OCR préféré » (répartition de la capture d'écran).
+    # hermes-3:latest et hermes3:latest = même image Ollama (même ID 4f6b83f30b62)
+    # mais deux entrées distinctes dans ollama list, affichées telles quelles.
     # « mistral:<id> » = API Mistral interrogée par l'agent Hermès du VPS
-    # (fournisseur nommé custom:mistral dans hermes/config.yaml, #88).
-    "hermes": ["hermes-3", "qwen2.5vl:7b", "qwen2.5:7b",
+    # (fournisseur nommé custom:mistral dans hermes/config.yaml, #88) --
+    # conservés à la demande de l'utilisateur (« à part ceux de Mistral »).
+    "hermes": ["glm-4.7-flash:Q3_K_M", "gpt-oss:20b", "qwen2.5:7b",
+               "hermes-3:latest", "hermes3:latest",
                "mistral:mistral-medium-latest", "mistral:mistral-large-latest", "mistral:mistral-small-latest"],
 }
 
@@ -488,6 +497,19 @@ async def get_settings(cu: CurrentUser = Depends(get_current)):
         s = {"tenant_id": cu.tenant_id, "ai_provider": ai_service.DEFAULT_PROVIDER, "ai_model": ai_service.DEFAULT_MODEL,
              "n8n_webhook_url": None, "ocr_model_preference": "glm-ocr"}
     s = dict(s)
+    # 02/10/2026 : « hermes-3 » (ancien libellé) et « hermes-3:latest » sont le
+    # même modèle Ollama -- on réécrit le nom stocké vers le nom exact du VPS
+    # pour que le sélecteur l'affiche sélectionné après enregistrement.
+    if s.get("ai_provider") == "hermes" and s.get("ai_model") == "hermes-3":
+        s["ai_model"] = "hermes-3:latest"
+    # 02/10/2026 : openai/gemini/anthropic retirés des réglages -- un tenant
+    # qui les avait choisis est réaffiché sur le moteur intégré pour ne jamais
+    # présenter un sélecteur vide (la valeur stockée n'est réécrite que s'il
+    # enregistre de nouveau ; PUT refuse déjà ces fournisseurs).
+    if s.get("ai_provider") not in PROVIDER_MODELS:
+        s["ai_provider"] = "hermes"
+        if s.get("ai_model") not in PROVIDER_MODELS["hermes"]:
+            s["ai_model"] = ai_service.DEFAULT_MODEL
     s["ai_key_set"] = bool(s.get("ai_key"))
     s["ai_key_apercu"] = _apercu_cle(s.get("ai_key"))
     s.pop("ai_key", None)
