@@ -169,10 +169,12 @@ HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3", "herme
 # raisonnement), PAS de la regle 1.2x-de-l-etape-suivante utilisee pour la
 # cascade OCR (qui exige une duree reelle mesuree). A RECALIBRER des qu'un
 # test complet jusqu'a completion est disponible pour chaque modele.
+# 01/10/2026 : le relevé plus détaillé (14 familles, notes, réserves) produit
+# une réponse plus longue ; 300 s ne suffisaient plus sur le processeur du VPS.
 _STRUCTURING_CASCADE_TIMEOUTS = {
-    "Qwen2.5-7B": 300.0,
-    "Qwen2.5-VL-7B": 300.0,
-    "Hermes-3": 240.0,
+    "Qwen2.5-7B": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_1", "600")),
+    "Qwen2.5-VL-7B": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_2", "420")),
+    "Hermes-3": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_3", "300")),
 }
 
 
@@ -457,7 +459,28 @@ DEFAULT_MODEL = (os.environ.get("BLUESEATRA_IA_MODELE_DEFAUT")
 _SCHEMAS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schemas_ia")
 SCHEMA_EXTRACTION = json.load(open(os.path.join(_SCHEMAS_DIR, "extraire_demande_travaux.json"), encoding="utf-8"))
 SCHEMA_DESCRIPTIF = json.load(open(os.path.join(_SCHEMAS_DIR, "decrire_demande_travaux.json"), encoding="utf-8"))
-_SCHEMA_EXTRACTION_TXT = json.dumps(SCHEMA_EXTRACTION, ensure_ascii=False, separators=(",", ":"))
+
+
+def _squelette_schema(schema: dict):
+    """Gabarit JSON compact tiré du schéma : clés, types et listes de valeurs,
+    sans les descriptions. 01/10/2026 : le schéma complet (≈14 000 caractères)
+    dans la consigne portait l'entrée à 22 000 caractères ; sur le processeur
+    du VPS, Qwen2.5 dépassait les 300 s (ReadTimeout sur les 3 étages) et
+    frôlait le contexte Ollama de 8 192 jetons. La forme exacte reste imposée
+    par le schéma transmis à part (format / response_format)."""
+    t = schema.get("type")
+    if isinstance(t, list):
+        t = next((x for x in t if x != "null"), t[0])
+    if "enum" in schema:
+        return "|".join(str(v) for v in schema["enum"] if v is not None)
+    if t == "object":
+        return {k: _squelette_schema(v) for k, v in (schema.get("properties") or {}).items()}
+    if t == "array":
+        return [_squelette_schema(schema.get("items") or {})]
+    return {"string": "", "integer": 0, "number": 0, "boolean": False}.get(t)
+
+
+_SCHEMA_EXTRACTION_TXT = json.dumps(_squelette_schema(SCHEMA_EXTRACTION), ensure_ascii=False, separators=(",", ":"))
 
 EXTRACTION_SYSTEM = """You are Blueseatra's document understanding engine for a B2B facility-maintenance quoting platform.
 You receive INCOMING quote requests (\"demande de devis\"), mission orders (\"ordre de mission\"), emails or photos in ANY language.
@@ -537,8 +560,8 @@ Keep only what really applies. Article names: name only, no action verb, with ca
 `reserves`: what must be confirmed before sending the quote. Missing information stays empty, never assumed.
 When exclusive variants exist, `line_items` stays EMPTY and each variant lives in `quote_options` (at least 2).
 
-Return ONLY one JSON object, no markdown, no explanation, conforming EXACTLY to this JSON Schema (every property present;
-unknown values = "" or null or []):
+Return ONLY one JSON object, no markdown, no explanation, with EXACTLY these keys (every property present; unknown
+values = "" or null or []; "a|b|c" means one of these values; a list shows the shape of one element):
 """ + _SCHEMA_EXTRACTION_TXT
 
 _PRICE_RE = re.compile(
