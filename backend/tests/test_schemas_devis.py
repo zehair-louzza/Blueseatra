@@ -78,3 +78,13 @@ def test_hermes_occupe_429_attend_puis_reussit(monkeypatch):
     monkeypatch.setattr(ai, "HERMES_ATTENTES_429", (10, 30))
     assert asyncio.run(ai._hermes_chat("qwen2.5:7b", "s", "u")) == '{"ok": 1}'
     assert attentes == [10]
+
+
+def test_consigne_extraction_compacte():
+    # 01/10/2026 : le schéma complet dans la consigne (≈22 000 caractères en entrée)
+    # dépassait 300 s sur le processeur du VPS. Le gabarit garde toutes les clés.
+    assert len(ai.EXTRACTION_SYSTEM) < 12000
+    gabarit = json.loads(ai._SCHEMA_EXTRACTION_TXT)
+    assert set(gabarit) == set(ai.SCHEMA_EXTRACTION["properties"])
+    assert "moyens_acces_engins" in gabarit["line_items"][0]["famille_poste"]
+    assert ai._STRUCTURING_CASCADE_TIMEOUTS["Qwen2.5-7B"] >= 600

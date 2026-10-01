@@ -22,7 +22,7 @@ export default function Audit() {
                   <span className="absolute -left-[3px] top-1.5 h-2 w-2 rounded-full bg-accent" />
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs font-medium text-primary">{l.action}</span>
-                    <span className="text-xs text-muted-foreground">\u00b7 {l.actor}</span>
+                    <span className="text-xs text-muted-foreground">{"\u00b7"} {l.actor}</span>
                   </div>
                   <div className="text-xs text-muted-foreground">{fmt(l.created_at)}{l.meta && Object.keys(l.meta).length ? ` \u00b7 ${JSON.stringify(l.meta)}` : ''}</div>
                 </div>
