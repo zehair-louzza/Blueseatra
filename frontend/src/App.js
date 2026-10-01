@@ -4,6 +4,7 @@ import '@/i18n';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Analytics } from '@vercel/analytics/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { AuthProvider } from '@/context/AuthContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { AppShell } from '@/components/AppShell';
@@ -85,6 +86,7 @@ function App() {
         </BrowserRouter>
         <Toaster position="top-right" richColors />
         <Analytics />
+        <SpeedInsights />
       </AuthProvider>
     </div>
   );
