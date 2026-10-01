@@ -25,7 +25,9 @@
 -- ============================================================================
 
 CREATE OR REPLACE FUNCTION blueseatra.audit_ajout_seul() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
+SET search_path = ''   -- conforme au contrôle « search_path mutable » de Supabase
+AS $$
 BEGIN
     IF current_user <> 'blueseatra_app'
        AND coalesce(current_setting('blueseatra.maintenance_audit', true), '') = 'on' THEN
