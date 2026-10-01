@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-01 (6) — Recherche fournisseurs rapide sous RLS, limites de mot corrigées
+
+- **Cause mesurée en production** : sous le rôle `blueseatra_app`, la RLS de `supplier_offers` empêchait PostgreSQL d'utiliser l'index trigramme (`LIKE` n'est pas « leakproof »). Chaque recherche lisait les offres ligne à ligne : ≈ 27 s au comparateur, plus de 30 s (délai dépassé, liste vide) au sélecteur d'articles du devis et pendant la génération.
+- **Nouvelle fonction `blueseatra.offres_candidates`** (migration `20261001180000`, aucune table modifiée) : `SECURITY DEFINER`, `search_path` vide, exécution réservée à `blueseatra_app`. Elle ne renvoie que des identifiants et colonnes de tri, **refuse tout tenant autre que l'entreprise courante ou le catalogue commun**, et injecte les motifs en littéraux échappés (`format %L`). Les fiches sont relues ensuite par id, **toujours sous RLS** et avec le filtre tenant explicite.
+- **Comparateur** : chemin choisi selon le nombre estimé de correspondances (≤ 3 000 : index trigramme puis tri ; au-delà : index par prix, arrêt à 5 000). Mêmes lignes et même ordre que la requête de référence (vérifié sur la production : 0 écart sur 3 requêtes).
+- **Sélecteur d'articles et génération de devis** : une branche par source activée, 200 candidats par source via l'index trigramme.
+- **Bug ancien corrigé** : le vocabulaire écrit les limites de mot en `\b` (syntaxe Python) ; en PostgreSQL `\b` signifie *retour arrière*. Les équivalences « courbe c », « 2p », « ph+n », « alu », « diff »… ne trouvaient rien. Traduction en `\y` à un seul endroit (`motif_postgres`). « disjoncteur 16a courbe c » : 0 → 320 offres.
+- **Mesures sous RLS** (rôle `blueseatra_app`, production) : « dalle led 600x600 » 20–190 ms, « disjoncteur 16a courbe c » 30 ms, terme rare 50–90 ms ; termes très courants (« prise », 18 000 offres) 0,5 à 3 s selon le cache, contre 27 s avant. Sélecteur : 0,2 à 1,7 s, contre plus de 30 s.
+- **Tests** : 12 tests SQL sur base jetable avec vraies politiques RLS (isolation, injection, droits, exactitude des deux chemins, `\y`) ajoutés au job « Tests métier » ; 4 tests unitaires du contrat du comparateur ; test du sélecteur mis à jour. Les tests d'isolation échouent bien si l'on retire la vérification de tenant (essai de sabotage).
+
 ## 2026-10-01 (5) — Documentation illustrée, bannière refaite, sélecteur d'articles corrigé
 
 - **Bannière du README refaite** (`scripts/docs/generer_banniere.py`) : fond papier de la charte et logo officiel en couleurs (l'ancienne passait le logo en silhouette blanche, la vague du B disparaissait), capture actuelle masquée du tableau de bord.

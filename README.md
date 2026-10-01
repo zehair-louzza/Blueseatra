@@ -97,7 +97,7 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 | **Catalogues sur mesure** | Import CSV de n'importe quel format, correspondance des colonnes, versions, activation atomique, fichiers volumineux | ✅ |
 | **Catalogue fournisseurs** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux ; partagé, masquable, jamais supprimé | ✅ |
 | **Chiffrage sur sources activables** | Chaque catalogue fournisseur s'active ou se désactive pour le chiffrage (bouton poussoir, contenu conservé) ; sans catalogue interne, les sources activées génèrent le devis ; recherche rapide en deux temps (trigramme) | ✅ |
-| **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, termes équivalents reconnus | 🟡 lent sous RLS (≈ 27 s), correctif en cours |
+| **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, termes équivalents reconnus | ✅ |
 | **Clients** | Fiches, contacts, chantiers, journal des échanges, import et export CSV, indicateurs | ✅ |
 | **Suggestions IA** | Donneur d'ordre et client final proposés avec la phrase source ; rattachement automatique seulement sur SIRET ou e-mail identique | ✅ |
 | **Relances** | Jours ouvrés et fériés, urgence, rappel d'expiration, appel au-delà d'un seuil, opposition RGPD, textes FR / EN | ✅ |
