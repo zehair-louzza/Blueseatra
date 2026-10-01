@@ -13,6 +13,7 @@ import { CreditCard, FileText, ScanText, Users, Info, ArrowRight } from 'lucide-
 // Nombres et dates dans la langue de l'interface : « 9 octobre 2026 » en
 // français, « 9 October 2026 » en anglais.
 const nf = { format: (n) => new Intl.NumberFormat(localeCourante()).format(n) };
+const eur = (n) => new Intl.NumberFormat(localeCourante(), { style: 'currency', currency: 'EUR', maximumFractionDigits: 2, minimumFractionDigits: 0 }).format(n);
 const df = (iso) => (iso ? new Date(iso).toLocaleDateString(localeCourante(), { day: 'numeric', month: 'long', year: 'numeric' }) : '');
 const dtf = (iso) => (iso ? new Date(iso).toLocaleString(localeCourante(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 
@@ -119,7 +120,7 @@ export default function Billing() {
                 {essai
                   ? t('billing.trial_until', { date: df(etat.essai_fin_le) })
                   : t('billing.period', { debut: df(periode.debut), fin: df(periode.fin) })}
-                {offre.prix_mensuel_ht ? ` · ${nf.format(offre.prix_mensuel_ht)} € HT / ${t('billing.month')}` : ''}
+                {offre.prix_mensuel_ht ? ` · ${eur(offre.prix_mensuel_ht)} ${t('cl.p_ht')} / ${t('billing.month')}` : ''}
               </p>
             </div>
           </div>
