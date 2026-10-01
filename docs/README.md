@@ -35,6 +35,7 @@ Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/
 | Document | Contenu |
 |---|---|
 | [Architecture](./architecture.md) | Vue générale, parcours d'une demande, modules, modèle de données |
+| [Infrastructure et parcours complet](./infrastructure.md) · [EN](./infrastructure.en.md) | Les dix phases d'un devis (qui agit, qui réagit), vues Supabase et Render, points d'attention |
 | [Schéma de base de données](./schema-base-donnees.md) | Tables et colonnes du chiffrage et des devis, état au 01/10/2026 |
 | [ADR : moteur IA sur OVH](./decisions/ADR-OVH-AI-STACK.md) | Pourquoi un moteur IA auto-hébergé |
 | [ADR : cascade OCR](./decisions/ADR-OCR-CASCADE.md) | Choix et ordre des modèles de lecture |
