@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-01 (14) — Écrans fournisseurs traduits en anglais
+
+- **Comparateur de prix et catalogue fournisseurs traduits** : nouveau dictionnaire `fo` (`frontend/src/i18n_fournisseurs.js`, 129 clés FR/EN, mêmes paramètres des deux côtés). Couvre la recherche, la synthèse, les termes reconnus, le moins cher par fournisseur, le tableau des résultats, les produits isolés, les critères à affiner, le filtre famille, le panneau du catalogue commun (badge « Commun » → « Shared »), la page Catalogue fournisseurs et la boîte de dialogue de contenu d'un catalogue. Les textes français sont repris mot pour mot.
+- **Données non traduites** : désignations, familles, unités de vente, termes reconnus et exemples de requête restent en français, car ils doivent trouver des produits dans des catalogues français.
+- **Prix, nombres et dates dans la langue de l'interface** (`frontend/src/lib/locale.js`) : 3,20 € / €3.20 sur les écrans fournisseurs ; « 9 octobre 2026 » / « 9 October 2026 » sur la page Offre et consommation.
+- Page Catalogues : « produits » et en-têtes du tableau des articles traduits.
+
 ## 2026-10-01 (13) — Captures du README anglais en anglais
 
 - **6 captures de l'interface anglaise** pour le README anglais (`docs/assets/manuel-en/`) : demande lue par l'IA, éditeur de devis, fiche client, tableau de bord, catalogues, offre et consommation. Données personnelles masquées (flou renforcé à 10 px), langue de l'utilisateur rétablie en français après capture.

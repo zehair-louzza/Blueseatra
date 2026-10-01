@@ -7,27 +7,30 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Globe2, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { apiError } from '@/lib/api';
 import { changerMasquageCatalogueCommun, etatCatalogueCommun } from '@/lib/fournisseursApi';
 
-const nombre = (n) => new Intl.NumberFormat('fr-FR').format(n || 0);
+import { entier as nombre } from '@/lib/fournisseursFormat';
 
 export function BadgeCommun() {
+  const { t } = useTranslation();
   return (
     <span
       className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-sky-50 px-1.5 py-0.5 align-middle text-[11px] font-medium text-sky-800 ring-1 ring-inset ring-sky-200"
-      title="Offre issue du catalogue commun Blueseatra, partagé par toutes les entreprises"
+      title={t('fo.commun_aide')}
       data-testid="badge-catalogue-commun"
     >
       <Globe2 className="h-3 w-3" aria-hidden="true" />
-      Commun
+      {t('fo.commun')}
     </span>
   );
 }
 
 export function CatalogueCommunPanel({ onChange }) {
+  const { t } = useTranslation();
   const [etat, setEtat] = useState(null);
   const [enCours, setEnCours] = useState(null);
 
@@ -50,8 +53,8 @@ export function CatalogueCommunPanel({ onChange }) {
       await changerMasquageCatalogueCommun({ masquer, pourTous });
       toast.success(
         masquer
-          ? pourTous ? 'Catalogue commun masqué pour toutes les entreprises' : 'Catalogue commun masqué pour votre entreprise'
-          : pourTous ? 'Catalogue commun réaffiché pour toutes les entreprises' : 'Catalogue commun réaffiché',
+          ? t(pourTous ? 'fo.cc_ok_masque_tous' : 'fo.cc_ok_masque')
+          : t(pourTous ? 'fo.cc_ok_affiche_tous' : 'fo.cc_ok_affiche'),
       );
       await charger();
       onChange?.();
@@ -82,9 +85,9 @@ export function CatalogueCommunPanel({ onChange }) {
     </Button>
   );
 
-  let statut = 'Visible dans vos recherches';
-  if (etat.masque_pour_tous) statut = 'Masqué pour toutes les entreprises par Blueseatra';
-  else if (etat.masque_pour_moi) statut = 'Masqué pour votre entreprise';
+  let statut = t('fo.cc_visible');
+  if (etat.masque_pour_tous) statut = t('fo.cc_masque_tous');
+  else if (etat.masque_pour_moi) statut = t('fo.cc_masque_moi');
 
   return (
     <Card className="card-shadow mt-4 border-0 p-4" data-testid="catalogue-commun-panneau">
@@ -92,25 +95,25 @@ export function CatalogueCommunPanel({ onChange }) {
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-semibold">
             <Globe2 className="h-4 w-4 text-sky-700" aria-hidden="true" />
-            Catalogue commun Blueseatra
+            {t('fo.cc_titre')}
             <span className="font-normal text-muted-foreground">
-              · {nombre(etat.lignes)} articles, {nombre(etat.fournisseurs)} fournisseurs
+              {t('fo.cc_volume', { l: nombre(etat.lignes), f: nombre(etat.fournisseurs) })}
             </span>
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {statut}. Vos propres imports restent privés à votre entreprise. Ce catalogue n’est jamais supprimé : il peut seulement être masqué.
+            {t('fo.cc_aide', { statut })}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {etat.peut_masquer && !etat.masque_pour_tous && (
             etat.masque_pour_moi
-              ? bouton(false, false, 'Réafficher')
-              : bouton(true, false, 'Masquer pour mon entreprise')
+              ? bouton(false, false, t('fo.cc_reafficher'))
+              : bouton(true, false, t('fo.cc_masquer'))
           )}
           {etat.peut_masquer_pour_tous && (
             etat.masque_pour_tous
-              ? bouton(false, true, 'Réafficher pour toutes les entreprises')
-              : bouton(true, true, 'Masquer pour toutes les entreprises')
+              ? bouton(false, true, t('fo.cc_reafficher_tous'))
+              : bouton(true, true, t('fo.cc_masquer_tous'))
           )}
         </div>
       </div>

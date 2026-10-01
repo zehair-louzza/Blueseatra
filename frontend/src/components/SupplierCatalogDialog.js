@@ -11,11 +11,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Spinner, EmptyState } from '@/components/Spinner';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, ExternalLink, PackageSearch, Search } from 'lucide-react';
 
 const TAILLE = 50;
 
 export default function SupplierCatalogDialog({ source, open, onOpenChange }) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState('');
   const [saisie, setSaisie] = useState('');
@@ -32,7 +34,7 @@ export default function SupplierCatalogDialog({ source, open, onOpenChange }) {
     setChargement(true);
     produitsFournisseur({ cle: source.cle, page, taille: TAILLE, q })
       .then((d) => { if (!annule) setDonnees(d); })
-      .catch(() => { if (!annule) { setDonnees(null); toast.error('Produits indisponibles.'); } })
+      .catch(() => { if (!annule) { setDonnees(null); toast.error(t('fo.c_produits_ko')); } })
       .finally(() => { if (!annule) setChargement(false); });
     return () => { annule = true; };
   }, [open, source?.cle, page, q]);
@@ -47,7 +49,7 @@ export default function SupplierCatalogDialog({ source, open, onOpenChange }) {
           <DialogTitle className="flex flex-wrap items-baseline gap-2">
             {source.fournisseur}
             <span className="text-sm font-normal text-muted-foreground">
-              {entier(source.references)} produits
+              {t('fo.c_nb_produits', { n: entier(source.references) })}
             </span>
           </DialogTitle>
         </DialogHeader>
@@ -57,26 +59,26 @@ export default function SupplierCatalogDialog({ source, open, onOpenChange }) {
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input value={saisie} onChange={(e) => setSaisie(e.target.value)}
-              placeholder="Filtrer : désignation, référence, marque…" className="pl-8"
+              placeholder={t('fo.c_filtre')} className="pl-8"
               data-testid="dialog-filtre-produits" />
           </div>
-          <Button type="submit" size="sm" variant="secondary">Filtrer</Button>
+          <Button type="submit" size="sm" variant="secondary">{t('fo.c_filtrer')}</Button>
         </form>
 
         <div className="min-h-0 flex-1 overflow-auto">
           {chargement && !donnees ? <Spinner /> : !donnees || donnees.produits.length === 0 ? (
-            <EmptyState icon={PackageSearch} title="Aucun produit ne correspond à ce filtre." />
+            <EmptyState icon={PackageSearch} title={t('fo.c_aucun_produit')} />
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[20rem]">Désignation</TableHead>
-                    <TableHead>Marque</TableHead>
-                    <TableHead>Réf.</TableHead>
-                    <TableHead className="text-right">Prix net HT</TableHead>
-                    <TableHead>Unité</TableHead>
-                    <TableHead>Famille</TableHead>
+                    <TableHead className="min-w-[20rem]">{t('fo.col_designation')}</TableHead>
+                    <TableHead>{t('fo.col_marque')}</TableHead>
+                    <TableHead>{t('fo.col_ref_courte')}</TableHead>
+                    <TableHead className="text-right">{t('fo.col_prix_net')}</TableHead>
+                    <TableHead>{t('fo.col_unite')}</TableHead>
+                    <TableHead>{t('fo.col_famille')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -106,17 +108,20 @@ export default function SupplierCatalogDialog({ source, open, onOpenChange }) {
         <div className="flex items-center justify-between gap-2 border-t pt-3 text-sm">
           <span className="text-muted-foreground">
             {donnees?.total != null
-              ? `${donnees.total_plafonne ? 'Plus de ' : ''}${entier(donnees.total)} produits · page ${page}${nbPages ? ` / ${entier(nbPages)}` : ''}`
-              : `Page ${page}`}
+              ? t('fo.c_pagination', {
+                plus: donnees.total_plafonne ? t('fo.c_plus_de') : '',
+                n: entier(donnees.total), page, pages: nbPages ? ` / ${entier(nbPages)}` : '',
+              })
+              : t('fo.c_page', { page })}
           </span>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" disabled={page <= 1 || chargement}
               onClick={() => setPage(page - 1)} data-testid="dialog-page-precedente">
-              <ChevronLeft className="h-4 w-4" />Précédente
+              <ChevronLeft className="h-4 w-4" />{t('fo.c_precedente')}
             </Button>
             <Button size="sm" variant="outline" disabled={!donnees?.page_suivante || chargement}
               onClick={() => setPage(page + 1)} data-testid="dialog-page-suivante">
-              Suivante<ChevronRight className="h-4 w-4" />
+              {t('fo.c_suivante')}<ChevronRight className="h-4 w-4" />
             </Button>
           </div>
         </div>
