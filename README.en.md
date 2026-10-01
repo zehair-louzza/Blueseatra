@@ -75,20 +75,20 @@ The validated quote goes out as a Pro Forma PDF; **follow-ups in working days** 
 
 <table>
 <tr>
-<td width="50%"><img src="docs/assets/manuel/03-demande-detail.jpg" alt="A request read by the AI"><br><sub><b>Request read by the AI</b>: extracted data, source text and detected clients with their evidence</sub></td>
-<td width="50%"><img src="docs/assets/manuel/05-editeur-devis.jpg" alt="Quote editor"><br><sub><b>Quote editor</b>: numbered packages, labour, travel, frozen price source</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/03-demande-detail.jpg" alt="A request read by the AI"><br><sub><b>Request read by the AI</b>: extracted data, source text and detected clients with their evidence</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/05-editeur-devis.jpg" alt="Quote editor"><br><sub><b>Quote editor</b>: numbered packages, labour, travel, frozen price source</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/assets/manuel/08-fiche-client.jpg" alt="Client record"><br><sub><b>Client record</b>: contacts, sites, history, conversion rate</sub></td>
-<td width="50%"><img src="docs/assets/manuel/09-relances.jpg" alt="Follow-ups"><br><sub><b>Follow-ups</b>: today's follow-ups, suggested text, outcome in one click</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/08-fiche-client.jpg" alt="Client record"><br><sub><b>Client record</b>: contacts, sites, requests and quotes, activity, follow-ups</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/01-tableau-de-bord.jpg" alt="Dashboard"><br><sub><b>Dashboard</b>: quotes waiting for validation, requests needing attention</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/assets/screens/catalogue-fournisseurs.jpg" alt="Supplier catalogue"><br><sub><b>Supplier catalogue</b>: 9 distributors, families, net prices</sub></td>
-<td width="50%"><img src="docs/assets/manuel/10-offre-consommation.jpg" alt="Plan and usage"><br><sub><b>Plan and usage</b>: only automated work is counted</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/06-catalogues.jpg" alt="Catalogues"><br><sub><b>Catalogues</b>: your price catalogue and the supplier catalogues you switch on for quoting</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/10-offre-consommation.jpg" alt="Plan and usage"><br><sub><b>Plan and usage</b>: only automated work is counted</sub></td>
 </tr>
 </table>
 
-<sub>Screenshots show the French interface; the application is also available in English. Personal data is masked.</sub>
+<sub>English interface. Personal data is masked; item labels come from a French price catalogue.</sub>
 
 ## Features
 

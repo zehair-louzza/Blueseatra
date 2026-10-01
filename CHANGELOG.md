@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-10-01 (13) — Captures du README anglais en anglais
+
+- **6 captures de l'interface anglaise** pour le README anglais (`docs/assets/manuel-en/`) : demande lue par l'IA, éditeur de devis, fiche client, tableau de bord, catalogues, offre et consommation. Données personnelles masquées (flou renforcé à 10 px), langue de l'utilisateur rétablie en français après capture.
+- **Deux écrans remplacés** par rapport au README français : « À relancer » (aucune relance en base aujourd'hui, l'écran serait vide) et « Catalogue fournisseurs », dont l'interface n'est pas encore traduite — tout comme le comparateur de prix.
+
 ## 2026-10-01 (12) — Schémas du README anglais en anglais
 
 - **3 schémas en anglais** pour le README anglais : architecture, chiffrage sur sources activables, recherche fournisseurs sous RLS (`docs/assets/schema-*-en.png`, générés par `scripts/docs/generer_schemas_en.py`, même code de dessin et même style que les versions françaises).
