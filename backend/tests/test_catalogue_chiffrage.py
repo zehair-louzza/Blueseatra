@@ -170,9 +170,15 @@ def test_recherche_construit_les_clauses_par_source(monkeypatch):
     assert "recherche_norm" in sql_text
     assert "UNION ALL" in sql_text
     assert set(params.values()) >= {CLE_VERSION, CLE_HIST[5:], TENANT}
+    # Deux temps par branche : filtrage trigramme dans la sous-requete SANS
+    # tri (sinon le planificateur scanne l'index par prix sur 960k lignes
+    # pour des termes rares → TimeoutError), tri par prix ensuite à
+    # l'exterieur, sur le petit resultat.
+    assert "LIMIT 200) sel" in sql_text
+    assert "ORDER BY o.price_ht" not in sql_text
+    assert "ORDER BY prix_net_ht ASC" in sql_text
     # Resultat marque fournisseur, dans l'ordre prix croissant.
     assert len(articles) == 1 and articles[0]["source"] == "fournisseur"
-    assert "ORDER BY o.price_ht ASC" in sql_text
 
 
 def test_recherche_n_echoue_jamais_sur_une_erreur(monkeypatch):

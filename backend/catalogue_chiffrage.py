@@ -259,8 +259,7 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
             return []
 
         conds, params, _ = _conditions(q)
-        params.update(tenant_id=tenant, commun=catalogue_commun.TENANT_COMMUN,
-                       limite=limite, plafond_branche=limite)
+        params.update(tenant_id=tenant, commun=catalogue_commun.TENANT_COMMUN, limite=limite)
         # UNION ALL par source : chaque branche profite de l'index
         # (tenant_id, version_id) et de l'index trigramme recherche_norm,
         # puis renvoie ses k meilleures offres. Une clause OR unique sur les
@@ -283,15 +282,23 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
                 # de la cle client.
                 params[f"v{i}"] = cle
                 filtre = f"o.tenant_id = :t{i} AND o.version_id = :v{i} AND o.is_active"
+            # Deux temps, comme fournisseur_recherche : (1) la sous-requete
+            # SANS tri filtre par trigramme (idx_offers_recherche_trgm) —
+            # avec un ORDER BY price dans la branche, le planificateur
+            # choisissait le scan de l'index par prix en filtrant les termes
+            # rares : 960k lignes parcourues, TimeoutError command_timeout
+            # 30 s (constate en production sur "trou evacuation rongeurs") ;
+            # (2) le tri par prix se fait ensuite sur les <= 200 id retenus.
             branches.append(f"""
                 (SELECT {catalogue_navigation.CHAMPS}
-                     FROM blueseatra.supplier_offers o
-                     LEFT JOIN blueseatra.suppliers f
-                            ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
-                    WHERE ({filtre})
-                      AND ({' AND '.join(conds)})
-                    ORDER BY o.price_ht ASC NULLS LAST, o.id
-                    LIMIT :plafond_branche)
+                   FROM (SELECT o.id
+                           FROM blueseatra.supplier_offers o
+                          WHERE ({filtre})
+                            AND ({' AND '.join(conds)})
+                          LIMIT 200) sel
+                   JOIN blueseatra.supplier_offers o ON o.id = sel.id
+                   LEFT JOIN blueseatra.suppliers f
+                          ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id)
             """)
         sql = text(f"""
             SELECT * FROM ({' UNION ALL '.join(branches)}) offres
