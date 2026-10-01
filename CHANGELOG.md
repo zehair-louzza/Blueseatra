@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-01 (5) — Documentation illustrée, bannière refaite, sélecteur d'articles corrigé
+
+- **Bannière du README refaite** (`scripts/docs/generer_banniere.py`) : fond papier de la charte et logo officiel en couleurs (l'ancienne passait le logo en silhouette blanche, la vague du B disparaissait), capture actuelle masquée du tableau de bord.
+- **7 nouveaux schémas** : chaîne de livraison, isolation des entreprises, cycle de vie du devis et relances, quotas, import de catalogue, droits RGPD, déroulé d'incident. Intégrés au manuel, à l'architecture, au guide développeur, à l'exploitation, au runbook, au RGPD, à la tarification, à la spec du module Clients, à DEPLOIEMENT.md et CONTRIBUTING.md ; galerie dans `docs/README.md`.
+- **Nouvelles captures masquées** : lignes extraites d'une demande, PDF Pro Forma (2 pages), comparateur de prix, Société & PDF devis, journal d'audit, sources fournisseurs activées.
+- **Sélecteur « Ajouter depuis le catalogue »** (PR #137) : champ de recherche toujours visible ; il était masqué sans catalogue interne.
+- **Correction d'une mesure** : les « 189 ms » annoncés pour la PR #133 avaient été mesurés hors RLS. Sous le rôle `blueseatra_app`, la RLS empêche l'usage de l'index trigramme pour `LIKE` (opérateur non « leakproof ») : chaque branche filtre ligne à ligne sur l'index par prix (1,6 s sur Rexel pour « prise », délai de 30 s dépassé sur la requête complète). Correctif à venir.
+
 ## 2026-10-01 (4) — Schémas et captures d'écran à jour
 
 - **Schémas redessinés** (`docs/assets/schema-*.png`, rendu x2) : architecture (Vercel, Render, Supabase, passerelle Hermès, `custom:ollama` / `custom:mistral`), parcours d'une demande, routage IA, et nouveau schéma **Chiffrage sur sources activables** (recherche en deux temps, règles de génération). Affichés dans le README et `docs/architecture.md`. Générateur : `scripts/docs/generer_schemas.py` (hors `backend/`, donc sans redéploiement Render).

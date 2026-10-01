@@ -35,6 +35,10 @@
 
 ## Droits des personnes
 
+![Droits des personnes (RGPD)](./assets/schema-rgpd.png)
+
+![Paramètres → Données personnelles](./assets/manuel/13-donnees-personnelles.jpg)
+
 | Droit | Comment l'exercer dans Blueseatra | Traçabilité |
 |---|---|---|
 | **Accès et portabilité** (art. 15 et 20) | **Paramètres → Données personnelles → Télécharger l'export**, ou `GET /api/rgpd/export` | `audit_logs` : `rgpd.export` |

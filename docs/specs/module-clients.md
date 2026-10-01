@@ -85,6 +85,8 @@ Tous les écrans sont en français et en anglais, avec le thème actuel (Geist, 
 
 ### 4.1 Liste des clients (`/app/clients`)
 
+![Liste des clients](../assets/manuel/07-clients.jpg)
+
 ```text
 ┌ Clients ─────────────────────────────────────────────── [+ Nouveau client] [Importer] ┐
 │ [Rechercher nom, ville, SIRET…]  Type ▾  Étiquette ▾  [ ] Devis en attente  [ ] Archivés │
@@ -102,6 +104,8 @@ Tous les écrans sont en français et en anglais, avec le thème actuel (Geist, 
 - **Import CSV :** mêmes principes que les catalogues (aperçu, correspondance des colonnes, validation). Les doublons de SIRET sont signalés, jamais écrasés.
 
 ### 4.2 Fiche client (`/app/clients/:id`)
+
+![Fiche client](../assets/manuel/08-fiche-client.jpg)
 
 ```text
 ┌ ← Clients   Foncia Versailles   [Syndic]                    [Modifier] [Archiver] ┐
@@ -123,6 +127,8 @@ Tous les écrans sont en français et en anglais, avec le thème actuel (Geist, 
 - **Relances :** prévues, faites et annulées, chacune avec sa raison.
 
 ### 4.3 À relancer (`/app/relances`)
+
+![À relancer](../assets/manuel/09-relances.jpg)
 
 ```text
 ┌ À relancer ───────────────────────────────── En retard (2) · Aujourd'hui (4) · Cette semaine (9) ┐
@@ -180,6 +186,8 @@ Une suggestion ne remplace jamais une valeur déjà saisie par un humain : elle 
 Relances activées ; délais en jours ouvrés (3, 7, 14) ; délais en cas d'urgence (1, 2, 4) ; nombre maximal (3) ; validité des devis (30 jours) ; rappel avant expiration (3 jours ouvrés) ; seuil d'appel (10 000 € HT) ; heure (9 h) ; fuseau. Un aperçu montre le calendrier calculé pour un devis envoyé aujourd'hui.
 
 ## 5. Règles de relance
+
+![Cycle de vie d'un devis et relances](../assets/schema-cycle-devis.png)
 
 Elles sont implémentées et testées dans `backend/relances_regles.py` (11 tests).
 

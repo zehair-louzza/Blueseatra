@@ -6,6 +6,11 @@ Toutes les réponses sont cloisonnées par tenant.
 
 ---
 
+
+![Comparer les prix](./assets/manuel/15b-comparateur-resultats.jpg)
+
+![Chiffrage sur sources activables](./assets/schema-chiffrage.png)
+
 ## `GET /fournisseurs/recherche`
 
 Recherche par inclusion sur le catalogue fournisseurs du tenant.

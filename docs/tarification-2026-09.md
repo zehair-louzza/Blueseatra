@@ -38,6 +38,10 @@ Sources : [Obat, tarifs](https://www.obat.fr/tarifs/), [Tolteck, tarifs](https:/
 
 ## 4. Grille validée le 24/09/2026
 
+![Page Tarifs](./assets/screens/tarifs.jpg)
+
+![Quotas et consommation](./assets/schema-quotas.png)
+
 | Offre | Prix HT / mois | Sièges | Devis assistés IA / mois | Pages lues / mois | Import catalogue | Pour qui |
 |---|---:|---:|---:|---:|---|---|
 | **Découverte** | Essai gratuit de 14 jours | 1 | 10 (sur l'essai) | 30 (sur l'essai) | 25 Mo | Tester sans carte, puis choisir une offre |

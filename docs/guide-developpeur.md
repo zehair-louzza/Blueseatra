@@ -4,6 +4,8 @@ Installation locale, variables d'environnement, tests et dépannage. Pour la vue
 
 ## Installation locale
 
+![Architecture Blueseatra](./assets/schema-architecture.png)
+
 ### Pré‑requis
 
 - Python **3.11**
@@ -134,6 +136,8 @@ Les **14 migrations** versionnées dans [`supabase/migrations/`](../supabase/mig
 
 ### Isolation des entreprises (RLS)
 
+![Isolation des entreprises](./assets/schema-isolation.png)
+
 L'API se connecte avec le rôle **`blueseatra_app`** (`DATABASE_URL_APP`), qui n'est pas propriétaire des tables. Chaque transaction fixe `app.tenant_id`, et chaque politique compare `tenant_id` à `blueseatra.current_tenant()`. Le détail et l'historique sont dans [`audit-isolation-tenants-2026-09-12.md`](./audit-isolation-tenants-2026-09-12.md).
 
 ### Connexion recommandée
@@ -168,6 +172,8 @@ TEST_PG_DSN='postgresql://postgres@localhost:5432/ci' \
 Les tests de bout en bout de l'API (`test_module_clients_api.py`, `test_quotas_module.py`) demandent une base complète et un rôle de connexion membre de `blueseatra_app` : variables `TEST_PG_URL` et `TEST_PG_URL_APP`.
 
 ### Intégration continue
+
+![Chaîne de livraison](./assets/schema-livraison.png)
 
 | Workflow | Contrôles |
 |---|---|

@@ -25,6 +25,8 @@ Les requêtes en erreur 5xx ou de plus de 3 secondes sont journalisées automati
 
 ## Déroulé
 
+![Déroulé d'un incident](./assets/schema-incident.png)
+
 | Étape | Action | Délai visé |
 |---|---|---|
 | 1. Détecter | Alerte, message d'un client ou échec du réveil pg_cron | — |

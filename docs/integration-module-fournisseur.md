@@ -6,6 +6,11 @@ Audit du prototype `Fournisseur-Blueseatra` et plan d'intégration dans le SaaS.
 
 ---
 
+
+![Comparer les prix](./assets/manuel/15b-comparateur-resultats.jpg)
+
+![Chiffrage sur sources activables](./assets/schema-chiffrage.png)
+
 ## Conclusion en une phrase
 
 Le prototype apporte ses **écrans**, pas son backend. Le SaaS sait déjà importer un catalogue client avec mapping dynamique de colonnes ; le prototype ne sait lire qu'un seul format Excel figé. Ce qu'il faut construire est une **dimension fournisseur** greffée sur le pipeline existant, pas un second pipeline.
