@@ -1,12 +1,12 @@
 # Architecture
 
-Vue d'ensemble technique de Blueseatra au 25/09/2026. Pour installer et tester, voir [`guide-developpeur.md`](./guide-developpeur.md).
+Vue d'ensemble technique de Blueseatra au 01/10/2026. Pour installer et tester, voir [`guide-developpeur.md`](./guide-developpeur.md).
 
 ## Vue générale
 
 ```mermaid
 flowchart LR
-    U[Navigateur<br>blueseatra.com] -->|HTTPS| H[Hostinger<br>site React statique]
+    U[Navigateur<br>blueseatra.com] -->|HTTPS| V[Vercel<br>site React statique<br>déploiement auto depuis main]
     U -->|HTTPS /api| R[Render<br>API FastAPI<br>blueseatra-api]
     R -->|asyncpg, rôle blueseatra_app, RLS| S[(Supabase<br>PostgreSQL 17<br>schéma blueseatra)]
     R -->|HTTPS + clé| O[VPS OVH<br>Ollama : lecture, OCR, structuration]
@@ -17,7 +17,7 @@ flowchart LR
 
 | Couche | Technologie | Hébergement |
 |---|---|---|
-| Site | React 18, React Router, Tailwind CSS, Radix/shadcn, react-i18next (FR/EN) | Hostinger, dépôt manuel du dossier `build/` |
+| Site | React 18, React Router, Tailwind CSS, Radix/shadcn, react-i18next (FR/EN) | Vercel, déploiement automatique depuis `main` (`frontend/`), domaine blueseatra.com |
 | API | FastAPI, Python 3.11, Pydantic v2, SQLAlchemy 2 async, asyncpg | Render, Francfort, déploiement automatique depuis `main` (`backend/`) |
 | Base | PostgreSQL 17, RLS, pg_cron | Supabase, projet `xmsxlochasjauhnxarvc` |
 | IA | Ollama (Hermes, Qwen 2.5 VL, GLM…), repli configurable par entreprise via litellm | VPS OVH, dépôt [`ovh-ai-stack`](https://github.com/zehair-louzza/ovh-ai-stack) |
@@ -39,7 +39,7 @@ sequenceDiagram
     Q->>IA: OCR si nécessaire, puis structuration
     IA-->>Q: client, site, lots, lignes
     Q->>DB: demande « done » ou « needs_review »
-    Q->>DB: brouillon de devis (prix du catalogue figés)
+    Q->>DB: brouillon de devis (prix figés : catalogue interne,<br>puis sources fournisseurs activées)
     Q->>DB: suggestions de clients (avec preuve)
     Note over Q,DB: échec → quota remboursé par écriture inverse
     U->>A: validation, envoi du devis
@@ -48,7 +48,7 @@ sequenceDiagram
 
 ## Principes non négociables
 
-1. **L'IA ne fixe jamais un prix.** Elle lit et structure ; les prix viennent des catalogues, puis les remises, marges et TVA sont calculées par des règles (`matching.py`).
+1. **L'IA ne fixe jamais un prix.** Elle lit et structure ; les prix viennent du catalogue interne ou des catalogues fournisseurs **activés par l'entreprise pour le chiffrage** (boutons poussoirs, table `chiffrage_sources`), puis les remises, marges et TVA sont calculées par des règles (`matching.py`). Sans catalogue interne, les sources fournisseurs activées prennent le relais ; sans aucune des deux, la génération refuse avec un message explicite — mais jamais à cause d'offres simplement introuvables (le devis est produit, lignes à confirmer).
 2. **Isolation des entreprises à deux niveaux.** Le code filtre `tenant_id`, et PostgreSQL l'impose par RLS sous le rôle `blueseatra_app`. Un identifiant d'une autre entreprise renvoie 404.
 3. **Aucune suppression silencieuse.** Le catalogue commun est masquable mais jamais supprimé. Les clients sont archivés et les contacts anonymisés. Le registre de consommation et les échanges clients sont en ajout seul, protégés par un trigger.
 4. **Validation humaine.** Un devis reste un brouillon tant qu'une personne ne l'a pas validé.
@@ -63,7 +63,7 @@ sequenceDiagram
 | `matching.py` | Rapprochement des lignes avec le catalogue, calcul des totaux |
 | `quote_scenarios.py` | Options et variantes de devis |
 | `pdf_service.py` | PDF Pro Forma |
-| `catalogue_commun.py`, `catalogue_navigation.py`, `fournisseur_recherche.py` | Catalogue fournisseurs commun et comparateur |
+| `catalogue_commun.py`, `catalogue_navigation.py`, `fournisseur_recherche.py`, `catalogue_chiffrage.py` | Catalogue fournisseurs commun, comparateur, sources de chiffrage activables |
 | `quotas.py` | Offres, registre de consommation, réservation et remboursement |
 | `clients_module.py`, `relances_regles.py` | Module Clients et règles de relance |
 | `pg_adapter.py`, `database.py`, `models_sql.py` | Accès PostgreSQL et session par entreprise |
@@ -92,9 +92,10 @@ erDiagram
     offres ||--o{ abonnements : grille
     tenants ||--o{ registre_consommation : consommation
     tenants ||--o{ audit_logs : audit
+    tenants ||--o{ chiffrage_sources : "sources de chiffrage"
 ```
 
-Autres tables : `import_jobs`, `import_errors`, `settings_integrations` (clé IA chiffrée Fernet), `company_profiles` et les tables du catalogue fournisseurs : `suppliers`, `supplier_offers`, `canonical_products`, `product_match_rules`, `unit_conversions`, `tenant_catalogue_commun` et `catalogue_commun_masque`.
+Autres tables : `import_jobs`, `import_errors`, `settings_integrations` (clé IA chiffrée Fernet), `company_profiles` et les tables du catalogue fournisseurs : `suppliers`, `supplier_offers`, `canonical_products`, `product_match_rules`, `unit_conversions`, `tenant_catalogue_commun` et `catalogue_commun_masque`. Détail des colonnes : [`schema-base-donnees.md`](./schema-base-donnees.md).
 
 ## Décisions d'architecture
 

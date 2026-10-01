@@ -15,6 +15,7 @@ Toute la documentation du projet, classée par usage.
 | Document | Contenu |
 |---|---|
 | [Architecture](./architecture.md) | Vue générale, parcours d'une demande, modules, modèle de données |
+| [Schéma de base de données](./schema-base-donnees.md) | Tables et colonnes du chiffrage et des devis, état au 01/10/2026 |
 | [ADR : moteur IA sur OVH](./decisions/ADR-OVH-AI-STACK.md) | Pourquoi un moteur IA auto-hébergé |
 | [ADR : cascade OCR](./decisions/ADR-OCR-CASCADE.md) | Choix et ordre des modèles de lecture |
 | [ADR : file d'extraction séquentielle](./decisions/ADR-FILE-EXTRACTION-SEQUENTIELLE.md) | Une lecture à la fois, positions en file |
@@ -37,7 +38,7 @@ Toute la documentation du projet, classée par usage.
 | Document | Contenu |
 |---|---|
 | [Exploitation](./exploitation.md) | Mise en production, supervision, quotas, retour arrière, sécurité |
-| [DEPLOIEMENT.md](../DEPLOIEMENT.md) | Guide complet Hostinger, Render, Supabase et VPS OVH |
+| [DEPLOIEMENT.md](../DEPLOIEMENT.md) | Guide complet Vercel, Render, Supabase et VPS OVH |
 | [Runbook DATABASE_URL_APP](./runbook-render-database-url-app.md) | Passage au rôle non propriétaire sur Render |
 | [Checklist des secrets Render](../render-secrets-checklist.md) | Variables à renseigner à la main |
 | [Audit d'isolation](./audit-isolation-tenants-2026-09-12.md) | Audit RLS du 12/09/2026 |

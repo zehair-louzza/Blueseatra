@@ -197,6 +197,8 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 
    ![Contrôle avant activation](assets/manuel/06b-controle-import.jpg)
 5. **Voir les articles**, **Désactiver** : un catalogue désactivé n'est plus utilisé pour les nouveaux devis.
+6. **Interrupteur « Utiliser pour le chiffrage » :** chaque catalogue interne peut être activé ou désactivé pour le chiffrage des devis. L'interrupteur active la version la plus récente ; désactiver ne supprime rien — le contenu reste et se réactive en un clic.
+7. **Section « Catalogues fournisseurs » :** la liste de vos sources fournisseurs visibles, chacune avec un bouton poussoir « activer / désactiver pour le chiffrage » et un bouton **Afficher le catalogue** qui ouvre le contenu paginé et filtrable de ce fournisseur.
 
 ## 8. Catalogue fournisseurs et comparateur de prix
 
@@ -205,6 +207,9 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 - **Catalogue fournisseurs :** environ 967 000 références de 9 distributeurs : Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson Matériaux et Icilux. Les produits s'affichent page par page, avec des filtres par famille et par mot-clé.
 - **Catalogue commun :** il est partagé par toutes les entreprises. Vous pouvez **masquer** un fournisseur pour votre entreprise ; le catalogue commun n'est jamais supprimé.
 - **Comparer les prix :** recherchez un produit (par exemple « dalle LED 600x600 ») pour voir le moins cher chez chaque fournisseur. Les critères de la recherche (puissance, dimensions, marque) sont isolés.
+- **Bouton « Utiliser pour le chiffrage » (bouton poussoir par fournisseur) :** c'est votre entreprise qui choisit quelles sources servent au chiffrage de ses devis. Activer un fournisseur fait apparaître ses articles dans la recherche d'articles du devis ; désactiver ne supprime **rien** — le contenu est conservé intégralement et se réactive en un clic. Les bascules sont journalisées dans le journal d'audit.
+- **Génération sans catalogue interne :** si vous n'avez pas importé de catalogue tarifaire interne, les sources fournisseurs activées suffisent : les libellés de la demande sont recherchés dans ces sources et les meilleures offres deviennent des lignes du devis (provenance « Catalogues fournisseurs »). Sans aucune source ni catalogue activés, la génération vous invite à en activer un ; des sources actives sans correspondance produisent un devis avec des lignes **à confirmer** (prix vides à compléter via la recherche d'articles).
+- **Dans l'éditeur de devis :** la recherche d'articles mélange votre catalogue interne et les sources activées ; les articles fournisseurs portent un badge ambre (prix net HT, unité de vente, marque, référence).
 
 ## 9. Clients
 

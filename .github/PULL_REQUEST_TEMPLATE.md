@@ -15,7 +15,7 @@
 
 - [ ] Touche `backend/` : **la fusion redéploie `blueseatra-api` sur Render**
 - [ ] Touche `supabase/migrations/` : migration à appliquer en production, idempotente et sans suppression de données
-- [ ] Touche `frontend/` : nouveau paquet Hostinger à déposer dans `public_html/`
+- [ ] Touche `frontend/` : **la fusion publie le site sur Vercel** (projet `blueseatra`, Root Directory `frontend/`) ; vérifier le domaine après déploiement
 
 ## Vérifications
 

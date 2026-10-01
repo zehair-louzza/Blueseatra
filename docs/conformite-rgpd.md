@@ -29,7 +29,7 @@
 |---|---|---|
 | Supabase | Base PostgreSQL | Région du projet (à confirmer dans la console) |
 | Render | Hébergement de l'API | Francfort (UE) |
-| Hostinger | Site statique | UE |
+| Vercel | Hébergement du site statique et CDN | CDN mondial, siège américain — cadre de transfert hors UE à vérifier contractuellement (Standard Contractual Clauses) |
 | OVH | Moteur IA auto-hébergé | Datacenter du VPS (à confirmer dans l'espace client OVH) |
 | Stripe (à venir, #90) | Paiement | UE et États-Unis, clauses contractuelles types |
 

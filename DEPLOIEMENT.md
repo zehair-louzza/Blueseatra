@@ -1,4 +1,4 @@
-# Déploiement Blueseatra — Frontend (Hostinger) + Backend (Render) + IA (OVH VPS)
+# Déploiement Blueseatra — Frontend (Vercel) + Backend (Render) + IA (OVH VPS)
 
 Ce document récapitule la configuration mise en place et les étapes pour déployer l'application.
 
@@ -6,8 +6,8 @@ Ce document récapitule la configuration mise en place et les étapes pour dépl
 
 ```
 Navigateur ──(REACT_APP_BACKEND_URL)/api──▶ Backend FastAPI ──(DATABASE_URL)──▶ Supabase Postgres
-  (React/CRA build statique, Hostinger)       (Python, Render)                    schéma "blueseatra"
-                                                    │
+ (React/CRA build statique, Vercel,           (Python, Render)                    schéma "blueseatra"
+  déploiement auto depuis main, frontend/)         │
                                                     └──(HERMES_BASE_URL)──▶ Ollama / Hermes-3
                                                                               (VPS OVH)
 ```
@@ -22,27 +22,30 @@ Navigateur ──(REACT_APP_BACKEND_URL)/api──▶ Backend FastAPI ──(DAT
 ## Ce qui a été fait
 
 1. **`frontend/package.json`** réparé (JSON invalide : virgule manquante ; `@supabase/supabase-js` déplacé dans `dependencies`). Le build passe désormais.
-2. **`frontend/public/.htaccess`** ajouté → routing React Router sur Apache/Hostinger (plus de 404 au rafraîchissement) + cache des assets.
+2. **`frontend/public/.htaccess`** conservé du temps d'Hostinger (routing React Router sur Apache). Il est inutile sur Vercel (réécriture SPA native) mais sans effet.
 3. **`frontend/src/db.js`** supprimé (code mort, jamais importé, plantait au chargement avec `createClient(undefined, undefined)` sur une table inexistante).
 4. **14 tables créées dans Supabase** (schéma `blueseatra`) avec UUID, JSONB, index composites et contraintes, d'après `backend/models_sql.py`.
 5. **RLS activé** sur les 14 tables + policies `service_role only`. La table `users` est verrouillée (accès service_role uniquement, car elle contient `password_hash`).
 6. **`backend/database.py`** patché : la connexion force `search_path=blueseatra,public` (via `DB_SCHEMA`), donc les modèles SQLAlchemy non qualifiés trouvent les tables.
 7. **`.env.example`** ajoutés côté frontend et backend.
+8. **Migration Hostinger → Vercel du frontend (01/10/2026)** : projet Vercel `blueseatra` (équipe `bluseatra`), Root Directory `frontend/`, production sur `main`, domaines `www.blueseatra.com` (principal) et `blueseatra.com` (apex redirigé en 308) ; DNS Hostinger : `A @ 216.198.79.1`, `CNAME www d3e2977595b6a031.vercel-dns-017.com` ; `legacy-peer-deps`, `ajv@8` épinglé et `DISABLE_ESLINT_PLUGIN` pour que le build CRA passe sur Vercel.
 
 ---
 
-## Étape 1 — Frontend (Hostinger, upload manuel, racine du domaine)
+## Étape 1 — Frontend (Vercel, déploiement automatique)
 
-```bash
-cd frontend
-cp .env.example .env  # puis renseigner REACT_APP_BACKEND_URL
-yarn install
-yarn build
-```
+Le site est **publié automatiquement par Vercel à chaque fusion sur `main`** (aucun upload manuel) :
 
-- Uploadez le **contenu** de `frontend/build/` directement dans `public_html/` (pas le dossier `build/` lui-même : `index.html` doit être à la racine).
-- Le `.htaccess` est inclus automatiquement dans le build.
-- Variable obligatoire : `REACT_APP_BACKEND_URL=https://blueseatra-api.onrender.com`
+- Projet Vercel : `blueseatra` (équipe `bluseatra`), Root Directory `frontend/`, branche de production `main`.
+- Domaines : `www.blueseatra.com` (principal) et `blueseatra.com` (apex → 308 vers www). DNS gérés chez Hostinger (registre uniquement) : `A @ 216.198.79.1`, `CNAME www d3e2977595b6a031.vercel-dns-017.com`.
+- Variable d'environnement Vercel : `REACT_APP_BACKEND_URL=https://blueseatra-api.onrender.com`.
+- Rollback : « Redeploy » d'un déploiement précédent depuis le projet Vercel.
+
+Pour un build local : `cd frontend && REACT_APP_BACKEND_URL=... npm install && npm run build`.
+
+### Historique — ancien déploiement Hostinger (avant 01/10/2026)
+
+Upload manuel du **contenu** de `frontend/build/` dans `public_html/` (le `.htaccess` inclu la réécriture SPA). Remplacé par l'intégration Git Vercel.
 
 ---
 
@@ -115,7 +118,7 @@ Les policies attendent un JWT contenant un claim `tenant_id`. Votre auth est mai
 Voir [CHANGELOG.md](CHANGELOG.md). Points ops :
 
 - Render : `HERMES_BASE_URL`, `HERMES_API_KEY`, `MCP_API_KEY`, `MCP_TENANT_ID`
-- Hostinger : `yarn build` puis upload `frontend/build/` (marge + picker catalogue)
+- Vercel : déploiement automatique depuis `main` (Root Directory `frontend/`) ; l'ancienne procédure Hostinger (upload de `frontend/build/`) est retirée
 - MCP : [docs/MCP-PERPLEXITY.md](docs/MCP-PERPLEXITY.md)
 - Modèles Hermes UI : `hermes-3`, `qwen3.6:27b`, `qwen2.5:14b` uniquement
 
@@ -159,7 +162,7 @@ Voir [CHANGELOG.md](CHANGELOG.md). Points ops :
   ```js
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || 'https://blueseatra-api.onrender.com';
   ```
-- **Hostinger > Environment variables** : `REACT_APP_BACKEND_URL=https://blueseatra-api.onrender.com`.
+- **Vercel > Environment variables** : `REACT_APP_BACKEND_URL=https://blueseatra-api.onrender.com` (à l'époque sur Hostinger).
 - **Impact** : le bouton Connexion envoyait toutes les requêtes vers `undefined/api/...` → désormais correctement routé.
 
 #### 3. Sécurité Supabase : politiques RLS sur blueseatra.users
