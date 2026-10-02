@@ -23,7 +23,8 @@ pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 
 RACINE = Path(__file__).resolve().parents[2]
 MIGRATIONS = [RACINE / "supabase/migrations/20261002040000_vocabulaire_recherche.sql",
-              RACINE / "supabase/migrations/20261002050000_composition_mots.sql"]
+              RACINE / "supabase/migrations/20261002050000_composition_mots.sql",
+              RACINE / "supabase/migrations/20261002060000_composition_mots_rapide.sql"]
 
 COMMUN = "00000000-0000-4000-8000-000000000c0d"
 A = "aaaaaaaa-0000-4000-8000-00000000000a"

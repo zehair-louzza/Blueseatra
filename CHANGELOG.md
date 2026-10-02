@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-02 (11) — Recalcul du vocabulaire : version rapide
+
+La version 20261002050000 construisait les groupes de mots avec des EXISTS corrélés : chaque paire de mots sondeait l'index. Sur le catalogue Rexel (747 000 offres), des millions de sondes, plusieurs minutes par source — le remplissage ne tenait pas dans la fenêtre d'un appel d'administration. Réécriture en jointures semi-fonceuses : la liste des mots courants est hachée une fois. Résultats identiques (25 tests SQL, comptes exacts vérifiés), seule la vitesse change.
+
 ## 2026-10-02 (10) — Recherche par composition de mots et classement par pertinence
 
 **Constat utilisateur** : chercher « porte-coupe-feu » en tapant les mots un par un n'affinait pas le résultat, et le comparateur affichait d'abord un panneau PVC à 1,80 €, un judas et une gâche — des accessoires — parce que le tri était au prix. Les vraies portes (150 à 255 €) arrivaient en 4e position.
