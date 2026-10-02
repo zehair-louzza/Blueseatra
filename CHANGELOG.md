@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-02 (9) — Recherche : suggestions de mots pendant la frappe + recherche parallèle
+
+**Mesure en production** : chaque source paie ~35 ms d'index trigramme pour un mot long, en série dans une seule requête — 9 sources actives = ~330 ms de SQL pour « disjoncteur ». Et la recherche lourde partait à chaque pause de frappe.
+
+**Suggestions de mots** (migration 20261002040000) :
+- table `blueseatra.vocabulaire_recherche` : les mots qui existent dans les offres, par entreprise et par source, recalculés après chaque import (`vocabulaire_recalculer`) ;
+- route `/catalog/suggestions` : les mots commençant par ce qui est tapé, triés par nombre d'offres, avec les synonymes du métier (ph+n = 1P+N…). Cloisonnée : entreprise courante + catalogue commun uniquement ;
+- sélecteur d'articles du devis et champ du comparateur : liste sous le champ (clic ou Tab, flèches pour naviguer, Entrée pour choisir) ; la recherche lourde ne part que sur un mot complet.
+
+**Recherche en parallèle** (`catalogue_chiffrage`) :
+- les sources actives sont réparties en jusqu'à 3 groupes interrogés simultanément, chacun dans sa session (au plus 4 sessions simultanées) ;
+- chaque groupe renvoie ses `limite` offres les moins chères : le meilleur `limite` global est identique à celui d'une seule requête.
+
+**Tests** : `test_vocabulaire_sql.py` (19 : cloisonnement par entreprise, préfixes refusés, écriture directe refusée, recalcul refusé hors tenant, idempotence), `test_suggestions_mots.py` (9), `test_catalogue_chiffrage.py` (+5 : répartition en groupes, fusion et tri global, prix absents en dernier, erreur d'un groupe).
+
 ## 2026-10-02 (8) — Temps de réponse : cache court de l'authentification et des sources
 
 **Mesure en production** (en-tête `Server-Timing`, PR #163). Aucune nouvelle connexion n'est ouverte : le pool fonctionne. Chaque connexion empruntée coûte en revanche environ 110 ms (ping, `BEGIN`, `COMMIT`) et chaque requête SQL environ 65 ms (Render Frankfurt → Supabase eu-west-1).

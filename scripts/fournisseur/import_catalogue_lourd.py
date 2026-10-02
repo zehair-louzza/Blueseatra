@@ -955,6 +955,21 @@ def importer(chemin: Path, tenant: str, feuille: str | None, fournisseur: str | 
                     (n, nb_rejets, c.version_id))
         bilan[c.nom] = n
     cx.commit()
+
+    # Vocabulaire de recherche (suggestions pendant la frappe) : recalcule
+    # par source apres l'import. Une version importee ne change plus ensuite.
+    vocabulaire = {}
+    try:
+        for c in ctx.cibles.values():
+            cur.execute("SELECT blueseatra.vocabulaire_recalculer(%s, %s)", (tenant, c.version_id))
+            vocabulaire[c.nom] = cur.fetchone()[0]
+        for h in _histoires(cur, tenant):
+            cur.execute("SELECT blueseatra.vocabulaire_recalculer(%s, %s)", (tenant, f"hist:{h}"))
+            vocabulaire[f"hist:{h}"] = cur.fetchone()[0]
+        cx.commit()
+    except Exception as e:  # pragma: no cover - vocabulaire secondaire
+        print(f"ATTENTION : vocabulaire non recalcule ({e})", file=sys.stderr)
+
     sauve_etat(import_id, {"import_id": import_id, "tenant": tenant, "sha256": sha, "termine": True,
                            "cibles": {k: v.__dict__ for k, v in ctx.cibles.items()}})
     if rejets:
@@ -962,9 +977,20 @@ def importer(chemin: Path, tenant: str, feuille: str | None, fournisseur: str | 
             json.dumps([r for r in rejets if r], ensure_ascii=False, indent=1), encoding="utf-8")
     cx.close()
     return {"import_id": import_id, "offres_ecrites_cette_session": ecrites,
-            "par_fournisseur": bilan, "rejets": nb_rejets,
+            "par_fournisseur": bilan, "vocabulaire": vocabulaire, "rejets": nb_rejets,
             "duree_s": round(time.time() - t0, 1), "visible": False,
             "etape_suivante": f"activer --import-id {import_id} --tenant {tenant}"}
+
+
+def _histoires(cur, tenant: str) -> list[str]:
+    """Fournisseurs sans catalogue versionne de ce tenant (cles hist:)."""
+    cur.execute("""SELECT DISTINCT o.supplier_id FROM blueseatra.supplier_offers o
+                     LEFT JOIN blueseatra.catalogs c ON c.id = o.catalog_id
+                    WHERE o.tenant_id = %s AND o.supplier_id IS NOT NULL
+                      AND o.version_id IS NULL
+                      AND (o.catalog_id IS NULL OR c.id IS NULL)""",
+                (tenant,))
+    return [r[0] for r in cur.fetchall()]
 
 
 def _versions(cur, import_id: str, tenant: str) -> list[dict]:
@@ -1090,6 +1116,7 @@ def purger(import_id: str, tenant: str, sans_role: bool, confirmer: bool) -> dic
             if n == 0:
                 break
         cur.execute("UPDATE blueseatra.catalog_versions SET status='purged', item_count=0 WHERE id=%s", (v["id"],))
+        cur.execute("DELETE FROM blueseatra.vocabulaire_recherche WHERE tenant_id=%s AND source=%s", (tenant, v["id"]))
         cx.commit()
     cx.close()
     return {"lignes_supprimees": total, "versions": [v["id"] for v in vs]}
@@ -1131,6 +1158,7 @@ def nettoyer(import_id: str, tenant: str, sans_role: bool, confirmer: bool) -> d
                 break
         cur.execute("UPDATE blueseatra.catalog_versions SET status='purged', item_count=0 "
                     "WHERE id=%s AND tenant_id=%s", (ancienne, tenant))
+        cur.execute("DELETE FROM blueseatra.vocabulaire_recherche WHERE tenant_id=%s AND source=%s", (tenant, ancienne))
         cx.commit()
         bilan.append({"fournisseur": (v["mapping"] or {}).get("fournisseur"),
                       "ancienne_version": ancienne, "lignes_supprimees": total})
