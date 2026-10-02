@@ -86,6 +86,10 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 <td width="50%"><img src="docs/assets/screens/catalogue-fournisseurs.jpg" alt="Catalogue fournisseurs"><br><sub><b>Catalogue fournisseurs</b> : 9 distributeurs, familles, prix nets</sub></td>
 <td width="50%"><img src="docs/assets/manuel/10-offre-consommation.jpg" alt="Offre et consommation"><br><sub><b>Offre et consommation</b> : seul l'automatique est compté</sub></td>
 </tr>
+<tr>
+<td width="50%"><img src="docs/assets/manuel/15c-comparateur-produits-identiques.jpg" alt="Produits identiques chez plusieurs fournisseurs"><br><sub><b>Comparateur</b> : le même produit chez plusieurs fournisseurs, quel que soit son libellé, comparé par unité de base</sub></td>
+<td width="50%"><img src="docs/assets/manuel/15b-comparateur-resultats.jpg" alt="Comparer les prix"><br><sub><b>Le moins cher par fournisseur</b> : termes reconnus, critères isolés, filtre par famille</sub></td>
+</tr>
 </table>
 
 ## Fonctionnalités
@@ -98,6 +102,8 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 | **Catalogue fournisseurs** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux ; partagé, masquable, jamais supprimé ; recherche par mot et par famille dans chaque catalogue | ✅ |
 | **Chiffrage sur sources activables** | Chaque catalogue fournisseur s'active ou se désactive pour le chiffrage (bouton poussoir, contenu conservé) ; sans catalogue interne, les sources activées génèrent le devis ; recherche rapide sous RLS (index trigramme via fonctions sécurisées) | ✅ |
 | **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, termes équivalents reconnus (« courbe c », « 2p », « ph+n »…), filtre par famille | ✅ |
+| **Produits identiques entre fournisseurs** | Même article reconnu chez plusieurs fournisseurs (EAN, ou marque + réf. fabricant) même si les désignations diffèrent ; prix ramené à l'unité de base (un lot de 100 m comparé au mètre) ; anomalies signalées | ✅ |
+| **Format unique des catalogues** | 971 676 offres de 9 fournisseurs nettoyées dans un format commun : GTIN vérifié, marque canonique, unité de base, prix par unité ; données source jamais modifiées | ✅ |
 | **Clients** | Fiches, contacts, chantiers, journal des échanges, import et export CSV, indicateurs | ✅ |
 | **Suggestions IA** | Donneur d'ordre et client final proposés avec la phrase source ; rattachement automatique seulement sur SIRET ou e-mail identique | ✅ |
 | **Relances** | Jours ouvrés et fériés, urgence, rappel d'expiration, appel au-delà d'un seuil, opposition RGPD, textes FR / EN | ✅ |

@@ -40,7 +40,8 @@ La réponse rappelle `famille` (ou `null`) et `plafond` (5 000, ou 1 000 avec un
     {"saisi": "courbe", "equivalences": ["courbe", "Cbe", "Crb"]}
   ],
   "prix": {
-    "min": 6.83, "max": 200.67, "median": 32.61, "ecart_pct": 2838
+    "min": 6.83, "max": 200.67, "median": 32.61, "ecart_pct": 2838,
+    "unites_differentes": false
   },
   "resultats": [
     {
@@ -54,13 +55,42 @@ La réponse rappelle `famille` (ou `null`) et `plafond` (5 000, ou 1 000 avec un
       "prix_net_ht": 6.83,
       "prix_public_ht": 21.34,
       "unite_vente": "Pièce",
-      "url_produit": null
+      "url_produit": null,
+      "cle_produit": "GTIN:04016779584241",
+      "niveau_identification": "GTIN",
+      "unite_base": "U",
+      "qte_par_conditionnement": 1.0,
+      "prix_unite_base_ht": 6.83,
+      "unite_code": "OK",
+      "marque_canonique": "ABB",
+      "anomalies": [],
+      "nb_fournisseurs_produit": 2
     }
   ],
   "moins_cher_par_fournisseur": [
-    {"fournisseur": "Rexel", "prix_net_ht": 6.83, "designation": "...", "id": "uuid"},
-    {"fournisseur": "La Plateforme", "prix_net_ht": 13.98, "designation": "...", "id": "uuid"},
-    {"fournisseur": "Prolians", "prix_net_ht": 18.02, "designation": "...", "id": "uuid"}
+    {"fournisseur": "Rexel", "prix_net_ht": 6.83, "prix_unite_base_ht": 6.83, "unite_base": "U", "qte_par_conditionnement": 1.0, "designation": "...", "id": "uuid"},
+    {"fournisseur": "YESSS", "prix_net_ht": 155.14, "prix_unite_base_ht": 1.5514, "unite_base": "M", "qte_par_conditionnement": 100.0, "designation": "...", "id": "uuid"}
+  ],
+  "produits_identiques": [
+    {
+      "cle_produit": "GTIN:00731304338444",
+      "designation": "Easy UPS BVS - onduleur 1 ph line-interactive - 230V - 500VA - 4 prise Schuko/FR",
+      "marque": "Schneider Electric",
+      "reference_fabricant": "BVS500I-GR",
+      "gtin": "00731304338444",
+      "unite_base": "U",
+      "unites_differentes": false,
+      "nb_fournisseurs": 3,
+      "prix_min": 89.75, "prix_max": 165.1, "ecart_pct": 84,
+      "offres": [
+        {"id": "uuid", "fournisseur": "Rexel", "designation": "...", "prix_net_ht": 89.75, "prix_unite_base_ht": 89.75,
+         "unite_base": "U", "qte_par_conditionnement": 1.0, "ecart_pct": 0, "par_reference": true,
+         "designation_differente": false, "autres_offres": 0, "anomalies": [], "url_produit": "https://..."},
+        {"id": "uuid", "fournisseur": "Prolians", "designation": "Onduleur EASY UPS - Puissance de sortie : 500 VA - ...",
+         "prix_net_ht": 106.11, "prix_unite_base_ht": 106.11, "unite_base": "U", "ecart_pct": 18,
+         "par_reference": true, "designation_differente": true, "anomalies": ["UNITE_SUPPOSEE"]}
+      ]
+    }
   ],
   "qualifiants_isoles": [
     {"libelle": "différentiel", "nombre": 65, "prix_median": 158.90},
@@ -83,6 +113,14 @@ La réponse rappelle `famille` (ou `null`) et `plafond` (5 000, ou 1 000 avec un
 `qualifiants_isoles` doit être visible et cliquable — un clic renvoie la même requête avec `inclure_qualifiants=true`. Ces produits ne sont jamais supprimés, seulement mis à part.
 
 `criteres_a_affiner` n'apparaît que si les résultats sont hétérogènes. Chaque valeur est cliquable et ajoute le terme à la requête.
+
+**Format unique (02/10/2026, PR #159 et #160).** Les champs suivants viennent de `blueseatra.offres_normalisees`, lue en lecture seule avec un filtre tenant explicite. Si la table est indisponible, ils sont absents ou vides et le comparateur retombe sur les prix bruts : aucune erreur.
+
+- `prix_unite_base_ht` : prix par unité de base (`unite_base` : `U`, `M`, `M2`, `M3`, `KG`, `L`, `PAIRE`). C'est lui qui sert au tri, à `prix` et à `moins_cher_par_fournisseur`. `prix_net_ht` reste le prix publié pour `qte_par_conditionnement` unités (155,14 € pour 100 m).
+- `cle_produit` : `GTIN:<14 chiffres>` ou `MR:<marque>:<réf. fabricant>` ; identique chez tous les fournisseurs du même article. `niveau_identification` : `GTIN`, `MARQUE_REF` ou `AUCUN`.
+- `anomalies` : seules les anomalies utiles à l'achat sont renvoyées (`UNITE_SUPPOSEE`, `UNITE_INCONNUE`, `PRIX_NET_SUP_PUBLIC`, `PRIX_EXTREME`, `ECART_PRIX_PRODUIT`).
+- `produits_identiques` : produits d'au moins 2 fournisseurs parmi les clés des lignes affichées, 20 au plus, dans l'ordre des résultats. Toutes les offres **visibles** de la clé sont lues, y compris celles dont la désignation ne contient pas les termes (`designation_differente: true`). Une offre par fournisseur (la moins chère ; les autres comptées dans `autres_offres`). `par_reference: true` : rattachée par marque + référence, sans GTIN chez ce fournisseur.
+- `unites_differentes` (dans `prix` et dans chaque produit) : offres d'unités de base différentes ; `ecart_pct` vaut alors `null`.
 
 `termes_reconnus` sert à montrer au chiffreur que « ph+n » a bien été compris comme « 1P+N », « U+N », etc. Sans ce retour, une requête sans résultat est indébuggable côté utilisateur.
 

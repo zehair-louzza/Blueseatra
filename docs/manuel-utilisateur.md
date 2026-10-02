@@ -235,6 +235,16 @@ Vos propres tarifs ne sont visibles que par votre entreprise.
 
   ![Comparer les prix : le moins cher par fournisseur et résultats comparables](assets/manuel/15b-comparateur-resultats.jpg)
 
+- **Produits identiques chez plusieurs fournisseurs :** sous le « moins cher », un bloc regroupe le **même article** vendu par plusieurs fournisseurs, même quand leurs désignations n'ont rien en commun. Le rapprochement se fait par l'EAN, ou à défaut par la marque et la référence fabricant. Chaque fournisseur a une ligne (son offre la moins chère), avec l'écart en % par rapport au moins cher.
+  - **« autre libellé »** : l'offre a été trouvée grâce à l'EAN ou à la référence ; sa désignation ne contient pas vos termes. Exemple : « Onduleur EASY UPS - Puissance de sortie : 500 VA » chez Prolians est le même produit que « Easy UPS BVS - onduleur 1 ph… 500VA » chez Rexel.
+  - **« par réf. »** : le fournisseur ne publie pas d'EAN (c'est le cas de Prolians), l'offre est rattachée par la marque et la référence fabricant.
+  - **Pastilles orange** : unité supposée (le fournisseur n'indique pas d'unité), unité illisible, prix net supérieur au prix public, prix inhabituel, écart anormal (plus de 3 fois la médiane du produit). Rien n'est masqué : à vous de vérifier chez le fournisseur.
+
+  ![Produits identiques chez plusieurs fournisseurs](assets/manuel/15c-comparateur-produits-identiques.jpg)
+
+- **Prix ramené à l'unité :** les prix sont comparés par unité de base (pièce, mètre, m², kg, litre). Un câble ou un conduit vendu « pour 100 m » affiche **1,55 €/m**, avec le prix publié en dessous (« 155,14 € pour 100 m ») ; il n'est plus classé « le plus cher » face à un prix au mètre. Le tri, le bloc de prix et le « moins cher chez chaque fournisseur » utilisent ce prix.
+- **Unités différentes :** si des offres comparées n'ont pas la même unité (une couronne de 100 m vendue à la pièce chez l'un, au mètre chez l'autre), aucun écart n'est calculé : le comparateur affiche « Unités différentes : écart non calculé ».
+
 - **Bouton « Utiliser pour le chiffrage » (bouton poussoir par fournisseur) :** c'est votre entreprise qui choisit quelles sources servent au chiffrage de ses devis. Activer un fournisseur fait apparaître ses articles dans la recherche d'articles du devis ; désactiver ne supprime **rien** — le contenu est conservé intégralement et se réactive en un clic. Les bascules sont journalisées dans le journal d'audit.
 - **Génération sans catalogue interne :** si vous n'avez pas importé de catalogue tarifaire interne, les sources fournisseurs activées suffisent : les libellés de la demande sont recherchés dans ces sources et les meilleures offres deviennent des lignes du devis (provenance « Catalogues fournisseurs »). Sans aucune source ni catalogue activés, la génération vous invite à en activer un ; des sources actives sans correspondance produisent un devis avec des lignes **à confirmer** (prix vides à compléter via la recherche d'articles).
 - **Dans l'éditeur de devis :** la recherche d'articles mélange votre catalogue interne et les sources activées ; les articles fournisseurs portent un badge ambre (prix net HT, unité de vente, marque, référence).
