@@ -3,18 +3,21 @@ import { Card } from '@/components/ui/card';
 import { TruncatedText } from '@/components/TruncatedText';
 import { useTranslation } from 'react-i18next';
 import { Handshake, TrendingUp } from 'lucide-react';
-import { prixHT, pourcent, ecartPct } from '@/lib/fournisseursFormat';
+import { pourcent, ecartPct, prixComparable, prixUnitaire } from '@/lib/fournisseursFormat';
+import { PrixParUnite } from '@/components/SupplierProductGroups';
 
 // Encart de negociation : le moins cher chez chaque fournisseur.
 // C'est la vue qui sert a appeler un commercial ("chez X c'est 6,83 €, vous
 // etes a 18,02 €"), donc elle est mise en evidence en tete d'ecran, avec
 // l'ecart en pourcentage entre le moins cher et le plus cher des fournisseurs.
+// Comparaison au prix par unite de base (format unique) : un lot de 100 m
+// n'est plus classe « le plus cher » ; son prix publie reste affiche.
 export const SupplierCheapestPanel = ({ offres }) => {
   const { t } = useTranslation();
-  const liste = [...(offres || [])].sort((a, b) => (a.prix_net_ht ?? 0) - (b.prix_net_ht ?? 0));
+  const liste = [...(offres || [])].sort((a, b) => (prixComparable(a) ?? 0) - (prixComparable(b) ?? 0));
   if (liste.length === 0) return null;
 
-  const prix = liste.map((o) => o.prix_net_ht);
+  const prix = liste.map((o) => prixComparable(o));
   const ecart = ecartPct(prix);
   const moinsCher = liste[0];
   const plusCher = liste[liste.length - 1];
@@ -45,8 +48,8 @@ export const SupplierCheapestPanel = ({ offres }) => {
             </p>
             <p className="text-xs text-muted-foreground">
               {t('fo.m_contre', {
-                p1: prixHT(moinsCher.prix_net_ht), f1: moinsCher.fournisseur,
-                p2: prixHT(plusCher.prix_net_ht), f2: plusCher.fournisseur,
+                p1: prixUnitaire(prixComparable(moinsCher)), f1: moinsCher.fournisseur,
+                p2: prixUnitaire(prixComparable(plusCher)), f2: plusCher.fournisseur,
               })}
             </p>
           </div>
@@ -68,16 +71,15 @@ export const SupplierCheapestPanel = ({ offres }) => {
             <span className="min-w-0 flex-1 text-xs text-muted-foreground">
               <TruncatedText className="text-xs">{offre.designation}</TruncatedText>
             </span>
-            <span className="ml-auto shrink-0 text-right text-sm font-semibold tabular-nums">
-              {prixHT(offre.prix_net_ht)}
-              <span className="ml-1 text-xs font-normal text-muted-foreground">{t('fo.ht')}</span>
+            <span className="ml-auto shrink-0 text-right text-sm">
+              <PrixParUnite offre={offre} />
             </span>
             <span className="w-full shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:w-24">
               {index === 0
                 ? t('fo.m_reference')
                 : `+ ${pourcent(
                     Math.round(
-                      ((offre.prix_net_ht - moinsCher.prix_net_ht) / moinsCher.prix_net_ht) * 100
+                      ((prixComparable(offre) - prixComparable(moinsCher)) / prixComparable(moinsCher)) * 100
                     )
                   )}`}
             </span>

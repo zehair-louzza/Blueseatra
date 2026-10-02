@@ -3,18 +3,20 @@ import React from 'react';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TruncatedText } from '@/components/TruncatedText';
-import { prixHT } from '@/lib/fournisseursFormat';
+import { prixHT, prixComparable } from '@/lib/fournisseursFormat';
+import { PrixParUnite, BadgesAnomalies } from '@/components/SupplierProductGroups';
 import { useTranslation } from 'react-i18next';
 
-// Tableau des resultats, trie par prix net HT croissant.
+// Tableau des resultats, trie par prix comparable croissant : prix par
+// unite de base (format unique) quand il est connu, sinon prix net HT.
 // Le tri est refait cote client : meme si le backend renvoie un ordre de
 // pertinence, la colonne prix doit etre lisible de haut en bas.
 const triParPrix = (resultats) =>
   [...(resultats || [])].sort((a, b) => {
-    const pa = Number(a?.prix_net_ht);
-    const pb = Number(b?.prix_net_ht);
-    if (!Number.isFinite(pa)) return 1;
-    if (!Number.isFinite(pb)) return -1;
+    const pa = prixComparable(a);
+    const pb = prixComparable(b);
+    if (pa === null) return 1;
+    if (pb === null) return -1;
     return pa - pb;
   });
 
@@ -41,7 +43,7 @@ export const SupplierResultsTable = ({ resultats }) => {
               <TableHead className="min-w-[18rem]">{t('fo.col_designation')}</TableHead>
               <TableHead className="w-36 min-w-[8rem]">{t('fo.col_marque')}</TableHead>
               <TableHead className="w-36 min-w-[8rem]">{t('fo.col_reference')}</TableHead>
-              <TableHead className="w-28 text-right">{t('fo.col_prix_net')}</TableHead>
+              <TableHead className="w-32 text-right">{t('fo.col_prix_net')}</TableHead>
               <TableHead className="w-28 text-right">{t('fo.col_prix_public')}</TableHead>
               <TableHead className="w-28 min-w-[6rem]">{t('fo.col_unite_vente')}</TableHead>
             </TableRow>
@@ -55,6 +57,7 @@ export const SupplierResultsTable = ({ resultats }) => {
                 </TableCell>
                 <TableCell className="max-w-[24rem] align-top text-sm">
                   <TruncatedText testid="fournisseurs-designation">{o.designation}</TruncatedText>
+                  <BadgesAnomalies anomalies={o.anomalies} />
                 </TableCell>
                 <TableCell className="max-w-[9rem] align-top text-sm">
                   <TruncatedText className="text-sm">{o.marque}</TruncatedText>
@@ -64,8 +67,9 @@ export const SupplierResultsTable = ({ resultats }) => {
                     {o.reference_fournisseur || o.reference_fabricant}
                   </TruncatedText>
                 </TableCell>
-                <TableCell className="align-top text-right text-sm font-semibold tabular-nums">
-                  {prixHT(o.prix_net_ht)}
+                {/* Prix ramené à l'unité de base ; le prix publié du lot en dessous. */}
+                <TableCell className="align-top text-right text-sm" data-testid="fournisseurs-prix-unite">
+                  <PrixParUnite offre={o} />
                 </TableCell>
                 <TableCell className="align-top text-right text-sm tabular-nums text-muted-foreground">
                   {prixHT(o.prix_public_ht)}
@@ -83,12 +87,11 @@ export const SupplierResultsTable = ({ resultats }) => {
           <li key={o.id} className="px-4 py-3" data-testid="fournisseurs-resultat-carte">
             <div className="flex items-start justify-between gap-3">
               <p className="min-w-0 flex-1 text-sm font-medium">{o.fournisseur}{o.catalogue_commun && <BadgeCommun />}</p>
-              <p className="shrink-0 text-right text-sm font-semibold tabular-nums">
-                {prixHT(o.prix_net_ht)}
-                <span className="ml-1 text-xs font-normal text-muted-foreground">{t('fo.ht')}</span>
+              <p className="shrink-0 text-right text-sm">
+                <PrixParUnite offre={o} />
               </p>
             </div>
-            <p className="mt-1 text-sm leading-snug text-foreground/90">{o.designation}</p>
+            <p className="mt-1 text-sm leading-snug text-foreground/90">{o.designation}<BadgesAnomalies anomalies={o.anomalies} /></p>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <div className="flex min-w-0 gap-1">
                 <dt>{t('fo.carte_marque')}</dt>

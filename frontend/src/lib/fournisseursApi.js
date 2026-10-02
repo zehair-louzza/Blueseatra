@@ -293,6 +293,48 @@ const moinsCherParFournisseur = (offres) => {
   return [...parFournisseur.values()].sort((a, b) => a.prix_net_ht - b.prix_net_ht);
 };
 
+// Produits identiques (format unique, etape 2) : memes champs que
+// `produits_identiques` du backend. Le premier groupe reprend un cas reel
+// (Legrand DNX³ 406774 : 9,16 € chez Rexel, 28,64 € chez YESSS) ; le
+// second montre un lot de 100 m compare au metre.
+const PRODUITS_IDENTIQUES_EXEMPLE = [
+  {
+    cle_produit: 'GTIN:03245064067744',
+    designation: 'Disjoncteur DNX³ 4500 - 1P+N - 230V - 16A - courbe C - 1 module',
+    marque: 'Legrand',
+    reference_fabricant: '406774',
+    gtin: '03245064067744',
+    unite_base: 'U',
+    unites_differentes: false,
+    nb_fournisseurs: 3,
+    prix_min: 9.16,
+    prix_max: 28.64,
+    ecart_pct: 213,
+    offres: [
+      { id: 'ex-p1', fournisseur: 'Rexel', designation: 'Disjoncteur DNX³ 4500 - 1P+N - 230V - 16A - courbe C - 1 module', prix_net_ht: 9.16, prix_unite_base_ht: 9.16, unite_base: 'U', qte_par_conditionnement: 1, ecart_pct: 0, par_reference: false, designation_differente: false, autres_offres: 0, anomalies: [], catalogue_commun: true },
+      { id: 'ex-p2', fournisseur: 'Prolians', designation: 'Disjoncteur modulaire phase neutre 16 A', prix_net_ht: 12.4, prix_unite_base_ht: 12.4, unite_base: 'U', qte_par_conditionnement: 1, ecart_pct: 35, par_reference: true, designation_differente: true, autres_offres: 0, anomalies: ['UNITE_SUPPOSEE'], catalogue_commun: true },
+      { id: 'ex-p3', fournisseur: 'YESSS', designation: 'DNX3 4500 1P+N 16A C 6kA', prix_net_ht: 28.64, prix_unite_base_ht: 28.64, unite_base: 'U', qte_par_conditionnement: 1, ecart_pct: 213, par_reference: false, designation_differente: false, autres_offres: 1, anomalies: [], catalogue_commun: true },
+    ],
+  },
+  {
+    cle_produit: 'GTIN:03700000000017',
+    designation: 'Conduit ICA annelé Ø 20 mm gris - couronne',
+    marque: 'Exemple',
+    reference_fabricant: 'ICA20',
+    gtin: '03700000000017',
+    unite_base: 'M',
+    unites_differentes: false,
+    nb_fournisseurs: 2,
+    prix_min: 1.08,
+    prix_max: 1.4661,
+    ecart_pct: 36,
+    offres: [
+      { id: 'ex-p4', fournisseur: 'Rexel', designation: 'Conduit ICA 20 gris', prix_net_ht: 1.08, prix_unite_base_ht: 1.08, unite_base: 'M', qte_par_conditionnement: 1, ecart_pct: 0, par_reference: false, designation_differente: false, autres_offres: 0, anomalies: [], catalogue_commun: true },
+      { id: 'ex-p5', fournisseur: 'YESSS', designation: 'ICA Ø20 gris couronne 100 m', prix_net_ht: 146.61, prix_unite_base_ht: 1.4661, unite_base: 'M', qte_par_conditionnement: 100, ecart_pct: 36, par_reference: false, designation_differente: true, autres_offres: 0, anomalies: [], catalogue_commun: true },
+    ],
+  },
+];
+
 const reponseExemple = ({ q, limite, inclureQualifiants }) => {
   const jetons = sansAccent(q)
     .split(/\s+/)
@@ -355,6 +397,7 @@ const reponseExemple = ({ q, limite, inclureQualifiants }) => {
     },
     resultats,
     moins_cher_par_fournisseur: moinsCherParFournisseur(principaux),
+    produits_identiques: comparables.length ? PRODUITS_IDENTIQUES_EXEMPLE : [],
     qualifiants_isoles: groupesQualifiants.map((g) => ({
       libelle: g.libelle,
       nombre: g.prix.length,
