@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-02 (4) — Comparateur : regroupement par produit et prix par unité de base
+
+Format unique, étape 2. Le comparateur lit `offres_normalisees`, en lecture seule et sous point de reprise : si la table manque, il retombe sur les prix bruts.
+
+- **Prix comparable** : prix par unité de base (m, m², kg… ou pièce) quand il est connu. Un conduit YESSS à 146,61 € les 100 m vaut 1,47 €/m et n'est plus classé « le plus cher ». Ce prix sert au tri, au bloc de prix, au « moins cher chez chaque fournisseur » et au tableau, qui gagne une colonne « Prix / unité ». Le prix publié reste affiché.
+- **Produits identiques** (`produits_identiques`) : toutes les offres visibles qui partagent la clé produit (GTIN, ou marque + réf. fabricant) d'un résultat, **même si leur désignation ne contient pas les termes cherchés**.
+  - Une ligne par fournisseur, la moins chère ; écart en % par rapport au moins cher.
+  - Pastilles « autre libellé » et « par réf. », pour les offres sans EAN rattachées par marque + référence.
+  - Pas d'écart calculé quand les unités diffèrent.
+- **Anomalies visibles** : unité supposée, unité illisible, net > public, prix inhabituel, écart anormal.
+- **Coût mesuré en production** (lecture des offres d'un même produit, 50 produits, 116 offres) : 120 ms au premier appel, 2 ms ensuite.
+- **Tests** : `backend/tests/test_comparateur_produits.py` (10 tests).
+
 ## 2026-10-02 (3) — Alias de marques : preuve plus stricte
 
 - **Premier calcul en production : 25 alias.** 10 étaient des libellés de groupe, pas des écritures d'une même marque :

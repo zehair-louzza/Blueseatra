@@ -48,3 +48,44 @@ export const ecartPct = (liste) => {
   const max = Math.max(...valides);
   return Math.round(((max - min) / min) * 100);
 };
+
+// --- Format unique : prix comparables ----------------------------------------
+// Le backend renvoie, pour chaque offre normalisée, `prix_unite_base_ht`
+// (prix par mètre, m², kg… ou par pièce) et `qte_par_conditionnement`
+// (100 pour un câble YESSS vendu par 100 m). Le prix publié reste
+// `prix_net_ht`.
+
+const prixFin = () => format('prix_fin', {
+  style: 'currency',
+  currency: 'EUR',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+const qte = () => format('quantite', { maximumFractionDigits: 3 });
+
+/** Prix par unité de base : 4 décimales sous 1 € (0,0123 €/m), sinon 2. */
+export const prixUnitaire = (valeur) => {
+  if (valeur === null || valeur === undefined || valeur === '' || Number.isNaN(Number(valeur))) {
+    return '\u2014';
+  }
+  const n = Number(valeur);
+  return (Math.abs(n) < 1 ? prixFin() : prix()).format(n);
+};
+
+/** Quantité de conditionnement : 100, 1,08… */
+export const quantite = (valeur) => qte().format(Number(valeur) || 0);
+
+/** Prix servant à comparer : par unité de base s'il est connu, sinon brut. */
+export const prixComparable = (offre) => {
+  const u = Number(offre?.prix_unite_base_ht);
+  if (Number.isFinite(u) && u > 0) return u;
+  const p = Number(offre?.prix_net_ht);
+  return Number.isFinite(p) && p > 0 ? p : null;
+};
+
+/** Vrai si le prix publié porte sur plusieurs unités de base (lot, rouleau…). */
+export const estLot = (offre) => {
+  const q = Number(offre?.qte_par_conditionnement);
+  return Number.isFinite(q) && q > 0 && q !== 1;
+};

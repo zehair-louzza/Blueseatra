@@ -39,6 +39,7 @@ colonne generee recherche_norm et son index trigramme
 from __future__ import annotations
 
 import json
+import logging
 import re
 import statistics
 
@@ -47,6 +48,7 @@ from sqlalchemy import text
 from database import get_current_tenant, tenant_session
 import catalogue_commun
 from designation_fournisseur import nettoyer_ligne
+import comparateur_produits as cp
 from vocabulaire_btp import (
     QUALIFIANTS,
     est_regex,
@@ -338,6 +340,64 @@ def _criteres_a_affiner(lignes: list[dict], requete: str) -> list[dict]:
     return sortie
 
 
+# --- format unique (offres_normalisees) ----------------------------------
+#
+# Lecture seule, filtre tenant EXPLICITE (meme raison que plus haut : le
+# repli sous postgres ignore RLS). La table vient de la migration
+# 20261002010000 ; si elle manque (base de dev ancienne) ou si la lecture
+# echoue, le comparateur retombe sur les prix bruts au lieu d'echouer.
+
+log = logging.getLogger(__name__)
+
+# Plafond de la seconde lecture (offres soeurs des produits affiches) : un
+# produit courant compte 2 a 5 offres ; 1 500 couvre 50 produits largement
+# et borne le cas d'une cle produit anormalement partagee.
+PLAFOND_SOEURS = 1500
+
+SQL_NORMALISEES = text("""
+    SELECT n.offre_id AS id, n.cle_produit, n.niveau_identification,
+           n.unite_base, n.qte_par_conditionnement,
+           n.prix_net_ht_unite_base AS prix_unite_base_ht, n.unite_code,
+           n.marque AS marque_canonique, n.ref_fabricant AS ref_fabricant_normalisee,
+           n.gtin, n.prix_public_ht, n.anomalies
+      FROM blueseatra.offres_normalisees n
+     WHERE n.offre_id = ANY(:ids)
+       AND n.tenant_id = ANY(:tenants)
+""")
+
+# Toutes les offres VISIBLES qui portent la cle produit d'un resultat, meme
+# si leur designation ne contient pas les termes cherches.
+SQL_SOEURS = text(f"""
+    SELECT {CHAMPS},
+           n.cle_produit, n.niveau_identification, n.unite_base,
+           n.qte_par_conditionnement,
+           n.prix_net_ht_unite_base AS prix_unite_base_ht, n.unite_code,
+           n.marque AS marque_canonique, n.ref_fabricant AS ref_fabricant_normalisee,
+           n.gtin, n.prix_public_ht AS prix_public_norm, n.anomalies
+      FROM blueseatra.offres_normalisees n
+      JOIN blueseatra.supplier_offers o
+        ON o.id = n.offre_id AND o.tenant_id = n.tenant_id
+      LEFT JOIN blueseatra.suppliers f
+        ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+     WHERE n.cle_produit = ANY(:cles)
+       AND n.tenant_id = ANY(:tenants)
+       AND {FILTRE_VERSION_ACTIVE}
+     LIMIT {PLAFOND_SOEURS}
+""")
+
+
+async def _lecture_protegee(session, sql, params, quoi: str) -> list[dict]:
+    """Requete sous point de reprise : un echec n'invalide pas la session."""
+    try:
+        async with session.begin_nested():
+            res = await session.execute(sql, params)
+            return [dict(r) for r in res.mappings()]
+    except Exception as exc:  # table absente, droit manquant, delai
+        log.warning("Comparateur : %s indisponible (%s), prix bruts conserves.",
+                    quoi, type(exc).__name__)
+        return []
+
+
 # --- point d'entree -----------------------------------------------------
 
 async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
@@ -438,13 +498,30 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         else:
             retenus, isoles = _separe_qualifiants(lignes, requete)
 
+        # Format unique : prix par unite de base et cle produit de chaque
+        # candidat (5 000 lectures par cle primaire au plus, ~50 ms). Les
+        # candidats sont ensuite tries au PRIX COMPARABLE : un cable YESSS
+        # a 146,61 € les 100 m vaut 1,47 €/m et doit passer devant un cable
+        # a 2 €/m.
+        tenants = parametres_fonction["tenants"]
+        normalisees = {}
+        if retenus:
+            normalisees = {r["id"]: r for r in await _lecture_protegee(
+                session, SQL_NORMALISEES,
+                {"ids": [l["id"] for l in retenus], "tenants": tenants},
+                "offres normalisees")}
+        for l in retenus:
+            cp.enrichir(l, normalisees.get(l["id"]))
+        if normalisees:
+            retenus.sort(key=cp.cle_tri)
+
         # Ids a detailler : les lignes affichees + le moins cher de chaque
         # fournisseur (meme regle que plus bas).
         a_lire = [l["id"] for l in retenus[:limite]]
         vus: dict[str, tuple] = {}
         for l in retenus:
-            p, nom = l.get("prix_net_ht"), l.get("fournisseur") or "inconnu"
-            if p is not None and p > 0 and (nom not in vus or p < vus[nom][0]):
+            p, nom = cp.prix_comparable(l), l.get("fournisseur") or "inconnu"
+            if p is not None and (nom not in vus or p < vus[nom][0]):
                 vus[nom] = (p, l["id"])
         a_lire += [i for _, i in vus.values()]
         fiches = {}
@@ -454,9 +531,20 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
                 "commun": parametres["commun"]})
             fiches = {r["id"]: dict(r) for r in res.mappings()}
 
+        # Produits identiques : toutes les offres visibles qui partagent la
+        # cle produit d'une ligne affichee, quelle que soit leur designation.
+        ordre_cles = list(dict.fromkeys(
+            l["cle_produit"] for l in retenus[:limite] if l.get("cle_produit")))
+        soeurs = []
+        if ordre_cles:
+            soeurs = await _lecture_protegee(session, SQL_SOEURS, {
+                "cles": ordre_cles, "tenants": tenants, "tenant_id": tenant,
+                "commun": parametres["commun"]}, "offres du meme produit")
+
     # Les lignes detaillees reprennent l'ordre et le perimetre du premier
     # passage ; les autres gardent seulement prix/fournisseur/recherche.
-    retenus = [fiches.get(l["id"], l) for l in retenus]
+    retenus = [cp.enrichir(fiches[l["id"]], normalisees.get(l["id"])) if l["id"] in fiches else l
+               for l in retenus]
     # Libelles amputes a la source (« , D 350 H 1, blanc ») : affichage
     # seulement, la base garde le libelle brut.
     for l in retenus:
@@ -464,8 +552,24 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
 
     criteres = _criteres_a_affiner(retenus, requete)
 
-    prix = [l["prix_net_ht"] for l in retenus
-            if l.get("prix_net_ht") is not None and l["prix_net_ht"] > 0]
+    for s in soeurs:
+        if s.get("prix_public_ht") is None:
+            s["prix_public_ht"] = s.get("prix_public_norm")
+        s.pop("prix_public_norm", None)
+        s.pop("recherche_norm", None)
+        s["anomalies"] = [a for a in (s.get("anomalies") or []) if a in cp.ANOMALIES_AFFICHEES]
+        for k in ("qte_par_conditionnement", "prix_unite_base_ht"):
+            if s.get(k) is not None:
+                s[k] = float(s[k])
+        nettoyer_ligne(s)
+    produits = cp.regrouper_par_produit(
+        soeurs, ids_trouves={l["id"] for l in retenus}, ordre=ordre_cles)
+    nb_par_cle = {g["cle_produit"]: g["nb_fournisseurs"] for g in produits}
+    for l in retenus[:limite]:
+        l["nb_fournisseurs_produit"] = nb_par_cle.get(l.get("cle_produit"), 1 if l.get("cle_produit") else None)
+
+    # Statistiques au prix comparable (par unite de base).
+    prix = [p for p in (cp.prix_comparable(l) for l in retenus) if p is not None]
     bloc_prix = None
     if prix:
         bas, haut = min(prix), max(prix)
@@ -476,20 +580,9 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
             "ecart_pct": round(100 * (haut - bas) / bas) if bas > 0 else 0,
         }
 
-    # Le moins cher chez chaque fournisseur : la vue de negociation.
-    meilleurs: dict[str, dict] = {}
-    for ligne in retenus:
-        p = ligne.get("prix_net_ht")
-        nom = ligne.get("fournisseur") or "inconnu"
-        if p is None or p <= 0:
-            continue
-        if nom not in meilleurs or p < meilleurs[nom]["prix_net_ht"]:
-            meilleurs[nom] = {
-                "fournisseur": nom,
-                "prix_net_ht": round(p, 2),
-                "designation": ligne.get("designation"),
-                "id": ligne.get("id"),
-            }
+    # Le moins cher chez chaque fournisseur : la vue de negociation, au prix
+    # comparable (un lot de 100 m n'est plus « le plus cher »).
+    meilleurs = cp.meilleurs_par_fournisseur(retenus)
 
     for ligne in retenus:
         ligne.pop("recherche_norm", None)
@@ -504,8 +597,10 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         "termes_reconnus": reconnus,
         "prix": bloc_prix,
         "resultats": retenus[:limite],
-        "moins_cher_par_fournisseur": sorted(
-            meilleurs.values(), key=lambda x: x["prix_net_ht"]),
+        "moins_cher_par_fournisseur": meilleurs,
+        # Produits vendus par au moins deux fournisseurs (cle GTIN ou
+        # marque + reference), offres comparees au prix par unite de base.
+        "produits_identiques": produits,
         "qualifiants_isoles": isoles,
         "criteres_a_affiner": criteres,
     }

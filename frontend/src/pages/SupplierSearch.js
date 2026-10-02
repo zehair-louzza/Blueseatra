@@ -19,6 +19,7 @@ import { Spinner, EmptyState } from '@/components/Spinner';
 import { SupplierSearchSummary, RecognizedTerms } from '@/components/SupplierSearchSummary';
 import { SupplierCheapestPanel } from '@/components/SupplierCheapestPanel';
 import { SupplierResultsTable } from '@/components/SupplierResultsTable';
+import { SupplierProductGroups } from '@/components/SupplierProductGroups';
 import { CatalogueCommunPanel } from '@/components/CatalogueCommunPanel';
 import { IsolatedQualifiers, RefineCriteria } from '@/components/SupplierRefinePanels';
 import { toast } from 'sonner';
@@ -335,6 +336,7 @@ export default function SupplierSearch() {
             ) : (
               <>
                 <SupplierCheapestPanel offres={reponse.moins_cher_par_fournisseur} />
+                <SupplierProductGroups produits={reponse.produits_identiques} />
                 <SupplierResultsTable resultats={resultats} />
               </>
             )}
