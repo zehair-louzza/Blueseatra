@@ -187,29 +187,29 @@ async def get_current(creds: HTTPAuthorizationCredentials = Depends(security)) -
     cle = (payload["user_id"], payload["tenant_id"])
     entree = _auth_cache.get(cle)
     if entree and entree[0] > time.monotonic():
+        # Entree creee uniquement APRES un controle d'appartenance reussi.
         user, role = entree[1], entree[2]
-        set_current_tenant(payload["tenant_id"])
-        return CurrentUser(user_id=user["id"], email=user["email"], name=user.get("name", ""),
-                           tenant_id=payload["tenant_id"], role=role)
-    user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
-    if not user:
-        raise HTTPException(401, "User not found")
-    tu = await db.tenant_users.find_one(
-        {"tenant_id": payload["tenant_id"], "user_id": payload["user_id"]}, {"_id": 0})
-    if not tu:
-        raise HTTPException(403, "No access to tenant")
-    if len(_auth_cache) >= _AUTH_MAX:
-        _auth_cache.clear()
-    _auth_cache[cle] = (time.monotonic() + _AUTH_TTL_S,
-                        {"id": user["id"], "email": user["email"], "name": user.get("name", "")},
-                        tu["role"])
+    else:
+        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
+        if not user:
+            raise HTTPException(401, "User not found")
+        tu = await db.tenant_users.find_one(
+            {"tenant_id": payload["tenant_id"], "user_id": payload["user_id"]}, {"_id": 0})
+        if not tu:
+            raise HTTPException(403, "No access to tenant")
+        role = tu["role"]
+        if len(_auth_cache) >= _AUTH_MAX:
+            _auth_cache.clear()
+        _auth_cache[cle] = (time.monotonic() + _AUTH_TTL_S,
+                            {"id": user["id"], "email": user["email"], "name": user.get("name", "")},
+                            role)
     # Publie le tenant pour toute la suite de la requete : tenant_session()
     # le lira et l'emettra a la base (set_config app.tenant_id, is_local).
     # Place APRES la verification d'appartenance (tenant_users) : on ne
     # declare jamais un tenant que l'appelant n'a pas prouve.
     set_current_tenant(payload["tenant_id"])
     return CurrentUser(user_id=user["id"], email=user["email"], name=user.get("name", ""),
-                       tenant_id=payload["tenant_id"], role=tu["role"])
+                       tenant_id=payload["tenant_id"], role=role)
 
 
 def require_role(*allowed):
