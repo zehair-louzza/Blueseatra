@@ -81,7 +81,7 @@ Le détail des tables et des relations est dans le [schéma de la base de donné
 
 | Point | État | Suite |
 |---|---|---|
-| Journal d'audit en ajout seul | Demande de fusion [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) | Fusionner puis appliquer la migration `20261001230000` sur Supabase |
+| Journal d'audit en ajout seul | Demande de fusion [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) | Fusionner puis appliquer la migration `20261002040000` sur Supabase |
 | Conseiller Supabase : 10 fonctions sans `search_path` figé | Avertissement | Ajouter `SET search_path = ''` aux fonctions concernées |
 | Conseiller Supabase : `pg_trgm` et `unaccent` dans `public` | Avertissement | Déplacer les extensions dans un schéma dédié, après test des index |
 | Instance Render gratuite | Mise en veille compensée par `pg_cron` | Passer à une instance payante avant la commercialisation |

@@ -211,7 +211,7 @@ async def pre_vol(pw, tid):
                 faux, tid)
             note(True, "INSERT audit_logs")
 
-            # Journal d'audit en ajout seul (migration 20261001230000) :
+            # Journal d'audit en ajout seul (migration 20261002040000) :
             # UPDATE et DELETE doivent etre REFUSES au role applicatif.
             for verbe, sql in (
                 ("UPDATE", 'update blueseatra."audit_logs" set tenant_id = $1 where id = $2'),

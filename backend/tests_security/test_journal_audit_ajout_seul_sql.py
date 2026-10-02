@@ -1,4 +1,4 @@
-"""Journal d'audit en ajout seul (migration 20261001230000). Base JETABLE uniquement.
+"""Journal d'audit en ajout seul (migration 20261002040000). Base JETABLE uniquement.
 
     TEST_PG_DSN='postgresql://postgres@/qt?host=/tmp&port=55432' pytest backend/tests_security/test_journal_audit_ajout_seul_sql.py -q
 """
@@ -14,7 +14,7 @@ psycopg2 = pytest.importorskip("psycopg2")
 DSN = os.environ.get("TEST_PG_DSN")
 pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 MIGRATION = (Path(__file__).resolve().parents[2]
-             / "supabase/migrations/20261001230000_journal_audit_ajout_seul.sql")
+             / "supabase/migrations/20261002040000_journal_audit_ajout_seul.sql")
 
 
 def _cx():

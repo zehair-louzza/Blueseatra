@@ -227,7 +227,7 @@ def test_single_active_invariant_is_tenant_scoped(client, api, demo_catalog):
         for cid in list(_catalogs(other, api)):
             other.delete(f"{api}/catalogs/{cid}", timeout=60)
         from conftest import psql
-        # audit_logs est en ajout seul (migration 20261001230000) : la purge des
+        # audit_logs est en ajout seul (migration 20261002040000) : la purge des
         # traces de test passe par la maintenance explicite, locale a la transaction.
         psql(f"BEGIN; SET LOCAL blueseatra.maintenance_audit = 'on'; "
              f"DELETE FROM audit_logs WHERE tenant_id IN (SELECT id FROM tenants WHERE name='TEST_CO_{suffix}'); COMMIT;")
