@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-10-02 (8) — Temps de réponse : cache court de l'authentification et des sources
+
+**Mesure en production** (en-tête `Server-Timing`, PR #163). Aucune nouvelle connexion n'est ouverte : le pool fonctionne. Chaque connexion empruntée coûte en revanche environ 110 ms (ping, `BEGIN`, `COMMIT`) et chaque requête SQL environ 65 ms (Render Frankfurt → Supabase eu-west-1).
+
+| Route | Total | SQL | Requêtes / emprunts |
+|---|---:|---:|---:|
+| `/auth/me` | 890 ms | 340 ms | 5 / 5 |
+| `/catalog/active` | 352 ms | 132 ms | 2 / 2 |
+| `/catalog/search` | 1 195 ms | 642 ms | 10 / 5 |
+
+**Changements** :
+- `get_current` : le succès du contrôle utilisateur + appartenance est gardé **20 s**, ce qui supprime 2 sessions (~350 ms) sur chaque requête authentifiée.
+  - Le JWT reste vérifié à chaque requête.
+  - Un refus n'est jamais mis en cache.
+  - Toute modification de membre (rôle, nom, mot de passe, retrait) invalide l'entrée immédiatement. L'API tourne en un seul processus, donc l'invalidation est immédiate.
+- `catalogue_chiffrage.rechercher` : les sources actives et visibles d'une entreprise sont gardées **20 s**, ce qui supprime 2 sessions par frappe dans la recherche d'articles du devis.
+  - Le cache est invalidé par `basculer()` et par le masquage du catalogue commun.
+  - Une activation de version faite hors de l'API (script d'import) est prise en compte en 20 s au plus.
+
+**Tests** : `backend/tests/test_cache_auth_sources.py` (9 tests : succès en cache, refus jamais en cache, jeton invalide, retrait de membre, changement de rôle, expiration, tenant publié depuis le cache, sources par entreprise, invalidation par masquage).
+
 ## 2026-10-02 (7) — Mesure des temps côté serveur (en-tête Server-Timing)
 
 **Constat**, mesuré depuis le navigateur sur l'API de production :

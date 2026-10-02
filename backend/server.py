@@ -3,6 +3,7 @@ import os
 import io
 import csv
 import json
+import time
 import uuid
 import logging
 import asyncio
@@ -147,6 +148,35 @@ class CurrentUser(BaseModel):
     role: str
 
 
+# Cache court des controles d'authentification (02/10/2026).
+#
+# Mesure en production (en-tete Server-Timing) : chaque requete authentifiee
+# relisait `users` puis `tenant_users`, soit 2 sessions et ~350 ms avant tout
+# travail (Render Frankfurt -> Supabase eu-west-1 : ~110 ms par emprunt de
+# connexion, ~65 ms par requete). La saisie d'une recherche enchaine des
+# dizaines de requetes en quelques secondes.
+#
+# Securite : seuls les SUCCES sont mis en cache (un refus est toujours
+# reverifie), le JWT reste verifie a chaque requete, et toute modification de
+# membre (role, nom, mot de passe, retrait) invalide immediatement l'entree.
+# L'API tourne en un seul processus uvicorn : l'invalidation est donc
+# immediate. Un changement fait hors de l'API (SQL direct) prend effet en
+# 20 s au plus.
+_AUTH_TTL_S = 20.0
+_AUTH_MAX = 5000
+_auth_cache: dict[tuple[str, str], tuple[float, dict, str]] = {}
+
+
+def invalider_auth(user_id: str | None = None, tenant_id: str | None = None) -> None:
+    """Retire du cache les entrees d'un utilisateur et/ou d'un tenant (tout si None)."""
+    if user_id is None and tenant_id is None:
+        _auth_cache.clear()
+        return
+    for k in [k for k in _auth_cache
+              if (user_id is None or k[0] == user_id) and (tenant_id is None or k[1] == tenant_id)]:
+        _auth_cache.pop(k, None)
+
+
 async def get_current(creds: HTTPAuthorizationCredentials = Depends(security)) -> CurrentUser:
     if not creds:
         raise HTTPException(401, "Not authenticated")
@@ -154,6 +184,13 @@ async def get_current(creds: HTTPAuthorizationCredentials = Depends(security)) -
         payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid or expired token")
+    cle = (payload["user_id"], payload["tenant_id"])
+    entree = _auth_cache.get(cle)
+    if entree and entree[0] > time.monotonic():
+        user, role = entree[1], entree[2]
+        set_current_tenant(payload["tenant_id"])
+        return CurrentUser(user_id=user["id"], email=user["email"], name=user.get("name", ""),
+                           tenant_id=payload["tenant_id"], role=role)
     user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
     if not user:
         raise HTTPException(401, "User not found")
@@ -161,6 +198,11 @@ async def get_current(creds: HTTPAuthorizationCredentials = Depends(security)) -
         {"tenant_id": payload["tenant_id"], "user_id": payload["user_id"]}, {"_id": 0})
     if not tu:
         raise HTTPException(403, "No access to tenant")
+    if len(_auth_cache) >= _AUTH_MAX:
+        _auth_cache.clear()
+    _auth_cache[cle] = (time.monotonic() + _AUTH_TTL_S,
+                        {"id": user["id"], "email": user["email"], "name": user.get("name", "")},
+                        tu["role"])
     # Publie le tenant pour toute la suite de la requete : tenant_session()
     # le lira et l'emettra a la base (set_config app.tenant_id, is_local).
     # Place APRES la verification d'appartenance (tenant_users) : on ne
@@ -398,6 +440,7 @@ async def update_member(user_id: str, body: RoleUpdate,
             raise HTTPException(400, "Password must be at least 6 characters")
         await db.users.update_one({"id": user_id}, {"$set": {"password_hash": hash_pw(body.password)}})
         await audit(cu.tenant_id, cu.email, "member.password_update", user_id)
+    invalider_auth(user_id=user_id)
     return {"ok": True}
 
 
@@ -414,6 +457,7 @@ async def remove_member(user_id: str, cu: CurrentUser = Depends(require_role("ow
     if user_id == cu.user_id:
         raise HTTPException(400, "Vous ne pouvez pas vous retirer vous-m\u00eame")
     await db.tenant_users.delete_one({"tenant_id": cu.tenant_id, "user_id": user_id})
+    invalider_auth(user_id=user_id, tenant_id=cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "member.remove", user_id)
     return {"ok": True}
 
