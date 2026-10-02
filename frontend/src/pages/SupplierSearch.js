@@ -12,6 +12,7 @@ import { apiError } from '@/lib/api';
 import { rechercherFournisseurs, listerFamilles, UTILISER_JEU_EXEMPLE } from '@/lib/fournisseursApi';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import SuggestionsMots from "@/components/SuggestionsMots";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SupplierFamilyFilter } from '@/components/SupplierFamilyFilter';
@@ -201,16 +202,18 @@ export default function SupplierSearch() {
             {t('fo.question')}
           </Label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              id="fournisseurs-q"
-              ref={champRef}
+            <SuggestionsMots
               value={saisie}
-              onChange={(e) => setSaisie(e.target.value)}
-              placeholder="disjoncteur 16a courbe c ph+n"
-              autoComplete="off"
-              enterKeyHint="search"
-              className="flex-1"
-              data-testid="fournisseurs-search-input"
+              onValueChange={setSaisie}
+              portee="comparateur"
+              inputProps={{
+                ref: champRef,
+                id: 'fournisseurs-q', placeholder: 'disjoncteur 16a courbe c ph+n',
+                autoComplete: 'off', enterKeyHint: 'search', className: 'flex-1',
+                'data-testid': 'fournisseurs-search-input',
+                // Entrée sans suggestion surlignée : soumettre la recherche.
+                onKeyDown: (e) => { if (e.key === 'Enter' && !e.defaultPrevented) soumettre(e); },
+              }}
             />
             <Button type="submit" className="gap-2 sm:w-auto" disabled={chargement} data-testid="fournisseurs-search-button">
               {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}

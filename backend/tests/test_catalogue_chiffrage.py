@@ -383,3 +383,101 @@ def test_basculer_desactiver_ne_supprime_que_l_etat(monkeypatch):
     assert "actif = false" in sql_text
     assert "DELETE" not in sql_text
     assert session.committed
+
+
+# --- Recherche parallele par groupes de sources (02/10/2026) -----------------
+
+def _ligne(i, prix):
+    return {"id": f"o{i}", "fournisseur": "F", "designation": f"Article {i}", "marque": None,
+            "reference_fournisseur": None, "reference_fabricant": None, "code_ean": None,
+            "prix_net_ht": prix, "prix_public_ht": None, "unite_vente": None,
+            "conditionnement": None, "famille": None, "sous_famille": None,
+            "url_produit": None, "date_prix": None, "catalogue_commun": True}
+
+
+def test_repartir_sources_equilibre_et_conserve_tout():
+    cles = [f"v{i}" for i in range(9)]
+    visibles = {c: {"references": 50000} for c in cles}
+    visibles["v7"]["references"] = visibles["v8"]["references"] = 100   # petites sources
+    groupes = catalogue_chiffrage.repartir_sources(cles, visibles)
+    assert len(groupes) == 3
+    assert sorted(c for g in groupes for c in g) == sorted(cles)        # rien perdu, rien double
+    lourdes = [sum(1 for c in g if visibles[c]["references"] > 2000) for g in groupes]
+    assert max(lourdes) - min(lourdes) <= 1                              # 7 lourdes : 3/2/2
+
+
+def test_repartir_sources_peu_de_sources_un_seul_groupe():
+    assert catalogue_chiffrage.repartir_sources(["a", "b", "c"], {}) == [["a", "b", "c"]]
+    assert len(catalogue_chiffrage.repartir_sources([f"v{i}" for i in range(4)], {})) == 2
+
+
+def test_recherche_parallele_fusionne_trie_et_limite(monkeypatch):
+    cles = [f"{i:08d}-0000-4000-8000-000000000000" for i in range(9)]
+    # Chaque session renvoie ses lignes ; prix volontairement entrelaces.
+    sessions = []
+
+    def nouvelle_session():
+        k = len(sessions)
+        s = FakeSession(results=[FakeResult(mappings=[_ligne(10 * k + j, float(k + 3 * j) if j < 2 else None)
+                                                      for j in range(3)])])
+        sessions.append(s)
+        return _Ctx(s)
+
+    _patch(monkeypatch, FakeSession(),
+           fournisseurs=[{"cle": c, "fournisseur": "F", "references": 50000, "catalogue_commun": True}
+                         for c in cles],
+           etats={c: True for c in cles})
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_session", nouvelle_session)
+    articles = asyncio.run(catalogue_chiffrage.rechercher("disjoncteur", 5))
+    assert len(sessions) == 3                                   # 3 groupes, 3 sessions
+    toutes = [(sql, p) for s in sessions for sql, p in s.executed]
+    assert sum(str(sql).count("blueseatra.offres_candidates(") for sql, _ in toutes) == 9
+    for _, p in toutes:                                         # chaque groupe : son propre top
+        assert p["limite"] == 5 and p["tenant_id"] == TENANT
+    prix = [a["unit_price_ht"] for a in articles]
+    assert len(articles) == 5
+    assert prix == sorted(prix)                                 # tri global par prix
+    assert prix == [0.0, 1.0, 2.0, 3.0, 4.0]                    # les 5 moins chers de l'ensemble
+
+
+def test_recherche_parallele_prix_absents_en_dernier(monkeypatch):
+    cles = [f"{i:08d}-0000-4000-8000-000000000000" for i in range(6)]
+    sessions = []
+
+    def nouvelle_session():
+        k = len(sessions)
+        s = FakeSession(results=[FakeResult(mappings=[_ligne(k, None if k % 2 else float(k))])])
+        sessions.append(s)
+        return _Ctx(s)
+
+    _patch(monkeypatch, FakeSession(),
+           fournisseurs=[{"cle": c, "fournisseur": "F", "references": 50000, "catalogue_commun": True}
+                         for c in cles],
+           etats={c: True for c in cles})
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_session", nouvelle_session)
+    articles = asyncio.run(catalogue_chiffrage.rechercher("prise", 10))
+    prix = [a["unit_price_ht"] for a in articles]
+    connus = [p for p in prix if p is not None]
+    assert prix == connus + [None] * (len(prix) - len(connus))   # prix absents en dernier
+    assert len(sessions) == 2 and len(articles) == 2              # 6 sources -> 2 groupes
+    assert connus == [0.0]
+
+
+def test_recherche_parallele_erreur_d_un_groupe_rend_liste_vide(monkeypatch):
+    cles = [f"{i:08d}-0000-4000-8000-000000000000" for i in range(9)]
+    appels = []
+
+    class Boom(FakeSession):
+        async def execute(self, sql, params=None):
+            raise RuntimeError("base indisponible")
+
+    def nouvelle_session():
+        appels.append(1)
+        return _Ctx(Boom() if len(appels) == 2 else FakeSession())
+
+    _patch(monkeypatch, FakeSession(),
+           fournisseurs=[{"cle": c, "fournisseur": "F", "references": 50000, "catalogue_commun": True}
+                         for c in cles],
+           etats={c: True for c in cles})
+    monkeypatch.setattr(catalogue_chiffrage, "tenant_session", nouvelle_session)
+    assert asyncio.run(catalogue_chiffrage.rechercher("prise", 10)) == []

@@ -269,11 +269,31 @@ _SOURCES_TTL_S = 20.0
 _cache_sources: dict[str, tuple[float, list[str], dict]] = {}
 
 
+_cache_visibles: dict[str, tuple[float, list[str]]] = {}
+
+
 def invalider_sources(tenant: str | None = None) -> None:
     if tenant is None:
         _cache_sources.clear()
+        _cache_visibles.clear()
     else:
         _cache_sources.pop(tenant, None)
+        _cache_visibles.pop(tenant, None)
+
+
+async def sources_visibles(tenant: str) -> list[str]:
+    """Cles de toutes les sources VISIBLES (comparateur), gardees 20 s.
+
+    Meme invalidation que _sources_recherche : bascule, masquage du
+    catalogue commun.
+    """
+    entree = _cache_visibles.get(tenant)
+    if entree and entree[0] > time.monotonic():
+        return entree[1]
+    cles = [f["cle"] for f in
+            (await catalogue_navigation.fournisseurs()).get("fournisseurs", []) if f.get("cle")]
+    _cache_visibles[tenant] = (time.monotonic() + _SOURCES_TTL_S, cles)
+    return cles
 
 
 async def _sources_recherche(tenant: str) -> tuple[list[str], dict]:
@@ -289,6 +309,76 @@ async def _sources_recherche(tenant: str) -> tuple[list[str], dict]:
     cles = [c for c in actifs if c in visibles]
     _cache_sources[tenant] = (time.monotonic() + _SOURCES_TTL_S, cles, visibles)
     return cles, visibles
+
+
+# Recherche parallele : au plus 3 groupes, et au plus 4 sessions de recherche
+# simultanees pour tout le processus (pool metier : 5 + 2 connexions), afin de
+# laisser des connexions libres aux autres requetes.
+_GROUPES_MAX = 3
+_SOURCES_PAR_GROUPE_MIN = 3
+_SEUIL_PETITE_SOURCE = 2000
+_sessions_recherche = asyncio.Semaphore(4)
+
+
+def repartir_sources(cles: list[str], visibles: dict) -> list[list[str]]:
+    """Repartit les sources en groupes de cout comparable.
+
+    Le cout d'une source est a peu pres constant au-dela de quelques
+    milliers de references (balayage de l'index trigramme) et quasi nul en
+    dessous (index par version). Plus grosse d'abord, dans le groupe le
+    moins charge ; l'ordre des cles est conserve dans chaque groupe.
+    """
+    if len(cles) <= _SOURCES_PAR_GROUPE_MIN:
+        return [list(cles)]
+    n = min(_GROUPES_MAX, -(-len(cles) // _SOURCES_PAR_GROUPE_MIN))
+    poids = {c: (1.0 if int((visibles.get(c) or {}).get("references") or 0) > _SEUIL_PETITE_SOURCE
+                 else 0.1) for c in cles}
+    charges = [0.0] * n
+    groupes: list[list[str]] = [[] for _ in range(n)]
+    for c in sorted(cles, key=lambda c: -poids[c]):
+        i = charges.index(min(charges))
+        groupes[i].append(c)
+        charges[i] += poids[c]
+    rang = {c: k for k, c in enumerate(cles)}
+    return [sorted(g, key=rang.get) for g in groupes if g]
+
+
+async def _chercher_groupe(cles: list[str], visibles: dict, tenant: str,
+                           termes: list, limite: int) -> list[dict]:
+    """Offres les moins cheres d'un groupe de sources, dans sa propre session."""
+    params = {"tenant_id": tenant, "commun": catalogue_commun.TENANT_COMMUN,
+              "limite": limite, "termes": json.dumps(termes)}
+    # Une branche par source active : blueseatra.offres_candidates
+    # renvoie jusqu'a 200 identifiants par source via l'index
+    # trigramme. Sous RLS, une requete directe ne pouvait pas l'utiliser
+    # (LIKE n'est pas LEAKPROOF) : TimeoutError (command_timeout 30 s)
+    # constate en production le 01/10/2026 sur "prise". La fonction
+    # refuse tout tenant autre que l'entreprise ou le catalogue commun ;
+    # le tenant de chaque branche vient du parcours, jamais du client.
+    branches = []
+    for i, cle in enumerate(cles):
+        params[f"t{i}"] = [catalogue_commun.TENANT_COMMUN
+                           if visibles[cle].get("catalogue_commun") else tenant]
+        params[f"v{i}"] = None if cle.startswith("hist:") else cle
+        params[f"h{i}"] = cle[5:] if cle.startswith("hist:") else None
+        branches.append(
+            f"SELECT c.id FROM blueseatra.offres_candidates("
+            f"CAST(:t{i} AS text[]), CAST(:termes AS jsonb), 200, "
+            f":v{i}, :h{i}, false, false) c")
+    sql = text(f"""
+        WITH sel AS MATERIALIZED ({' UNION ALL '.join(branches)})
+        SELECT {catalogue_navigation.CHAMPS}
+          FROM sel
+          JOIN blueseatra.supplier_offers o ON o.id = sel.id
+          LEFT JOIN blueseatra.suppliers f
+                 ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+         WHERE (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+         ORDER BY o.price_ht ASC NULLS LAST, o.id
+         LIMIT :limite
+    """)
+    async with _sessions_recherche:
+        async with tenant_session() as session:
+            return [dict(r) for r in (await session.execute(sql, params)).mappings()]
 
 
 async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
@@ -316,42 +406,22 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         termes = termes_recherche(q)
         if not termes:
             return []
-        params = {"tenant_id": tenant, "commun": catalogue_commun.TENANT_COMMUN,
-                  "limite": limite, "termes": json.dumps(termes)}
-        # Une branche par source active : blueseatra.offres_candidates
-        # renvoie jusqu'a 200 identifiants par source via l'index
-        # trigramme. Sous RLS, une requete directe ne pouvait pas l'utiliser
-        # (LIKE n'est pas LEAKPROOF) : TimeoutError (command_timeout 30 s)
-        # constate en production le 01/10/2026 sur "prise". La fonction
-        # refuse tout tenant autre que l'entreprise ou le catalogue commun ;
-        # le tenant de chaque branche vient du parcours, jamais du client.
-        branches = []
-        for i, cle in enumerate(cles):
-            params[f"t{i}"] = [catalogue_commun.TENANT_COMMUN
-                               if visibles[cle].get("catalogue_commun") else tenant]
-            # Cle de version : UUID resolu parmi les fournisseurs visibles de
-            # cette entreprise. Cle "hist:" : fournisseur sans catalogue.
-            params[f"v{i}"] = None if cle.startswith("hist:") else cle
-            params[f"h{i}"] = cle[5:] if cle.startswith("hist:") else None
-            branches.append(
-                f"SELECT c.id FROM blueseatra.offres_candidates("
-                f"CAST(:t{i} AS text[]), CAST(:termes AS jsonb), 200, "
-                f":v{i}, :h{i}, false, false) c")
-        # Les fiches sont relues par id SOUS RLS, avec le filtre tenant
-        # explicite (mode repli sous postgres) ; tri par prix sur <= 200 x n.
-        sql = text(f"""
-            WITH sel AS MATERIALIZED ({' UNION ALL '.join(branches)})
-            SELECT {catalogue_navigation.CHAMPS}
-              FROM sel
-              JOIN blueseatra.supplier_offers o ON o.id = sel.id
-              LEFT JOIN blueseatra.suppliers f
-                     ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
-             WHERE (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-             ORDER BY o.price_ht ASC NULLS LAST, o.id
-             LIMIT :limite
-        """)
-        async with tenant_session() as session:
-            lignes = [dict(r) for r in (await session.execute(sql, params)).mappings()]
+        # Sources reparties en groupes interroges EN PARALLELE, chacun dans sa
+        # session (02/10/2026). Mesure en production : chaque source paie
+        # ~35 ms d'index trigramme pour un mot long (« disjoncteur »), en
+        # serie dans une seule requete : 9 sources = ~330 ms. Chaque groupe
+        # renvoie ses `limite` offres les moins cheres ; le meilleur
+        # `limite` global est donc exactement le meme qu'en une requete.
+        groupes = repartir_sources(cles, visibles)
+        if len(groupes) == 1:
+            lignes = await _chercher_groupe(groupes[0], visibles, tenant, termes, limite)
+        else:
+            resultats = await asyncio.gather(
+                *(_chercher_groupe(g, visibles, tenant, termes, limite) for g in groupes))
+            lignes = [l for r in resultats for l in r]
+            lignes.sort(key=lambda l: (l.get("prix_net_ht") is None,
+                                       l.get("prix_net_ht") or 0.0, str(l.get("id"))))
+            lignes = lignes[:limite]
         return [_en_article(l) for l in lignes]
     except Exception:
         log.exception("recherche chiffrage fournisseurs echouee (tenant %s)", tenant)

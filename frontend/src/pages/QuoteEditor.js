@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api, apiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import SuggestionsMots from '@/components/SuggestionsMots';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -295,10 +296,13 @@ export default function QuoteEditor() {
                               {families.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                             </SelectContent>
                           </Select>
-                          <div className="relative flex-1">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input className="pl-8" placeholder={t('quote.pick_item')} value={search} onChange={(e) => setSearch(e.target.value)} data-testid="catalog-search-input" autoFocus />
-                          </div>
+                          <SuggestionsMots
+                            value={search}
+                            onValueChange={setSearch}
+                            portee="devis"
+                            inputProps={{ className: 'pl-8', placeholder: t('quote.pick_item'), 'data-testid': 'catalog-search-input', autoFocus: true }}
+                            prependIcon={<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />}
+                          />
                         </div>
                         <div className="relative max-h-[55vh] divide-y overflow-auto rounded-lg border" aria-busy={catalogLoading}>
                           {catalogLoading && catalog.length === 0 && (

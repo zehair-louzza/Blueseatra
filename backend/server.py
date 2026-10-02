@@ -28,6 +28,7 @@ import quote_scenarios
 import pdf_service
 import fournisseur_recherche
 import catalogue_commun
+import suggestions_mots
 import catalogue_navigation
 import catalogue_chiffrage
 import quotas
@@ -1672,6 +1673,26 @@ async def get_active_catalog(tenant_id):
 async def catalog_active(cu: CurrentUser = Depends(get_current)):
     cat, items = await get_active_catalog(cu.tenant_id)
     return {"catalog": cat, "items": items}
+
+
+@api.get("/catalog/suggestions")
+async def catalog_suggestions(q: str = Query(""), portee: str = Query("devis"),
+                              cu: CurrentUser = Depends(get_current)):
+    """Mots existant dans les catalogues, proposes pendant la frappe.
+
+    Le chiffreur choisit un mot complet (« disjoncteur ») avant que la
+    recherche lourde ne parte. `portee=devis` : sources actives du chiffrage
+    + catalogue interne ; `portee=comparateur` : toutes les sources visibles.
+    """
+    designations = None
+    if portee != "comparateur":
+        _, items = await get_active_catalog(cu.tenant_id)
+        designations = [str(it.get("item_label") or "") for it in (items or [])]
+    try:
+        return await suggestions_mots.suggerer(q, portee, designations)
+    except Exception:
+        logger.warning("suggestions indisponibles", exc_info=True)
+        return {"debut": "", "prefixe": "", "suggestions": []}
 
 
 @api.get("/catalog/search")
