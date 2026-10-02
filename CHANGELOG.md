@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-02 (7) — Mesure des temps côté serveur (en-tête Server-Timing)
+
+**Constat**, mesuré depuis le navigateur sur l'API de production :
+
+| Route | Médiane |
+|---|---:|
+| `/api/health` | 28 ms |
+| `/api/catalog/active` | 384 ms |
+| `/api/auth/me` | 916 ms |
+| `/api/catalog/search` | 1,2 s (objectif du ticket #86 : 500 ms) |
+
+Le SQL des sources fournisseurs ne prend pourtant que 40 à 277 ms. Chaque requête du `pg_adapter` coûte donc environ 180 ms, sans qu'on sache où va ce temps.
+
+**Ajout** :
+- `backend/mesure_temps.py` : compteurs par requête HTTP (nombre et durée des requêtes SQL, connexions ouvertes et connexions empruntées au pool), alimentés par les événements SQLAlchemy.
+- Chaque réponse `/api` porte `Server-Timing: app;dur=…, sql;dur=…;desc="N requetes", cnx;dur=…;desc="N nouvelles / N emprunts"`, exposé au navigateur par CORS (`expose_headers`).
+- Seuls des nombres sont exposés, jamais de SQL ni de donnée.
+
+**Tests** : `backend/tests/test_mesure_temps.py` (5 tests), plus une vérification sur moteur asynchrone avec deux requêtes concurrentes.
+
 ## 2026-10-02 (6) — Import de catalogue depuis Excel (.xlsx, .xls), ticket #86
 
 L'assistant d'import (Catalogues → Importer) n'acceptait que le CSV.

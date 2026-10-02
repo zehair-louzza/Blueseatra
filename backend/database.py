@@ -181,6 +181,16 @@ if DATABASE_URL:
         engine = auth_engine
         AsyncSessionLocal = AuthSessionLocal
 
+    # Compteurs de temps SQL / connexions par requete HTTP (en-tete
+    # Server-Timing, voir mesure_temps.py). Ne doit jamais empecher le
+    # demarrage.
+    try:
+        import mesure_temps as _mesure_temps
+        _mesure_temps.brancher(auth_engine)
+        _mesure_temps.brancher(engine)
+    except Exception:  # pragma: no cover
+        pass
+
     if _DATABASE_URL_AUTH_OBSOLETE:
         import logging as _logging
         _logging.getLogger(__name__).warning(
