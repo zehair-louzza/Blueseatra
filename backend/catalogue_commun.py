@@ -120,6 +120,7 @@ async def masquer(utilisateur: str, masque: bool) -> dict:
         await session.commit()
     log.info("catalogue commun %s par %s (tenant %s)",
              "masque" if masque else "reaffiche", utilisateur, tenant)
+    _invalider_sources(get_current_tenant())
     return {"masque": masque}
 
 
@@ -147,4 +148,15 @@ async def masquer_pour_tous(role: str, utilisateur: str, masque: bool) -> dict:
             await session.commit()
     log.warning("catalogue commun %s pour TOUTES les entreprises par %s",
                 "masque" if masque else "reaffiche", utilisateur)
+    _invalider_sources(None)
     return {"masque_pour_tous": masque}
+
+
+def _invalider_sources(tenant: str | None) -> None:
+    """Le masquage change les sources visibles : vide le cache de la recherche
+    d'articles du devis (catalogue_chiffrage, import tardif pour eviter le cycle)."""
+    try:
+        import catalogue_chiffrage
+        catalogue_chiffrage.invalider_sources(tenant)
+    except Exception:  # pragma: no cover
+        pass

@@ -73,6 +73,8 @@ class _Ctx:
 
 
 def _patch(monkeypatch, session, fournisseurs=None, etats=None, resoudre_ok=True):
+    # Cache des sources (20 s) : chaque test part d'un cache vide.
+    catalogue_chiffrage.invalider_sources()
     monkeypatch.setattr(catalogue_chiffrage, "get_current_tenant", lambda: TENANT)
     monkeypatch.setattr(catalogue_chiffrage, "tenant_session", lambda: _Ctx(session))
 

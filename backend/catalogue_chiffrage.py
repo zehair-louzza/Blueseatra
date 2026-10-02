@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 from sqlalchemy import text
 
@@ -131,6 +132,7 @@ async def basculer(cle: str, actif: bool, utilisateur: str | None = None) -> dic
         await session.commit()
     log.info("source chiffrage %s (%s) par %s (tenant %s)",
              "activee" if actif else "desactivee", cle, utilisateur, tenant)
+    invalider_sources(tenant)
     return {"cle": cle, "actif": actif}
 
 
@@ -257,6 +259,38 @@ def _en_article(offre: dict) -> dict:
     }
 
 
+# Sources actives et visibles d'une entreprise, gardees 20 s (02/10/2026).
+# Mesure en production : relire les bascules puis la liste des fournisseurs
+# coutait 2 sessions (~400 ms) a CHAQUE frappe dans la recherche d'articles du
+# devis. Invalide aussitot par basculer() et par le masquage du catalogue
+# commun (catalogue_commun.masquer*) ; une activation de version faite par le
+# script d'import (hors API) est prise en compte en 20 s au plus.
+_SOURCES_TTL_S = 20.0
+_cache_sources: dict[str, tuple[float, list[str], dict]] = {}
+
+
+def invalider_sources(tenant: str | None = None) -> None:
+    if tenant is None:
+        _cache_sources.clear()
+    else:
+        _cache_sources.pop(tenant, None)
+
+
+async def _sources_recherche(tenant: str) -> tuple[list[str], dict]:
+    """(cles des sources actives ET visibles, fournisseurs visibles par cle)."""
+    entree = _cache_sources.get(tenant)
+    if entree and entree[0] > time.monotonic():
+        return entree[1], entree[2]
+    actifs = {c for c, a in (await _etats_tenant(tenant)).items() if a}
+    visibles = {}
+    if actifs:
+        visibles = {f["cle"]: f for f in
+                    (await catalogue_navigation.fournisseurs()).get("fournisseurs", [])}
+    cles = [c for c in actifs if c in visibles]
+    _cache_sources[tenant] = (time.monotonic() + _SOURCES_TTL_S, cles, visibles)
+    return cles, visibles
+
+
 async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
     """Articles des catalogues fournisseurs ACTIVES, formes pour le devis.
 
@@ -268,9 +302,6 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         return []
     tenant = _tenant()
     try:
-        actifs = {c for c, a in (await _etats_tenant(tenant)).items() if a}
-        if not actifs:
-            return []
         # Ne garder que les sources encore visibles (resolution securisee),
         # AVEC leur tenant : chaque source appartient soit a l'entreprise,
         # soit au tenant du catalogue commun -- jamais devine, lu sur le
@@ -278,9 +309,7 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         # l'index (tenant_id, version_id) de servir chaque branche ; un OR
         # sur deux tenants, lui, l'empêchait et la requête finissait en
         # TimeoutError (command_timeout 30 s, constate en production).
-        visibles = {f["cle"]: f for f in
-                    (await catalogue_navigation.fournisseurs()).get("fournisseurs", [])}
-        cles = [c for c in actifs if c in visibles]
+        cles, visibles = await _sources_recherche(tenant)
         if not cles:
             return []
 
