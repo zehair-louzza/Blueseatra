@@ -43,7 +43,9 @@ export const SupplierSearchSummary = ({ reponse }) => {
         <div>
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('fo.s_ecart')}</p>
           <p className="mt-1 text-sm font-medium tabular-nums">{pourcent(prix.ecart_pct)}</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('fo.s_ecart_aide')}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {prix.unites_differentes ? t('fo.p_unites_diff') : t('fo.s_ecart_aide')}
+          </p>
         </div>
       </div>
       <p className="mt-3 flex items-start gap-1.5 border-t pt-3 text-xs text-muted-foreground">

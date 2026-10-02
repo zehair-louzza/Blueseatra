@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-02 (5) — Conduits YESSS « par 100 » = 100 m ; pas d'écart entre unités différentes
+
+Constat lors de la vérification en production du comparateur (#159), sur la recherche « conduit icta 20 » : 0,44 €/m chez Rexel était comparé à 1,55 €/pièce chez YESSS, avec un écart affiché de 253 %.
+
+- **Migration `20261002030000_unite_conduits_par_100.sql`** :
+  - Un libellé qui **commence** par conduit, gaine, tube IRL/ICA/ICTA ou TPC, vendu « par 100 » ou « par 1000 », est compté au mètre.
+  - Les accessoires restent à la pièce : courbe, manchon, fixation, cheville, embout…
+  - 8 contrôles intégrés.
+  - Mesuré en production : 95 offres YESSS concernées. Sur 31 EAN communs avec Rexel (vendus au mètre), le prix YESSS ramené au mètre est du même ordre (rapport médian 0,8).
+- **Comparateur** : quand les offres n'ont pas la même unité, ni le bloc de prix ni le « moins cher chez chaque fournisseur » ne calculent plus d'écart. Ils affichent « Unités différentes : écart non calculé ».
+
 ## 2026-10-02 (4) — Comparateur : regroupement par produit et prix par unité de base
 
 Format unique, étape 2. Le comparateur lit `offres_normalisees`, en lecture seule et sous point de reprise : si la table manque, il retombe sur les prix bruts.

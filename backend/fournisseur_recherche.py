@@ -571,8 +571,12 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     for l in retenus[:limite]:
         l["nb_fournisseurs_produit"] = nb_par_cle.get(l.get("cle_produit"), 1 if l.get("cle_produit") else None)
 
-    # Statistiques au prix comparable (par unite de base).
+    # Statistiques au prix comparable (par unite de base). Si les offres
+    # n'ont pas toutes la meme unite (metre et piece), l'ecart n'a pas de
+    # sens : il n'est pas calcule.
     prix = [p for p in (cp.prix_comparable(l) for l in retenus) if p is not None]
+    unites = {l.get("unite_base") for l in retenus
+              if l.get("unite_base") and cp.prix_comparable(l) is not None}
     bloc_prix = None
     if prix:
         bas, haut = min(prix), max(prix)
@@ -580,7 +584,9 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
             "min": round(bas, 2),
             "max": round(haut, 2),
             "median": round(statistics.median(prix), 2),
-            "ecart_pct": round(100 * (haut - bas) / bas) if bas > 0 else 0,
+            "ecart_pct": (None if len(unites) > 1
+                          else round(100 * (haut - bas) / bas) if bas > 0 else 0),
+            "unites_differentes": len(unites) > 1,
         }
 
     # Le moins cher chez chaque fournisseur : la vue de negociation, au prix
