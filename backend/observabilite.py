@@ -28,6 +28,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import text
 
+import mesure_temps
+
 from database import get_current_tenant, tenant_session
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="-")
@@ -125,14 +127,20 @@ async def intergiciel(request: Request, call_next):
     rid = request.headers.get("x-request-id", "")
     rid = rid if _ID_SUR.match(rid) else uuid.uuid4().hex[:16]
     jeton = request_id_var.set(rid)
+    mesure, jeton_mesure = mesure_temps.demarrer()
     t0 = time.perf_counter()
     statut = 500
     try:
         reponse = await call_next(request)
         statut = reponse.status_code
         reponse.headers["X-Request-ID"] = rid
+        # Temps total, SQL et connexions (voir mesure_temps.py) : des nombres
+        # seulement, lisibles dans l'onglet Réseau du navigateur.
+        reponse.headers["Server-Timing"] = mesure_temps.entete(
+            mesure, (time.perf_counter() - t0) * 1000)
         return reponse
     finally:
+        mesure_temps.terminer(jeton_mesure)
         ms = round((time.perf_counter() - t0) * 1000, 1)
         g = _gabarit(request)
         if g.startswith("/api"):
