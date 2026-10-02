@@ -19,24 +19,30 @@ export default function SuggestionsMots({ value, onValueChange, portee = 'devis'
   const seq = useRef(0);
   const blurTimer = useRef(null);
 
-  // Dernier mot en cours de frappe = préfixe proposé. Espace final : rien à proposer.
-  const prefixe = value && !/\s$/.test(value) ? (value.trim().split(/\s+/).pop() || '') : '';
+  // Dernier mot en cours de frappe = préfixe proposé. Espace final : le mot
+  // est complet, on propose les GROUPES qui le continuent (« porte » ->
+  // « porte coupe feu »), d'où la présence du 3e cas.
+  const mots = (value || '').trim().split(/\s+/).filter(Boolean);
+  const complet = Boolean(value) && /\s$/.test(value);
+  const prefixe = complet ? '' : (mots[mots.length - 1] || '');
+  const cherche = prefixe.length >= OUVERT_MIN || (complet && mots.length >= 1);
 
   useEffect(() => {
     const s = ++seq.current;
-    if (prefixe.length < OUVERT_MIN) { setItems([]); setOuvert(false); setActif(-1); return undefined; }
+    if (!cherche) { setItems([]); setOuvert(false); setActif(-1); return undefined; }
     const timer = setTimeout(() => {
       api.get('/catalog/suggestions', { params: { q: value || '', portee } })
         .then((r) => { if (s === seq.current) { setItems(r.data?.suggestions || []); setOuvert(true); setActif(-1); } })
         .catch(() => { if (s === seq.current) { setItems([]); setOuvert(false); } });
     }, 180);
     return () => clearTimeout(timer);
-  }, [prefixe, portee, value]);
+  }, [cherche, prefixe, portee, value]);
 
-  const choisir = (mot) => {
-    const debut = (value || '').trim().split(/\s+/).slice(0, -1).join(' ');
-    const suivant = `${debut ? `${debut} ` : ''}${mot} `;
-    onValueChange(suivant);
+  // Un groupe remplace les mots qu'il couvre (« porte c » + « porte coupe
+  // feu » remplace 2 mots) ; un mot isole remplace le dernier mot.
+  const choisir = (s) => {
+    const garde = mots.slice(0, Math.max(0, mots.length - (s.remplace || 1)));
+    onValueChange([...garde, s.mot].join(' ') + ' ');
     setOuvert(false); setItems([]);
   };
 
@@ -44,9 +50,9 @@ export default function SuggestionsMots({ value, onValueChange, portee = 'devis'
     if (!ouvert || items.length === 0) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActif((a) => (a + 1) % items.length); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActif((a) => (a <= 0 ? items.length - 1 : a - 1)); }
-    else if (e.key === 'Tab') { e.preventDefault(); choisir(items[Math.max(actif, 0)].mot); }
+    else if (e.key === 'Tab') { e.preventDefault(); choisir(items[Math.max(actif, 0)]); }
     else if (e.key === 'Escape') { setOuvert(false); }
-    else if (e.key === 'Enter' && actif >= 0) { e.preventDefault(); choisir(items[actif].mot); }
+    else if (e.key === 'Enter' && actif >= 0) { e.preventDefault(); choisir(items[actif]); }
   };
 
   return (
@@ -76,8 +82,8 @@ export default function SuggestionsMots({ value, onValueChange, portee = 'devis'
               className={`flex w-full flex-wrap items-center gap-2 rounded px-2.5 py-2 text-left text-sm ${i === actif ? 'bg-accent' : ''} hover:bg-accent/60`}
               data-testid="suggestion-mot"
               onMouseEnter={() => setActif(i)}
-              onMouseDown={(e) => { e.preventDefault(); choisir(s.mot); }}
-              onClick={() => choisir(s.mot)}
+              onMouseDown={(e) => { e.preventDefault(); choisir(s); }}
+              onClick={() => choisir(s)}
             >
               <span className="font-medium">{s.mot}</span>
               {s.nb_offres != null ? (

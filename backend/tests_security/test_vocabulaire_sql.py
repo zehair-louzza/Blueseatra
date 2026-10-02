@@ -22,7 +22,8 @@ DSN = os.environ.get("TEST_PG_DSN")
 pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 
 RACINE = Path(__file__).resolve().parents[2]
-MIGRATION = RACINE / "supabase/migrations/20261002040000_vocabulaire_recherche.sql"
+MIGRATIONS = [RACINE / "supabase/migrations/20261002040000_vocabulaire_recherche.sql",
+              RACINE / "supabase/migrations/20261002050000_composition_mots.sql"]
 
 COMMUN = "00000000-0000-4000-8000-000000000c0d"
 A = "aaaaaaaa-0000-4000-8000-00000000000a"
@@ -63,6 +64,9 @@ OFFRES = [
     ("a1", A, "maison", "cat-a", "ver-a", "disjoncteurmaison interne"),
     ("a2", A, "histo", None, None, "disjonctionhisto ancien"),
     ("b1", B, "concurrent", "cat-b", "ver-b", "disjoncteursecret confidentiel"),
+    # Groupes de mots : « porte coupe feu » en 2 et 3 mots consecutifs.
+    ("c7", COMMUN, "rexel", "cat-c", "ver-c", "bloc porte coupe feu ei30"),
+    ("c8", COMMUN, "rexel", "cat-c", "ver-c", "porte coupe feu 90 minutes"),
 ]
 
 
@@ -83,9 +87,10 @@ def base():
         cur.executemany("INSERT INTO blueseatra.supplier_offers "
                         "(id, tenant_id, supplier_id, catalog_id, version_id, recherche_norm) "
                         "VALUES (%s,%s,%s,%s,%s,%s)", OFFRES)
-        sql = MIGRATION.read_text(encoding="utf-8")
-        cur.execute(sql)
-        cur.execute(sql)                                   # idempotente
+        for migration in MIGRATIONS:
+            sql = migration.read_text(encoding="utf-8")
+            cur.execute(sql)
+            cur.execute(sql)                               # idempotente
         for t, s in [(COMMUN, "ver-c"), (COMMUN, "ver-p"), (A, "ver-a"),
                      (A, "hist:histo"), (B, "ver-b")]:
             cur.execute("SELECT blueseatra.vocabulaire_recalculer(%s, %s)", (t, s))
@@ -142,9 +147,35 @@ def test_filtre_par_sources():
     assert mots == {"disjoncteur": 1}
 
 
-@pytest.mark.parametrize("prefixe", ["d", "", "DISJ", "di%", "dis_", "disj' OR 1=1 --", "x" * 41, None])
+@pytest.mark.parametrize("prefixe", ["d", "", "DISJ", "di%", "dis_", "disj' OR 1=1 --", "x" * 41,
+                                     "a b c d", "a  b", " porte", "porte ", None])
 def test_prefixes_refuses(prefixe):
+    if prefixe == "porte ":        # espace final : ADRESSE les groupes, pas un refus
+        assert _sugg(A, [A, COMMUN], SOURCES_A, prefixe) != []
+        return
     assert _sugg(A, [A, COMMUN], SOURCES_A, prefixe) == []
+
+
+def test_groupes_de_deux_et_trois_mots():
+    # Construits uniquement sur des mots courants de la MEME source, et
+    # seulement s'ils sont consecutifs dans la designation.
+    with _cx() as c, c.cursor() as cur:
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='ver-c' AND mot LIKE 'porte%%'", (COMMUN,))
+        d = dict(cur.fetchall())
+    assert d.get("porte coupe") == 2
+    assert d.get("porte coupe feu") == 2
+    assert "coupe feu 90" not in d            # seuil : vu 1 fois seulement
+
+
+def test_suggestions_par_prefixe_de_plusieurs_mots():
+    # « porte c » propose le groupe qui continue la frappe.
+    # Les deux groupes qui continuent : de 2 mots puis de 3 (meme nombre
+    # d'offres, ordre alphabetique).
+    assert _sugg(A, [A, COMMUN], SOURCES_A, "porte c") == [("porte coupe", 2), ("porte coupe feu", 2)]
+    # « porte » + espace final : les groupes qui continuent, pas le mot seul.
+    mots = dict(_sugg(A, [A, COMMUN], SOURCES_A, "porte "))
+    assert "porte coupe feu" in mots and "porte" not in mots
 
 
 def test_mots_sans_lettre_exclus():

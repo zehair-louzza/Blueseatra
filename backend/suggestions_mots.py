@@ -94,25 +94,59 @@ async def _mots_fournisseurs(prefixe: str, portee: str, limite: int) -> list[tup
 
 async def suggerer(q: str, portee: str = "devis", designations_internes: list[str] | None = None,
                    limite: int = LIMITE) -> dict:
-    debut, prefixe = decoupe(q)
-    reponse = {"debut": debut, "prefixe": prefixe, "suggestions": []}
-    if not prefixe or not _MOT_VALIDE.match(prefixe):
-        return reponse
+    """Suggestions pour ce qui est tape.
+
+    Composition de mots (02/10/2026) : on propose d'abord les GROUPES de
+    mots qui continuent la frappe — « porte c » -> « porte coupe feu », ou
+    « porte » + espace -> les groupes commencant par porte — puis les mots
+    simples pour le dernier mot partiel. Chaque suggestion porte
+    `remplace` : le nombre de mots tapes qu'elle remplace (1 pour un mot
+    isole, 2 ou 3 pour un groupe).
+    """
+    brut = q or ""
+    mots = normalise(brut).split()
+    complet = bool(brut) and brut[-1].isspace()
+    reponse = {"debut": " ".join(mots[:-1]) if not complet else " ".join(mots),
+               "prefixe": "" if complet else (mots[-1] if mots else ""),
+               "suggestions": []}
     portee = portee if portee in PORTEES else "devis"
 
-    compte: Counter = Counter()
-    try:
-        for mot, n in await _mots_fournisseurs(prefixe, portee, limite):
-            compte[mot] += n
-    except Exception:
-        # Migration absente ou base lente : on garde le catalogue interne et
-        # les synonymes, sans bloquer la saisie.
-        log.warning("suggestions fournisseurs indisponibles", exc_info=True)
-    if designations_internes:
-        compte.update(mots_internes(designations_internes, prefixe))
+    async def groupe(groupes: list, prefixe_sql: str, seul_isole: bool) -> None:
+        try:
+            for mot, n in await _mots_fournisseurs(prefixe_sql, portee, limite):
+                if seul_isole and " " in mot:
+                    continue            # l'appel mots isoles ne garde que les mots isoles
+                groupes.append((mot, n))
+        except Exception:
+            # Migration absente ou base lente : on garde le catalogue interne
+            # et les synonymes, sans bloquer la saisie.
+            log.warning("suggestions fournisseurs indisponibles", exc_info=True)
 
-    suggestions = [{"mot": m, "nb_offres": n, "synonymes": _synonymes(m)}
-                   for m, n in sorted(compte.items(), key=lambda kv: (-kv[1], kv[0]))[:limite]]
+    trouves: list[tuple[str, int]] = []
+    phrase = " ".join(mots[-3:]) if mots else ""
+    if complet and phrase:
+        # Mot complet : GROUPES qui le continuent (« porte » + espace).
+        await groupe(trouves, phrase + " ", False)
+    elif not complet and len(mots) >= 2:
+        # Dernier mot partiel : GROUPES commencant par les mots tapes.
+        await groupe(trouves, phrase, False)
+
+    isoles: list[tuple[str, int]] = []
+    if not complet and reponse["prefixe"] and _MOT_VALIDE.match(reponse["prefixe"]):
+        await groupe(isoles, reponse["prefixe"], True)
+
+    compte: Counter = Counter()
+    if designations_internes and reponse["prefixe"] and not complet:
+        compte.update(mots_internes(designations_internes, reponse["prefixe"]))
+        for mot, n in isoles:
+            compte[mot] += n
+        couples = sorted(compte.items(), key=lambda kv: (-kv[1], kv[0]))
+    else:
+        couples = sorted(isoles, key=lambda kv: (-kv[1], kv[0]))
+
+    suggestions = [{"mot": m, "nb_offres": n, "synonymes": _synonymes(m),
+                    "remplace": len(m.split())}
+                   for m, n in ([*sorted(trouves, key=lambda kv: (-kv[1], kv[0])), *couples])[:limite]]
 
     # Termes du metier connus (« ph+n », « tetrapolaire ») absents des mots
     # trouves : proposes en fin de liste, sans compte.
@@ -120,7 +154,11 @@ async def suggerer(q: str, portee: str = "devis", designations_internes: list[st
     for cle in sorted(vocabulaire_btp.LIBELLES):
         if len(suggestions) >= limite:
             break
-        if cle.startswith(prefixe) and cle not in deja and " " not in cle:
-            suggestions.append({"mot": cle, "nb_offres": None, "synonymes": _synonymes(cle)})
+        # Uniquement pour un dernier mot PARTIEL d'au moins 2 lettres : mot
+        # complet ou prefixe d'une lettre ne declenche pas de bruit.
+        if (len(reponse["prefixe"]) >= 2 and cle.startswith(reponse["prefixe"])
+                and " " not in cle and cle not in deja):
+            suggestions.append({"mot": cle, "nb_offres": None, "synonymes": _synonymes(cle),
+                                "remplace": 1})
     reponse["suggestions"] = suggestions
     return reponse

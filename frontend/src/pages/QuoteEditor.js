@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api, apiError } from '@/lib/api';
+import { correspondMots } from '@/lib/rechercheMots';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import SuggestionsMots from '@/components/SuggestionsMots';
@@ -218,9 +219,13 @@ export default function QuoteEditor() {
   };
 
   const families = useMemo(() => Array.from(new Set(catalog.map((i) => i.family).filter(Boolean))).sort(), [catalog]);
+  // Composition de mots : chaque mot tape doit etre present, sans etre colle
+  // (« porte coupe feu » doit trouver « porte coupe-feu »). L'ancien test de
+  // sous-chaine contigue masquait la plupart des resultats fournisseurs des
+  // que la requete avait plus d'un mot.
   const filtered = catalog.filter((it) =>
     (family === '__all__' || it.family === family) &&
-    (!search || `${it.item_code} ${it.item_label} ${it.brand} ${it.family} ${Object.values(it.attributes || {}).join(' ')}`.toLowerCase().includes(search.toLowerCase())));
+    (!search || correspondMots(`${it.item_code} ${it.item_label} ${it.brand} ${it.family} ${Object.values(it.attributes || {}).join(' ')}`, search)));
 
   if (!q) return <Spinner />;
   const vatOptions = Array.from(new Set([...VAT_RATES, ...(q.lines || []).map((l) => num(l.vat_rate)).filter((v) => v !== null)])).sort((a, b) => b - a);

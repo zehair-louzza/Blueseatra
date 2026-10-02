@@ -47,6 +47,7 @@ from sqlalchemy import text
 
 from database import get_current_tenant, tenant_session
 import catalogue_commun
+import pertinence
 from designation_fournisseur import nettoyer_ligne
 import comparateur_produits as cp
 from vocabulaire_btp import (
@@ -501,6 +502,13 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         else:
             retenus, isoles = _separe_qualifiants(lignes, requete)
 
+        # Pertinence : la designation qui MENE avec les mots demandes passe
+        # devant l'accessoire moins cher qui les mentionne en fin de libelle
+        # (« bloc porte coupe feu » devant « gache pour porte coupe-feu »).
+        for l in retenus:
+            l["_pertinence"] = pertinence.score(
+                l.get("recherche_norm") or l.get("designation") or "", requete)
+
         # Format unique : prix par unite de base et cle produit de chaque
         # candidat (5 000 lectures par cle primaire au plus, ~50 ms). Les
         # candidats sont ensuite tries au PRIX COMPARABLE : un cable YESSS
@@ -516,16 +524,15 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
                 "offres normalisees")}
         for l in retenus:
             cp.enrichir(l, normalisees.get(l["id"]))
-        if normalisees:
-            retenus.sort(key=cp.cle_tri)
+        retenus.sort(key=cp.cle_recherche)
 
         # Ids a detailler : les lignes affichees + le moins cher de chaque
         # fournisseur (meme regle que plus bas).
         a_lire = [l["id"] for l in retenus[:limite]]
         vus: dict[str, tuple] = {}
-        for l in retenus:
+        for l in sorted(retenus, key=cp.cle_recherche):
             p, nom = cp.prix_comparable(l), l.get("fournisseur") or "inconnu"
-            if p is not None and (nom not in vus or p < vus[nom][0]):
+            if p is not None and nom not in vus:
                 vus[nom] = (p, l["id"])
         a_lire += [i for _, i in vus.values()]
         fiches = {}
@@ -546,8 +553,14 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
 
     # Les lignes detaillees reprennent l'ordre et le perimetre du premier
     # passage ; les autres gardent seulement prix/fournisseur/recherche.
-    retenus = [cp.enrichir(fiches[l["id"]], normalisees.get(l["id"])) if l["id"] in fiches else l
-               for l in retenus]
+    def _avec_fiche(l):
+        if l["id"] not in fiches:
+            return l
+        f = fiches[l["id"]]
+        f["_pertinence"] = l.get("_pertinence", 0.0)
+        return cp.enrichir(f, normalisees.get(l["id"]))
+
+    retenus = [_avec_fiche(l) for l in retenus]
     # Libelles amputes a la source (« , D 350 H 1, blanc ») : affichage
     # seulement, la base garde le libelle brut.
     for l in retenus:
@@ -595,6 +608,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
 
     for ligne in retenus:
         ligne.pop("recherche_norm", None)
+        ligne.pop("_pertinence", None)
 
     return {
         "requete": requete,
