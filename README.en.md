@@ -87,7 +87,7 @@ The validated quote goes out as a Pro Forma PDF; **follow-ups in working days** 
 <td width="50%"><img src="docs/assets/manuel-en/10-offre-consommation.jpg" alt="Plan and usage"><br><sub><b>Plan and usage</b>: only automated work is counted</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/assets/manuel-en/15-comparateur-prix.jpg" alt="Price comparison"><br><sub><b>Price comparison</b>: cheapest offer at each supplier, family filter, recognised trade terms</sub></td>
+<td width="50%"><img src="docs/assets/manuel-en/15c-comparateur-produits-identiques.jpg" alt="Identical products at several suppliers"><br><sub><b>Price comparison</b>: the same product at several suppliers, whatever their description, compared per base unit</sub></td>
 <td width="50%"><img src="docs/assets/manuel-en/09-catalogue-fournisseurs.jpg" alt="Supplier catalogue"><br><sub><b>Supplier catalogue</b>: shared supplier catalogues, each switched on or off for quoting</sub></td>
 </tr>
 </table>
@@ -104,6 +104,8 @@ The validated quote goes out as a Pro Forma PDF; **follow-ups in working days** 
 | **Supplier catalogue** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux; shared, can be hidden, never deleted; search by word and by family inside each catalogue | ✅ |
 | **Quoting on activatable sources** | Each supplier catalogue can be switched on or off for quoting (toggle, content kept); without an internal catalogue, activated sources generate the quote; fast search under RLS (trigram index through secured functions) | ✅ |
 | **Price comparison** | Cheapest offer per supplier, criteria isolated, equivalent terms recognised ("courbe c", "2p", "ph+n"…), filter by product family | ✅ |
+| **Identical products across suppliers** | The same item recognised at several suppliers (EAN, or brand + manufacturer reference) even when descriptions differ; prices brought back to the base unit (a 100 m pack compared per metre); anomalies flagged | ✅ |
+| **Single catalogue format** | 971,676 offers from 9 suppliers cleaned into one common format: checked GTIN, canonical brand, base unit, price per unit; source data never modified | ✅ |
 | **Clients** | Records, contacts, sites, activity log, CSV import and export, indicators | ✅ |
 | **AI suggestions** | Principal and end client proposed with the source sentence; automatic linking only on an identical SIRET or email | ✅ |
 | **Follow-ups** | Working days and public holidays, urgency, expiry reminder, phone call above a threshold, GDPR opt-out, FR / EN texts | ✅ |

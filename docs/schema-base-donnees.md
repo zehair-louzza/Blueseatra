@@ -158,6 +158,19 @@ Offres des catalogues fournisseurs (~970 000 lignes actives). Recherche en **deu
 
 ---
 
+### Format unique des offres (migrations `20261002010000`, `20261002020000`, `20261002030000`)
+
+Couche de nettoyage **à côté** de `supplier_offers`, qui n'est jamais réécrite. Spécification : [format-unique-catalogue-fournisseur.md](specs/format-unique-catalogue-fournisseur.md).
+
+| Objet | Rôle |
+|---|---|
+| `offres_normalisees` | Une ligne par offre (FK `supplier_offers` `ON DELETE CASCADE`) : `gtin` (clé GS1 vérifiée, 14 chiffres), `marque` canonique, `ref_fabricant`, `cle_produit` (`GTIN:…` ou `MR:<marque>:<réf>`), `cle_mr`, `niveau_identification`, `unite_base`, `conditionnement`, `qte_par_conditionnement`, `unite_code` (`OK` / `SUPPOSEE` / `INCONNUE`), `prix_net_ht_unite_base`, `anomalies[]`, `score_qualite`. RLS : tenant + lecture du catalogue commun ; droits `blueseatra_app` en lecture. 971 676 lignes, 854 Mo avec index. |
+| `marques`, `marques_alias` | Référentiel global (sans tenant) : clé normalisée (`cle_marque()`, formes juridiques retirées) → nom canonique. Un alias n'existe que s'il est **prouvé** par au moins 5 GTIN partagés **et** 50 % des GTIN de la plus petite marque ; une clé liée à plusieurs marques est un distributeur, jamais fusionnée. 1 936 marques, 16 alias. |
+| `v_offres_format_unique` | Vue `security_invoker` au format d'export unique. |
+| Déclencheurs `tg_normaliser_offres` | Fin d'instruction, `INSERT` / `UPDATE` sur `supplier_offers` : un import est normalisé automatiquement. Une erreur n'est qu'un `WARNING` : un import n'est jamais bloqué. |
+| `normaliser_offres_ids(ids)`, `normaliser_offres_lot(version, modulo, reste)` | Calcul par lots (initial ou après changement de règle). En production, parcourir par clé primaire (lots de 10 000, ~9 s) plutôt que par version : un lot Rexel par version relit 747 771 lignes. |
+| `recalculer_marques()`, `rattacher_produits(tenant)` | Référentiel des marques ; rattachement des offres sans GTIN au produit de même marque + référence, et signalement `ECART_PRIX_PRODUIT` (> 3 × la médiane). Plusieurs minutes chacune : le délai du connecteur peut expirer, la requête continue côté base. |
+
 ## Devis
 
 ### `quotes`

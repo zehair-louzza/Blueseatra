@@ -205,3 +205,34 @@ Le même tableau révèle un **conflit de caractéristiques** : pour le même GT
 | Offres avec un prix comparable par unité de base | 0 % | 100 % des offres avec un prix |
 
 Les deux premiers chiffres se recoupent en partie : le total exact des produits comparables sera calculé lors du nettoyage complet.
+
+
+## Avancement (02/10/2026)
+
+| Étape | Contenu | État |
+|---|---|---|
+| 1. Identité, unités, prix comparables | Migration `20261002010000` (#157), alias stricts `20261002020000` (#158), conduits « par 100 » `20261002030000` (#160) ; 971 676 offres calculées en production | ✅ |
+| 2. Comparateur par produit | Bloc « Produits identiques », prix par unité de base partout, pas d'écart entre unités différentes (#159, #160) | ✅ en ligne |
+| 3. Caractéristiques techniques | Pôles, calibre, courbe, pouvoir de coupure, sensibilité, section, longueur ; détection `CONFLIT_ATTRIBUT` ; seul moyen de comparer La Plateforme du Bâtiment et SFIC (ni EAN ni réf. fabricant) | à faire |
+| 4. Export des fichiers nettoyés | Un fichier par fournisseur au format unique, depuis la base nettoyée | à faire |
+
+### Résultats mesurés en production
+
+| Fournisseur | Offres | Clé produit | Unité lue | Prix comparable |
+|---|---:|---:|---:|---:|
+| Rexel | 747 771 | 100 % | 100 % | 100 % |
+| Prolians | 79 894 | 72,5 % (marque + réf.) | 3,6 % (pièce supposée sinon) | 72 % (28 % sans prix) |
+| Point.P | 58 250 | 99,1 % | 96,1 % | 100 % |
+| YESSS | 29 053 | 99,9 % | 100 % | 100 % |
+| La Plateforme du Bâtiment | 24 600 | 0 % | 87,1 % | 100 % |
+| SFIC | 17 271 | 0,1 % | 93,6 % | 99,8 % |
+| Au Forum du Bâtiment | 14 515 | 99,2 % | 99,7 % | 98,9 % |
+
+- **17 362 produits** reconnus identiques chez au moins 2 fournisseurs (968 chez au moins 3), dont 4 873 offres rattachées par marque + référence (4 775 chez Prolians).
+- **15 414 offres** vendues par lot ramenées à l'unité de base, dont 95 conduits YESSS « par 100 » = 100 m (confirmé par l'utilisateur ; sur 31 EAN communs avec Rexel, rapport médian 0,8).
+- **Anomalies** : 77 076 unités supposées (Prolians), 22 550 sans prix, 6 558 unités illisibles, 955 prix nets supérieurs au public, 148 prix extrêmes, 31 écarts anormaux.
+
+### Constats à reprendre à l'étape 3
+
+- Prolians vend certaines couronnes à la pièce (« Gaine ICTA… Longueur de la gaine : 100 m ») : la longueur est dans la désignation, pas dans l'unité. Le comparateur affiche alors « Unités différentes » au lieu d'un écart faux.
+- Le premier calcul des alias en a retenu 25, dont 10 libellés de groupe (« DeWalt Stanley Black & Decker » → Stanley, 14 % de GTIN partagés) : la règle du recouvrement de 50 % les exclut.
