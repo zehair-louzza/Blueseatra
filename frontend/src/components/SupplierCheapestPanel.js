@@ -18,7 +18,9 @@ export const SupplierCheapestPanel = ({ offres }) => {
   if (liste.length === 0) return null;
 
   const prix = liste.map((o) => prixComparable(o));
-  const ecart = ecartPct(prix);
+  // Mètre chez l'un, pièce chez l'autre : un écart serait faux, on ne le calcule pas.
+  const unitesDifferentes = new Set(liste.map((o) => o.unite_base).filter(Boolean)).size > 1;
+  const ecart = unitesDifferentes ? null : ecartPct(prix);
   const moinsCher = liste[0];
   const plusCher = liste[liste.length - 1];
 
@@ -37,6 +39,11 @@ export const SupplierCheapestPanel = ({ offres }) => {
             {t('fo.m_aide')}
           </p>
         </div>
+        {unitesDifferentes && (
+          <p className="text-xs text-muted-foreground sm:text-right" data-testid="fournisseurs-unites-differentes">
+            {t('fo.p_unites_diff')}
+          </p>
+        )}
         {ecart !== null && (
           <div className="text-left sm:text-right" data-testid="fournisseurs-ecart-negociation">
             <p className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
@@ -77,7 +84,9 @@ export const SupplierCheapestPanel = ({ offres }) => {
             <span className="w-full shrink-0 text-right text-xs tabular-nums text-muted-foreground sm:w-24">
               {index === 0
                 ? t('fo.m_reference')
-                : `+ ${pourcent(
+                : unitesDifferentes
+                  ? '\u2014'
+                  : `+ ${pourcent(
                     Math.round(
                       ((prixComparable(offre) - prixComparable(moinsCher)) / prixComparable(moinsCher)) * 100
                     )

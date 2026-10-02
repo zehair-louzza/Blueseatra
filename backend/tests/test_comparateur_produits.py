@@ -146,8 +146,8 @@ class _Nested:
 class _Session:
     """Repond selon la requete ; enregistre SQL et parametres."""
 
-    def __init__(self, panne_norm=False):
-        self.executed, self.panne_norm = [], panne_norm
+    def __init__(self, panne_norm=False, unite_y="M"):
+        self.executed, self.panne_norm, self.unite_y = [], panne_norm, unite_y
 
     def begin_nested(self):
         return _Nested()
@@ -170,7 +170,7 @@ class _Session:
             return _Res([
                 {"id": "r1", "cle_produit": "GTIN:2", "unite_base": "M", "qte_par_conditionnement": 1,
                  "prix_unite_base_ht": 1.08, "niveau_identification": "GTIN", "anomalies": []},
-                {"id": "y1", "cle_produit": "GTIN:3", "unite_base": "M", "qte_par_conditionnement": 100,
+                {"id": "y1", "cle_produit": "GTIN:3", "unite_base": self.unite_y, "qte_par_conditionnement": 100,
                  "prix_unite_base_ht": 1.4661, "niveau_identification": "GTIN", "anomalies": []}])
         if "n.cle_produit = ANY(:cles)" in q:
             return _Res([
@@ -260,3 +260,13 @@ def test_recherche_sans_table_normalisee_retombe_sur_les_prix_bruts(monkeypatch)
     assert res["moins_cher_par_fournisseur"][1]["prix_unite_base_ht"] == 146.61
     assert res["produits_identiques"] == []
     assert res["prix"]["max"] == 146.61
+
+
+def test_unites_differentes_pas_d_ecart_dans_le_bloc_prix(monkeypatch):
+    """« conduit icta 20 » le 02/10/2026 : 0,44 €/m contre 1,55 €/pièce, écart 253 %."""
+    res = _lancer(monkeypatch, _Session(unite_y="U"))
+    assert res["prix"]["unites_differentes"] is True
+    assert res["prix"]["ecart_pct"] is None
+    res = _lancer(monkeypatch, _Session())
+    assert res["prix"]["unites_differentes"] is False
+    assert res["prix"]["ecart_pct"] == 36
