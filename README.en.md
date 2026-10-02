@@ -100,7 +100,7 @@ The validated quote goes out as a Pro Forma PDF; **follow-ups in working days** 
 |---|---|:---:|
 | **AI reading** | PDF, DOCX, XLSX, CSV, TXT, images; OCR cascade; sequential extraction queue; confidence score; draft generated automatically | ✅ |
 | **Quotes** | Packages and sub-packages, materials, labour, travel, notes; 20 / 10 / 5.5 / 0 % VAT; hidden margin; variants; Pro Forma PDF | ✅ |
-| **Custom catalogues** | CSV import in any layout, column mapping, versions, atomic activation, large files | ✅ |
+| **Custom catalogues** | CSV or Excel (.xlsx, .xls) import in any layout, sheet and header row detected, macro workbooks refused, column mapping, versions, atomic activation, large files | ✅ |
 | **Supplier catalogue** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux; shared, can be hidden, never deleted; search by word and by family inside each catalogue | ✅ |
 | **Quoting on activatable sources** | Each supplier catalogue can be switched on or off for quoting (toggle, content kept); without an internal catalogue, activated sources generate the quote; fast search under RLS (trigram index through secured functions) | ✅ |
 | **Price comparison** | Cheapest offer per supplier, criteria isolated, equivalent terms recognised ("courbe c", "2p", "ph+n"…), filter by product family | ✅ |

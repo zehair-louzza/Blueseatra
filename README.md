@@ -98,7 +98,7 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 |---|---|:---:|
 | **Lecture IA** | PDF, DOCX, XLSX, CSV, TXT, images ; cascade OCR ; file d'extraction séquentielle ; score de confiance ; brouillon généré automatiquement | ✅ |
 | **Devis** | Lots et sous-lots, matériaux, main-d'œuvre, déplacement, notes ; TVA 20 / 10 / 5,5 / 0 % ; marge masquée ; variantes ; PDF Pro Forma | ✅ |
-| **Catalogues sur mesure** | Import CSV de n'importe quel format, correspondance des colonnes, versions, activation atomique, fichiers volumineux | ✅ |
+| **Catalogues sur mesure** | Import CSV ou Excel (.xlsx, .xls) de n'importe quel format, feuille et ligne d'en-tête détectées, classeurs à macros refusés, correspondance des colonnes, versions, activation atomique, fichiers volumineux | ✅ |
 | **Catalogue fournisseurs** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux ; partagé, masquable, jamais supprimé ; recherche par mot et par famille dans chaque catalogue | ✅ |
 | **Chiffrage sur sources activables** | Chaque catalogue fournisseur s'active ou se désactive pour le chiffrage (bouton poussoir, contenu conservé) ; sans catalogue interne, les sources activées génèrent le devis ; recherche rapide sous RLS (index trigramme via fonctions sécurisées) | ✅ |
 | **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, termes équivalents reconnus (« courbe c », « 2p », « ph+n »…), filtre par famille | ✅ |
