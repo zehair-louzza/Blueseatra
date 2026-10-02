@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-02 (10) — Recherche par composition de mots et classement par pertinence
+
+**Constat utilisateur** : chercher « porte-coupe-feu » en tapant les mots un par un n'affinait pas le résultat, et le comparateur affichait d'abord un panneau PVC à 1,80 €, un judas et une gâche — des accessoires — parce que le tri était au prix. Les vraies portes (150 à 255 €) arrivaient en 4e position.
+
+**Trois causes, trois corrections** :
+1. Le filtre du navigateur exigeait la requête mot pour mot collée : « porte coupe feu » ne matchait pas « porte coupe-feu » (tiret). Désormais chaque mot tapé doit être présent, sans être collé (`rechercheMots.js`), côté navigateur comme côté serveur pour le catalogue interne.
+2. Les suggestions ne proposaient que des mots isolés. La migration `20261002050000` ajoute au vocabulaire les **groupes de 2 et 3 mots consécutifs fréquents** (construits sur des mots courants de la même source) : « porte c » propose « porte coupe feu », « porte » + espace propose les groupes qui continuent. Chaque suggestion porte `remplace` : le nombre de mots tapés qu'elle remplace.
+3. Le classement était au prix. Il est désormais **par pertinence** (`pertinence.py`) : un produit EST ce que sa désignation annonce en premier ; un accessoire le mentionne en fin de libellé. Score = somme de 1/position de chaque mot demandé ; égalité → prix croissant. Appliqué aux résultats, au panneau « par fournisseur » (la plus proche correspondance par fournisseur, plus la moins chère) et au sélecteur d'articles du devis.
+
+**Vérifié sur le cas réel** : « bloc porte coupe feu » (1,08) > « bloc porte prépeint coupe feu » (0,95) > « panneau pvc porte coupe feu » (0,78) > gâche (0,38) > judas (0,28) — les portes passent devant les accessoires.
+
+**Tests** : `test_pertinence.py` (7), `test_vocabulaire_sql.py` (25, dont groupes de mots et préfixes multi-mots), `test_suggestions_mots.py` (11), suite complète 278 passés. Migration idempotente vérifiée sur PostgreSQL 17.
+
+**Après déploiement** : réappliquer le remplissage du vocabulaire (les groupes de mots s'ajoutent aux mots isolés).
+
 ## 2026-10-02 (9) — Recherche : suggestions de mots pendant la frappe + recherche parallèle
 
 **Mesure en production** : chaque source paie ~35 ms d'index trigramme pour un mot long, en série dans une seule requête — 9 sources actives = ~330 ms de SQL pour « disjoncteur ». Et la recherche lourde partait à chaque pause de frappe.

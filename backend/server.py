@@ -27,6 +27,7 @@ import matching as match_engine
 import quote_scenarios
 import pdf_service
 import fournisseur_recherche
+from fournisseur_recherche import normalise
 import catalogue_commun
 import suggestions_mots
 import catalogue_navigation
@@ -1703,10 +1704,17 @@ async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80)
     needle = (q or "").strip().lower()
     if not needle:
         return {"catalog": infos_cat, "items": (items or [])[:limit]}
+    # Composition de mots : chaque mot tape doit etre present, sans etre
+    # colle (« porte coupe feu » doit trouver « porte coupe-feu », tiret).
+    # L'ancien test de sous-chaine contigue ratait tout libelle ou les mots
+    # etaient separees par une ponctuation ou dans un autre ordre. Meme
+    # normalisation que la recherche fournisseurs (normalise).
+    mots = normalise(needle).split()
     hits = []
     for it in (items or []):
-        blob = " ".join(str(it.get(k) or "") for k in ("item_label", "item_code", "category", "family", "brand")).lower()
-        if needle in blob:
+        blob = normalise(" ".join(str(it.get(k) or "") for k in
+                                  ("item_label", "item_code", "category", "family", "brand")))
+        if all(m in blob for m in mots):
             hits.append(it)
         if len(hits) >= limit:
             break

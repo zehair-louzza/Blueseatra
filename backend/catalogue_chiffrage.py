@@ -39,6 +39,7 @@ import asyncio
 
 import catalogue_navigation
 import catalogue_commun
+import pertinence
 from designation_fournisseur import designation_affichee
 from database import get_current_tenant, tenant_context, tenant_session
 from fournisseur_recherche import termes_recherche
@@ -419,9 +420,14 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
             resultats = await asyncio.gather(
                 *(_chercher_groupe(g, visibles, tenant, termes, limite) for g in groupes))
             lignes = [l for r in resultats for l in r]
-            lignes.sort(key=lambda l: (l.get("prix_net_ht") is None,
-                                       l.get("prix_net_ht") or 0.0, str(l.get("id"))))
-            lignes = lignes[:limite]
+        # Pertinence d'abord, prix ensuite : la designation qui MENE avec les
+        # mots demandes (« bloc porte coupe feu ») passe devant l'accessoire
+        # moins cher qui les mentionne en fin de libelle (« gache pour
+        # porte coupe-feu »). Egalite de score -> prix croissant, comme avant.
+        lignes.sort(key=lambda l: (
+            -pertinence.score(pertinence.normalise(l.get("designation") or ""), q),
+            l.get("prix_net_ht") is None, l.get("prix_net_ht") or 0.0, str(l.get("id"))))
+        lignes = lignes[:limite]
         return [_en_article(l) for l in lignes]
     except Exception:
         log.exception("recherche chiffrage fournisseurs echouee (tenant %s)", tenant)
