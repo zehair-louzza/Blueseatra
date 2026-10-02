@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { TruncatedText } from '@/components/TruncatedText';
-import { BadgeCommun } from '@/components/CatalogueCommunPanel';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslation } from 'react-i18next';
 import { Boxes, ChevronDown, ChevronUp, ExternalLink, Link2, Shuffle } from 'lucide-react';
@@ -60,7 +59,7 @@ export const BadgesAnomalies = ({ anomalies }) => {
       {anomalies.map((a) => (
         <Aide key={a} texte={t(`fo.a_aide_${a}`)}>
           <span
-            className="inline-flex items-center rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-200"
+            className="inline-flex items-center whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 ring-1 ring-inset ring-amber-200"
             data-testid="fournisseurs-anomalie"
           >
             {t(`fo.a_${a}`)}
@@ -74,7 +73,7 @@ export const BadgesAnomalies = ({ anomalies }) => {
 const Pastille = ({ icone: Icone, texte, aide, testid }) => (
   <Aide texte={aide}>
     <span
-      className="inline-flex items-center gap-1 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 ring-1 ring-inset ring-sky-200"
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-800 ring-1 ring-inset ring-sky-200"
       data-testid={testid}
     >
       <Icone className="h-3 w-3" />
@@ -117,10 +116,9 @@ const Groupe = ({ groupe }) => {
             className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 sm:flex-nowrap ${o === meilleur ? 'bg-primary/5' : ''}`}
             data-testid="fournisseurs-produit-offre"
           >
-            <span className="w-5 shrink-0 text-xs tabular-nums text-muted-foreground">{i + 1}.</span>
+            <span className="hidden w-5 shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">{i + 1}.</span>
             <span className="w-full min-w-0 shrink-0 text-sm font-medium sm:w-40">
               <TruncatedText className="text-sm font-medium">{o.fournisseur}</TruncatedText>
-              {o.catalogue_commun && <BadgeCommun />}
             </span>
             <span className="min-w-0 flex-1 text-xs text-muted-foreground">
               <TruncatedText className="text-xs">{o.designation}</TruncatedText>

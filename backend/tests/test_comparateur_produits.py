@@ -227,14 +227,31 @@ def test_recherche_compare_au_prix_par_unite_et_regroupe(monkeypatch):
     lignes = {l["id"]: l for l in res["resultats"]}
     assert lignes["y1"]["nb_fournisseurs_produit"] == 2
     assert lignes["r1"]["nb_fournisseurs_produit"] == 1
-    # Filtre tenant explicite sur les deux lectures du format unique.
-    for q, params in session.executed:
-        if "offres_normalisees" in q:
-            assert "n.tenant_id = ANY(:tenants)" in q
-            assert params["tenants"] == [TENANT, COMMUN]
-        if "n.cle_produit = ANY(:cles)" in q:
-            assert "o.is_active" in q and "active_version_id" in q
-            assert params["cles"] == ["GTIN:2", "GTIN:3"]
+    # Filtre tenant explicite (forme exigee par test_tenant_isolation_static)
+    # sur les deux lectures du format unique, en plus de RLS.
+    lus = [(q, params) for q, params in session.executed if "offres_normalisees" in q]
+    assert len(lus) == 2
+    for q, params in lus:
+        assert "n.tenant_id = :tenant_id" in q and "n.tenant_id = :commun" in q
+        assert params["tenant_id"] == TENANT and params["commun"] == COMMUN
+        assert params["avec_commun"] is True
+    q, params = lus[1]
+    assert "o.tenant_id = :tenant_id" in q                 # FILTRE_PERIMETRE
+    assert "o.is_active" in q and "active_version_id" in q
+    assert params["cles"] == ["GTIN:2", "GTIN:3"]
+
+
+def test_catalogue_commun_masque_exclu_des_produits_identiques(monkeypatch):
+    session = _Session()
+    monkeypatch.setattr(fr, "get_current_tenant", lambda: TENANT)
+    monkeypatch.setattr(fr, "tenant_session", lambda: _Ctx(session))
+
+    async def est_masque(_s, _t):
+        return True
+    monkeypatch.setattr(catalogue_commun, "est_masque", est_masque)
+    asyncio.run(fr.recherche("conduit ica 20"))
+    lus = [p for q, p in session.executed if "offres_normalisees" in q]
+    assert lus and all(p["avec_commun"] is False for p in lus)
 
 
 def test_recherche_sans_table_normalisee_retombe_sur_les_prix_bruts(monkeypatch):

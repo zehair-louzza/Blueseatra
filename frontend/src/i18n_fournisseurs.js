@@ -85,7 +85,6 @@ export const foFr = {
   carte_unite: 'Unité :',
   carte_prix_unite: 'Prix / unité :',
   // Format unique : unités de base, lots, produits identiques
-  col_prix_unite: 'Prix / unité',
   u_U: 'pièce', u_M: 'm', u_M2: 'm²', u_M3: 'm³', u_KG: 'kg', u_L: 'L', u_PAIRE: 'paire',
   lot: 'pour {{q}} {{u}}',
   p_titre: 'Produits identiques chez plusieurs fournisseurs',
@@ -242,7 +241,6 @@ export const foEn = {
   carte_public: 'List excl. VAT:',
   carte_unite: 'Unit:',
   carte_prix_unite: 'Unit price:',
-  col_prix_unite: 'Unit price',
   u_U: 'unit', u_M: 'm', u_M2: 'm²', u_M3: 'm³', u_KG: 'kg', u_L: 'L', u_PAIRE: 'pair',
   lot: 'per {{q}} {{u}}',
   p_titre: 'Identical products at several suppliers',

@@ -43,8 +43,7 @@ export const SupplierResultsTable = ({ resultats }) => {
               <TableHead className="min-w-[18rem]">{t('fo.col_designation')}</TableHead>
               <TableHead className="w-36 min-w-[8rem]">{t('fo.col_marque')}</TableHead>
               <TableHead className="w-36 min-w-[8rem]">{t('fo.col_reference')}</TableHead>
-              <TableHead className="w-28 text-right">{t('fo.col_prix_net')}</TableHead>
-              <TableHead className="w-28 text-right">{t('fo.col_prix_unite')}</TableHead>
+              <TableHead className="w-32 text-right">{t('fo.col_prix_net')}</TableHead>
               <TableHead className="w-28 text-right">{t('fo.col_prix_public')}</TableHead>
               <TableHead className="w-28 min-w-[6rem]">{t('fo.col_unite_vente')}</TableHead>
             </TableRow>
@@ -68,9 +67,7 @@ export const SupplierResultsTable = ({ resultats }) => {
                     {o.reference_fournisseur || o.reference_fabricant}
                   </TruncatedText>
                 </TableCell>
-                <TableCell className="align-top text-right text-sm tabular-nums">
-                  {prixHT(o.prix_net_ht)}
-                </TableCell>
+                {/* Prix ramené à l'unité de base ; le prix publié du lot en dessous. */}
                 <TableCell className="align-top text-right text-sm" data-testid="fournisseurs-prix-unite">
                   <PrixParUnite offre={o} />
                 </TableCell>

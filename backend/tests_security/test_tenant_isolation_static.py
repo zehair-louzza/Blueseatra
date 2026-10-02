@@ -317,6 +317,8 @@ def test_sql_brut_filtre_toujours_le_tenant():
         # Module Clients (migration 20260926090000)
         "clients", "contacts", "chantiers", "suggestions_clients",
         "echanges_clients", "regles_relance", "relances",
+        # Format unique des offres (migration 20261002010000)
+        "offres_normalisees",
     )
 
     manquants = []

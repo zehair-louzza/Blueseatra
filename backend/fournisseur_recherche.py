@@ -362,7 +362,8 @@ SQL_NORMALISEES = text("""
            n.gtin, n.prix_public_ht, n.anomalies
       FROM blueseatra.offres_normalisees n
      WHERE n.offre_id = ANY(:ids)
-       AND n.tenant_id = ANY(:tenants)
+       AND (n.tenant_id = :tenant_id
+            OR (:avec_commun AND n.tenant_id = :commun))
 """)
 
 # Toutes les offres VISIBLES qui portent la cle produit d'un resultat, meme
@@ -380,7 +381,9 @@ SQL_SOEURS = text(f"""
       LEFT JOIN blueseatra.suppliers f
         ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
      WHERE n.cle_produit = ANY(:cles)
-       AND n.tenant_id = ANY(:tenants)
+       AND (n.tenant_id = :tenant_id
+            OR (:avec_commun AND n.tenant_id = :commun))
+       AND {FILTRE_PERIMETRE}
        AND {FILTRE_VERSION_ACTIVE}
      LIMIT {PLAFOND_SOEURS}
 """)
@@ -503,12 +506,13 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         # candidats sont ensuite tries au PRIX COMPARABLE : un cable YESSS
         # a 146,61 € les 100 m vaut 1,47 €/m et doit passer devant un cable
         # a 2 €/m.
-        tenants = parametres_fonction["tenants"]
+        portee = {"tenant_id": tenant, "commun": parametres["commun"],
+                  "avec_commun": avec_commun}
         normalisees = {}
         if retenus:
             normalisees = {r["id"]: r for r in await _lecture_protegee(
                 session, SQL_NORMALISEES,
-                {"ids": [l["id"] for l in retenus], "tenants": tenants},
+                {"ids": [l["id"] for l in retenus], **portee},
                 "offres normalisees")}
         for l in retenus:
             cp.enrichir(l, normalisees.get(l["id"]))
@@ -538,8 +542,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         soeurs = []
         if ordre_cles:
             soeurs = await _lecture_protegee(session, SQL_SOEURS, {
-                "cles": ordre_cles, "tenants": tenants, "tenant_id": tenant,
-                "commun": parametres["commun"]}, "offres du meme produit")
+                "cles": ordre_cles, **portee}, "offres du meme produit")
 
     # Les lignes detaillees reprennent l'ordre et le perimetre du premier
     # passage ; les autres gardent seulement prix/fournisseur/recherche.
