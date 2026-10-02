@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-02 (6) — Import de catalogue depuis Excel (.xlsx, .xls), ticket #86
+
+L'assistant d'import (Catalogues → Importer) n'acceptait que le CSV.
+
+- **Nouveau module `backend/lecture_tableur.py`** : il renvoie le même tableau de chaînes que le CSV. Le mapping, les contrôles, la comparaison de versions et l'activation ne changent pas.
+- **Format lu dans le contenu** (signature), pas dans l'extension : un faux `.xlsx` est refusé.
+- **Garde-fous repris de l'import lourd** :
+  - macros refusées (`vbaProject.bin`) ;
+  - nombre d'entrées, taille décompressée et taux de compression bornés (zip bomb) ;
+  - 50 feuilles, 1 million de lignes et 500 colonnes au plus ;
+  - formules jamais exécutées : seule leur dernière valeur enregistrée est lue.
+- **Classeurs réels** :
+  - l'en-tête est cherché dans les 30 premières lignes, sous les titres et logos ;
+  - c'est la première feuille contenant un tableau qui est lue, ou celle que l'utilisateur choisit dans l'assistant ;
+  - les valeurs sont propres (`8.0` → `8`, date → `AAAA-MM-JJ`) ;
+  - les en-têtes vides ou en double sont nommés.
+- **Dépendances** : `openpyxl==3.1.5` et `xlrd==2.0.2` (`.xls` 97-2003 uniquement).
+- **Tests** : `backend/tests/test_lecture_tableur.py`, 11 tests dont un `.xls` réel (ignoré en CI si `xlwt` est absent).
+
 ## 2026-10-02 (5) — Conduits YESSS « par 100 » = 100 m ; pas d'écart entre unités différentes
 
 Constat lors de la vérification en production du comparateur (#159), sur la recherche « conduit icta 20 » : 0,44 €/m chez Rexel était comparé à 1,55 €/pièce chez YESSS, avec un écart affiché de 253 %.

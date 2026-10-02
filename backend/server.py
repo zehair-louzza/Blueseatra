@@ -1240,15 +1240,33 @@ async def catalog_template():
                              headers={"Content-Disposition": "attachment; filename=blueseatra_catalog_template.csv"})
 
 
+def _lire_fichier_import(content: bytes, filename: str | None, feuille: str | None = None):
+    """CSV, XLSX ou XLS -> (DataFrame de chaines, infos). Ticket #86.
+
+    Le format est lu dans le contenu ; un classeur passe par
+    lecture_tableur (macros, zip bomb, plafonds, detection de l'en-tete).
+    """
+    import lecture_tableur as lt
+    try:
+        fmt = lt.format_fichier(content, filename)
+        if fmt == "csv":
+            return _read_csv_robust(content), {"format": "csv"}
+        return lt.lire_classeur(content, fmt, (feuille or "").strip() or None)
+    except lt.FichierRefuse as exc:
+        raise HTTPException(400, str(exc))
+
+
 @api.post("/catalogs/import/preview")
 async def import_preview(cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
-                         file: UploadFile = File(...)):
+                         file: UploadFile = File(...),
+                         feuille: str = Form(None)):
     content = await file.read()
     _check_size(content)
-    df = _read_csv_robust(content)
+    df, infos = _lire_fichier_import(content, file.filename, feuille)
     columns = list(df.columns)
     mapping = suggest_mapping(columns)
     return {
+        "fichier": infos,
         "columns": columns,
         "preview": df.head(5).fillna("").astype(str).to_dict(orient="records"),
         "total_rows": len(df),
@@ -1263,10 +1281,11 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
                          file: UploadFile = File(...),
                          catalog_name: str = Form(...),
                          mapping: str = Form(None),
-                         activate: str = Form("true")):
+                         activate: str = Form("true"),
+                         feuille: str = Form(None)):
     content = await file.read()
     _check_size(content)
-    df = _read_csv_robust(content)
+    df, _infos = _lire_fichier_import(content, file.filename, feuille)
     columns = list(df.columns)
 
     # Effective mapping: start from auto-detection, override with user-provided mapping.
