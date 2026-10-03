@@ -24,7 +24,9 @@ pytestmark = pytest.mark.skipif(not DSN, reason="TEST_PG_DSN non défini")
 RACINE = Path(__file__).resolve().parents[2]
 MIGRATIONS = [RACINE / "supabase/migrations/20261002040000_vocabulaire_recherche.sql",
               RACINE / "supabase/migrations/20261002050000_composition_mots.sql",
-              RACINE / "supabase/migrations/20261002060000_composition_mots_rapide.sql"]
+              RACINE / "supabase/migrations/20261002060000_composition_mots_rapide.sql",
+              RACINE / "supabase/migrations/20261002070000_vocabulaire_lourd.sql",
+              RACINE / "supabase/migrations/20261003000000_vocabulaire_lourd_staging.sql"]
 
 COMMUN = "00000000-0000-4000-8000-000000000c0d"
 A = "aaaaaaaa-0000-4000-8000-00000000000a"
@@ -218,3 +220,61 @@ def test_recalcul_idempotent():
 def test_lecture_directe_sous_rls():
     assert _app(A, "SELECT count(*) FROM blueseatra.vocabulaire_recherche WHERE tenant_id = %s", (B,)) == [(0,)]
     assert _app(A, "SELECT count(*) FROM blueseatra.vocabulaire_recherche WHERE tenant_id = %s", (A,))[0][0] > 0
+
+
+# --- version lourde (tables de travail) ----------------------------------------
+
+def test_lourd_identique_a_la_reference():
+    """vocabulaire_recalculer_lourd : memes lignes, memes comptes que la
+    reference, sur la meme source (equivalence verifiee avant remplacement
+    du Rexel en production, 03/10/2026)."""
+    with _cx() as c, c.cursor() as cur:
+        cur.execute("SELECT blueseatra.vocabulaire_recalculer(%s, 'ver-c')", (COMMUN,))
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='ver-c'", (COMMUN,))
+        reference = sorted(cur.fetchall())
+        cur.execute("SELECT blueseatra.vocabulaire_recalculer_lourd(%s, 'ver-c')", (COMMUN,))
+        total = cur.fetchone()[0]
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='ver-c'", (COMMUN,))
+        assert sorted(cur.fetchall()) == reference
+        assert total == len(reference)
+
+
+def test_lourd_meme_cloisonnement_que_la_reference():
+    with pytest.raises(psycopg2.Error):
+        _app(A, "SELECT blueseatra.vocabulaire_recalculer_lourd(%s, 'ver-b')", (B,))
+    # Recalculer la source d'un autre tenant est un no-op : les lignes sont
+    # toujours bornees par p_tenant, aucune ligne du catalogue commun n'est
+    # touchee et rien n'est cree pour A.
+    with _cx() as c, c.cursor() as cur:
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='ver-c' ORDER BY mot", (COMMUN,))
+        avant = cur.fetchall()
+        cur.execute("SELECT blueseatra.vocabulaire_recalculer_lourd(%s, 'ver-c')", (A,))
+        assert cur.fetchone()[0] == 0
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='ver-c' ORDER BY mot", (COMMUN,))
+        assert cur.fetchall() == avant
+        cur.execute("SELECT count(*) FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='ver-c'", (A,))
+        assert cur.fetchone()[0] == 0
+    # A peut recalculer sa propre source.
+    _app(A, "SELECT blueseatra.vocabulaire_recalculer_lourd(%s, 'ver-a')", (A,))
+
+
+def test_lourd_delegue_les_sources_hist():
+    # 'hist:' passe par la fonction de reference : memes lignes qu'elle.
+    with _cx() as c, c.cursor() as cur:
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='hist:histo' ORDER BY mot", (A,))
+        avant = cur.fetchall()
+        cur.execute("SELECT blueseatra.vocabulaire_recalculer(%s, 'hist:histo')", (A,))
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='hist:histo' ORDER BY mot", (A,))
+        apres = cur.fetchall()
+        assert apres == avant
+        cur.execute("SELECT blueseatra.vocabulaire_recalculer_lourd(%s, 'hist:histo')", (A,))
+        cur.execute("SELECT mot, nb_offres FROM blueseatra.vocabulaire_recherche "
+                    "WHERE tenant_id=%s AND source='hist:histo' ORDER BY mot", (A,))
+        assert cur.fetchall() == apres
