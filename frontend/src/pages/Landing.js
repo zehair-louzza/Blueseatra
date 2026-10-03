@@ -473,6 +473,7 @@ function Footer({ t }) {
               <li><a href="#faq" className="hover:text-foreground">{t('lp.nav_faq')}</a></li>
               <li><a href="/a-propos" className="hover:text-foreground">{t('lp.foot_about')}</a></li>
               <li><a href="/contact" className="hover:text-foreground">{t('lp.foot_contact')}</a></li>
+              <li><a href="/mentions-legales" className="hover:text-foreground">{t('lp.foot_legal')}</a></li>
             </ul>
           </div>
           <div>

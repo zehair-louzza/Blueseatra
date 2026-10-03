@@ -221,6 +221,42 @@ PAGES = [
         "liens": ["logiciel-devis-ia", "a-propos"],
         "type_page": "ContactPage",
     },
+    {
+        "slug": "mentions-legales",
+        "title": "Mentions légales et confidentialité | Blueseatra",
+        "description": "Mentions légales du site blueseatra.com : éditeur, hébergeurs, propriété intellectuelle, données personnelles et cookies.",
+        "h1": "Mentions légales et confidentialité",
+        "chapo": "Conformément à la loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique (LCEN), voici les informations relatives au site www.blueseatra.com.",
+        "sections": [
+            ("Éditeur du site", [
+                ["Blueseatra, projet édité par Zehair Louzza",
+                 "Paris, Île-de-France, France",
+                 f"Email : {EMAIL}",
+                 "Directeur de la publication : Zehair Louzza"],
+                "Le numéro d'immatriculation (SIREN/SIRET) sera ajouté ici dès l'immatriculation de la structure.",
+            ]),
+            ("Hébergement", [
+                ["Site web : Vercel Inc., 440 N Barranca Ave #4133, Covina, CA 91723, États-Unis (vercel.com)",
+                 "Serveur d'application : Render Services, Inc., 525 Brannan Street, Suite 300, San Francisco, CA 94107, États-Unis (render.com)",
+                 "Base de données : Supabase Inc. (supabase.com)"],
+            ]),
+            ("Propriété intellectuelle", [
+                "Les textes, logos, marques, images et le logiciel Blueseatra sont protégés par le droit de la propriété intellectuelle. Toute reproduction, même partielle, est interdite sans autorisation écrite préalable.",
+            ]),
+            ("Données personnelles", [
+                "Les données transmises (email de contact, compte utilisateur, documents importés pour un devis) servent uniquement à fournir le service et à répondre à vos demandes. Elles ne sont ni vendues ni cédées à des tiers. Les données de chaque entreprise sont isolées dans la base de données. La lecture automatique des documents peut faire appel à des sous-traitants techniques (hébergeurs, fournisseurs de modèles d'IA) qui agissent uniquement pour le compte de Blueseatra.",
+                f"Conformément au RGPD et à la loi Informatique et Libertés, vous disposez d'un droit d'accès, de rectification, d'effacement, d'opposition et de portabilité. Pour l'exercer : {EMAIL}. Vous pouvez aussi saisir la CNIL (cnil.fr).",
+            ]),
+            ("Cookies et mesure d'audience", [
+                "Le site utilise une mesure d'audience et de performance sans cookie publicitaire (Vercel Analytics et Speed Insights). Des éléments techniques nécessaires à la connexion sont stockés dans votre navigateur lorsque vous utilisez l'application.",
+            ]),
+            ("Droit applicable", [
+                "Les présentes mentions légales sont régies par le droit français. En cas de litige, et à défaut d'accord amiable, les tribunaux français sont compétents.",
+            ]),
+        ],
+        "faq": [],
+        "liens": ["a-propos", "contact"],
+    },
 ]
 
 LIBELLES = {
@@ -230,6 +266,7 @@ LIBELLES = {
     "facturation-ia": "Facturation IA",
     "a-propos": "À propos",
     "contact": "Contact",
+    "mentions-legales": "Mentions légales",
 }
 
 
@@ -292,7 +329,7 @@ def rendre_page(page: dict) -> str:
             f"<details><summary>{e(q)}</summary><p>{e(r)}</p></details>" for q, r in page["faq"]
         ) + "</section>"
     liens = "".join(f'<li><a href="/{s}">{e(LIBELLES[s])}</a></li>' for s in page["liens"])
-    nav = "".join(f'<a href="/{s}">{e(l)}</a>' for s, l in LIBELLES.items() if s not in ("a-propos", "contact"))
+    nav = "".join(f'<a href="/{s}">{e(l)}</a>' for s, l in LIBELLES.items() if s not in ("a-propos", "contact", "mentions-legales"))
     return f"""<!doctype html>
 <html lang="fr">
 <head>
@@ -343,7 +380,7 @@ def rendre_page(page: dict) -> str:
 </main>
 <footer><div class="wrap">
 <p><strong>Blueseatra</strong> · Logiciel de devis IA pour le bâtiment · Paris, France</p>
-<p>Contact : <a href="mailto:{EMAIL}">{EMAIL}</a> · <a href="/a-propos">À propos</a> · <a href="/contact">Contact</a> · <a href="/login">Connexion</a></p>
+<p>Contact : <a href="mailto:{EMAIL}">{EMAIL}</a> · <a href="/a-propos">À propos</a> · <a href="/contact">Contact</a> · <a href="/mentions-legales">Mentions légales</a> · <a href="/login">Connexion</a></p>
 <p>Fondé par <a href="/a-propos">Zehair Louzza</a>, également fondateur de <a href="https://journeyinto-ai.com" rel="noopener">Journey into AI</a>.</p>
 </div></footer>
 </body>
@@ -352,7 +389,7 @@ def rendre_page(page: dict) -> str:
 
 
 def ecrire_sitemap() -> None:
-    urls = [("", "1.0")] + [(p["slug"], "0.8" if p["slug"] not in ("a-propos", "contact") else "0.5") for p in PAGES] + [("signup", "0.6")]
+    urls = [("", "1.0")] + [(p["slug"], "0.8" if p["slug"] not in ("a-propos", "contact", "mentions-legales") else ("0.3" if p["slug"] == "mentions-legales" else "0.5")) for p in PAGES] + [("signup", "0.6")]
     lignes = "".join(
         f"  <url><loc>{SITE}/{slug}</loc><lastmod>{AUJOURD_HUI}</lastmod><priority>{prio}</priority></url>\n"
         for slug, prio in urls

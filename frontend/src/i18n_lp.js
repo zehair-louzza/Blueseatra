@@ -94,7 +94,7 @@ export const lpFr = {
   foot_tag: 'Des demandes brutes aux devis validés.',
   foot_solutions: 'Solutions',
   sol_ia: 'Logiciel de devis IA', sol_auto: 'Automatisation des devis', sol_bat: 'Logiciel de devis bâtiment', sol_fact: 'Facturation IA',
-  foot_about: 'À propos', foot_contact: 'Contact',
+  foot_about: 'À propos', foot_contact: 'Contact', foot_legal: 'Mentions légales',
   seo_title: 'Blueseatra | Logiciel de devis IA pour le bâtiment et le BTP',
   seo_desc: 'Logiciel de devis IA pour artisans et PME du bâtiment : Blueseatra lit emails, PDF et photos et prépare vos devis sur vos prix. Essai gratuit 14 jours.',
   signup: 'Créer un espace',
@@ -195,7 +195,7 @@ export const lpEn = {
   signup: 'Create a workspace',
   foot_solutions: 'Solutions',
   sol_ia: 'AI quote software', sol_auto: 'Quote automation', sol_bat: 'Construction quote software', sol_fact: 'AI invoicing',
-  foot_about: 'About', foot_contact: 'Contact',
+  foot_about: 'About', foot_contact: 'Contact', foot_legal: 'Legal notice',
   seo_title: 'Blueseatra | AI quote software for construction',
   seo_desc: 'AI quote software for contractors: Blueseatra reads emails, PDFs and photos and drafts quotes on your own prices. 14-day free trial.',
 };

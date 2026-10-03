@@ -46,7 +46,7 @@ vivent dans le title, le H1, les H2, le texte et les ancres de liens.
 4. **Email** : vérifier que la boîte `contact@blueseatra.com` existe chez Hostinger (MX déjà sur Hostinger).
 5. **Liens externes** : depuis journeyinto-ai.com (page À propos et footer : « Autre projet du fondateur : Blueseatra »),
    le profil LinkedIn, le profil GitHub, et la page LinkedIn entreprise Blueseatra.
-6. **Mentions légales** : ajouter une page avec raison sociale, SIREN/SIRET, adresse et hébergeur
+6. **Mentions légales** : page `/mentions-legales` en place (éditeur, hébergeurs, RGPD) ; ajouter forme juridique, SIREN/SIRET et adresse du siège
    dès que la structure juridique est fixée (obligation légale et signal de confiance E-E-A-T).
 
 ## 4. Brainstorming : perspectives pour gagner les premières positions
