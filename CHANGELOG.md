@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-03 — Vocabulaire des gros catalogues : version tables de travail
+
+**Mesuré en production sur le Rexel (747 000 offres, ~7,5 millions de paires)**, la construction des groupes de mots a buté sur trois murs, chacun documenté dans la migration :
+1. la version monobloc agrégeait tout d'un coup : débordement de work_mem, passe abandonnée à 75 minutes ;
+2. le planificateur aplatit la sous-requête lateral et **recalcule la découpe de la désignation à chaque référence** (6 découpages par paire, des millions de fois — visible dans le Group Key du EXPLAIN) ;
+3. la version par lots avec upserts accumulés s'effondrait à partir de la 6e tranche : les upserts invalident la carte de visibilité, les Index Only Scan redeviennent des lectures de table (52 000 heap fetches mesurés sur un échantillon de 5 000 offres).
+
+**Solution (20261002070000 puis 20261003000000)** : `vocabulaire_recalculer_lourd` construit tout dans des tables temporaires — découpage de la désignation une seule fois par offre, mots isolés, paires et triples agrégés sans jamais écrire dans la table cible, jointures contre la table temporaire des mots courants — puis remplace la source en une seule écriture. Équivalence exacte avec la fonction de référence vérifiée par test (mêmes lignes, mêmes comptes), et mêmes gardes de cloisonnement.
+
+**Tests** : `test_vocabulaire_sql.py` 28 (dont équivalence de la version lourde, no-op pour la source d'un autre tenant, délégation des sources hist).
+
 ## 2026-10-02 (11) — Recalcul du vocabulaire : version rapide
 
 La version 20261002050000 construisait les groupes de mots avec des EXISTS corrélés : chaque paire de mots sondeait l'index. Sur le catalogue Rexel (747 000 offres), des millions de sondes, plusieurs minutes par source — le remplissage ne tenait pas dans la fenêtre d'un appel d'administration. Réécriture en jointures semi-fonceuses : la liste des mots courants est hachée une fois. Résultats identiques (25 tests SQL, comptes exacts vérifiés), seule la vitesse change.
