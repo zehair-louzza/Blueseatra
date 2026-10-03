@@ -23,4 +23,5 @@
 - Catalogues fournisseurs intégrés (Rexel, Point.P, Prolians, SFIC...) et import de votre catalogue CSV/Excel
 - Essai gratuit 14 jours sans carte bancaire ; devis et PDF illimités dans toutes les offres
 - Données isolées par entreprise, journal d'audit
+- Projet en cours de préparation ; base de données Supabase en Irlande (UE) ; IA en local sur serveur OVHcloud en France (test), puis Mistral AI (UE) en production
 - Blueseatra n'est pas une plateforme agréée de facturation électronique

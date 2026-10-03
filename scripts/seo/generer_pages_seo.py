@@ -224,10 +224,13 @@ PAGES = [
     {
         "slug": "mentions-legales",
         "title": "Mentions légales et confidentialité | Blueseatra",
-        "description": "Mentions légales du site blueseatra.com : éditeur, hébergeurs, propriété intellectuelle, données personnelles et cookies.",
+        "description": "Mentions légales de blueseatra.com : projet en préparation, données hébergées en Irlande (UE), IA locale puis Mistral AI, sécurité et RGPD.",
         "h1": "Mentions légales et confidentialité",
         "chapo": "Conformément à la loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique (LCEN), voici les informations relatives au site www.blueseatra.com.",
         "sections": [
+            ("Statut du projet", [
+                "Blueseatra est un projet en cours de préparation. Le service est en phase de test et de développement : les fonctionnalités, les offres et les présentes mentions peuvent évoluer avant le lancement commercial.",
+            ]),
             ("Éditeur du site", [
                 ["Blueseatra, projet édité par Zehair Louzza",
                  "Paris, Île-de-France, France",
@@ -235,16 +238,28 @@ PAGES = [
                  "Directeur de la publication : Zehair Louzza"],
                 "Le numéro d'immatriculation (SIREN/SIRET) sera ajouté ici dès l'immatriculation de la structure.",
             ]),
-            ("Hébergement", [
-                ["Site web : Vercel Inc., 440 N Barranca Ave #4133, Covina, CA 91723, États-Unis (vercel.com)",
-                 "Serveur d'application : Render Services, Inc., 525 Brannan Street, Suite 300, San Francisco, CA 94107, États-Unis (render.com)",
-                 "Base de données : Supabase Inc. (supabase.com)"],
+            ("Hébergement et localisation des données", [
+                ["Base de données : Supabase, région eu-west-1 en Irlande (Union européenne). C'est le seul service qui conserve les données de l'application : comptes, demandes, catalogues et devis (supabase.com).",
+                 "API de l'application : Render Services, Inc., 525 Brannan Street, Suite 300, San Francisco, CA 94107, États-Unis. Le serveur de l'API est situé à Francfort (Union européenne) ; il traite les requêtes sans conserver la base de données (render.com).",
+                 "Diffusion du site : Vercel Inc., 440 N Barranca Ave #4133, Covina, CA 91723, États-Unis. Vercel diffuse uniquement l'interface et les pages publiques ; il n'héberge ni la base de données ni les documents des clients (vercel.com)."],
+                "Vercel n'a aucun accès à la base de données. L'API Render y accède uniquement depuis Francfort, avec un rôle restreint qui ne voit que les données de l'entreprise connectée. Les échanges sont chiffrés (HTTPS/TLS) et ces prestataires agissent dans le cadre de leurs accords de traitement des données conformes au RGPD.",
+            ]),
+            ("Intelligence artificielle", [
+                ["Phase actuelle de test : les modèles d'IA tournent en local sur un serveur OVHcloud situé en France. La lecture des images et des scans (OCR) est toujours faite en local : aucune image n'est envoyée à un fournisseur externe.",
+                 "Phase de production : la structuration des devis utilisera Mistral AI, société française, dont les données sont hébergées par défaut dans l'Union européenne. Seul le texte lu est transmis, jamais les images.",
+                 "Dans tous les cas, l'IA ne fixe jamais les prix : les montants sont calculés par des règles fixes à partir du catalogue de l'entreprise."],
+            ]),
+            ("Sécurité", [
+                ["Isolation stricte des données de chaque entreprise au niveau de la base (sécurité au niveau des lignes, RLS, sur toutes les tables)",
+                 "Accès à l'application protégé par authentification et jeton sécurisé",
+                 "Connexions chiffrées (TLS) entre le navigateur, l'API et la base",
+                 "Journal d'audit des actions et tests de sécurité automatiques à chaque mise à jour du code"],
             ]),
             ("Propriété intellectuelle", [
                 "Les textes, logos, marques, images et le logiciel Blueseatra sont protégés par le droit de la propriété intellectuelle. Toute reproduction, même partielle, est interdite sans autorisation écrite préalable.",
             ]),
             ("Données personnelles", [
-                "Les données transmises (email de contact, compte utilisateur, documents importés pour un devis) servent uniquement à fournir le service et à répondre à vos demandes. Elles ne sont ni vendues ni cédées à des tiers. Les données de chaque entreprise sont isolées dans la base de données. La lecture automatique des documents peut faire appel à des sous-traitants techniques (hébergeurs, fournisseurs de modèles d'IA) qui agissent uniquement pour le compte de Blueseatra.",
+                "Les données transmises (email de contact, compte utilisateur, documents importés pour un devis) servent uniquement à fournir le service et à répondre à vos demandes. Elles ne sont ni vendues ni cédées à des tiers. Les données de chaque entreprise sont isolées dans la base de données. Les sous-traitants techniques (hébergeurs, fournisseur de modèles d'IA) agissent uniquement pour le compte de Blueseatra.",
                 f"Conformément au RGPD et à la loi Informatique et Libertés, vous disposez d'un droit d'accès, de rectification, d'effacement, d'opposition et de portabilité. Pour l'exercer : {EMAIL}. Vous pouvez aussi saisir la CNIL (cnil.fr).",
             ]),
             ("Cookies et mesure d'audience", [
