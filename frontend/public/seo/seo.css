@@ -1,0 +1,30 @@
+/* Pages SEO statiques Blueseatra : legeres, sans JS, rapides (Core Web Vitals). */
+:root{--bleu:#193852;--teal:#3bb3bf;--texte:#1d2733;--doux:#5b6875;--bord:#e3e8ee;--fond:#f7f9fb}
+*{box-sizing:border-box}
+body{margin:0;font:17px/1.7 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--texte);background:#fff}
+.wrap{max-width:900px;margin:0 auto;padding:0 20px}
+.bar{border-bottom:1px solid var(--bord);background:#fff;position:sticky;top:0;z-index:2}
+.bar .wrap{display:flex;align-items:center;gap:20px;min-height:64px;max-width:1150px;flex-wrap:wrap}
+.bar nav{display:flex;gap:18px;flex:1;flex-wrap:wrap;font-size:15px}
+.bar nav a{color:var(--doux);text-decoration:none}.bar nav a:hover{color:var(--bleu)}
+.logo img{height:40px;width:auto;display:block}
+.btn{display:inline-block;background:var(--bleu);color:#fff;padding:10px 18px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin:4px 6px 4px 0}
+.btn.ghost{background:#fff;color:var(--bleu);border:1px solid var(--bleu)}
+.ariane{font-size:14px;color:var(--doux);margin:28px 0 8px}.ariane a{color:var(--doux)}
+h1{font-size:clamp(30px,4.4vw,44px);line-height:1.15;color:var(--bleu);margin:8px 0 18px;text-wrap:balance}
+h2{font-size:25px;line-height:1.25;color:var(--bleu);margin:42px 0 12px}
+.chapo{font-size:19px;color:var(--doux);max-width:62ch}
+ul{padding-left:22px}li{margin:6px 0}
+a{color:#1e5a85}
+details{border:1px solid var(--bord);border-radius:10px;padding:12px 16px;margin:10px 0;background:var(--fond)}
+summary{cursor:pointer;font-weight:600}
+.email{font-size:22px;font-weight:600}
+.voir{border-top:1px solid var(--bord);margin-top:48px}
+footer{margin-top:60px;background:var(--fond);border-top:1px solid var(--bord);font-size:15px;color:var(--doux);padding:24px 0}
+@media (max-width:760px){
+  .bar{position:static}
+  .bar .wrap{gap:10px;padding-top:10px;padding-bottom:10px}
+  .bar .btn{margin-left:auto;padding:8px 12px;font-size:14px}
+  .bar nav{order:3;flex-basis:100%;gap:6px 14px;font-size:14px}
+  .logo img{height:34px}
+}

@@ -1,0 +1,25 @@
+# Blueseatra
+
+> Blueseatra est un logiciel français de devis assisté par l'intelligence artificielle pour les artisans, les PME du bâtiment (TCE) et les entreprises de maintenance. Il lit les demandes (emails, PDF, Excel, photos), structure les lots et prépare un devis chiffré sur les prix de l'entreprise. L'IA ne fixe jamais les prix.
+
+- Site : https://www.blueseatra.com
+- Contact : contact@blueseatra.com
+- Fondateur : Zehair Louzza (Paris), également fondateur de Journey into AI (https://journeyinto-ai.com)
+
+## Pages
+
+- [Logiciel de devis IA](https://www.blueseatra.com/logiciel-devis-ia) : création de devis avec l'IA, sur vos prix
+- [Automatisation des devis](https://www.blueseatra.com/automatisation-devis) : de la demande au PDF en 5 étapes
+- [Logiciel de devis bâtiment](https://www.blueseatra.com/logiciel-devis-batiment) : lots TCE, main-d'oeuvre, TVA bâtiment, catalogues fournisseurs
+- [Facturation IA](https://www.blueseatra.com/facturation-ia) : du devis à la facture pro forma, préparation à la facturation électronique 2026-2027
+- [À propos](https://www.blueseatra.com/a-propos)
+- [Contact](https://www.blueseatra.com/contact)
+
+## Faits clés
+
+- Formats lus : email, PDF, DOCX, XLSX, CSV, PNG, JPG (OCR des notes manuscrites)
+- TVA bâtiment gérée : 20 %, 10 %, 5,5 %, 0 %
+- Catalogues fournisseurs intégrés (Rexel, Point.P, Prolians, SFIC...) et import de votre catalogue CSV/Excel
+- Essai gratuit 14 jours sans carte bancaire ; devis et PDF illimités dans toutes les offres
+- Données isolées par entreprise, journal d'audit
+- Blueseatra n'est pas une plateforme agréée de facturation électronique
