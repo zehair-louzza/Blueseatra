@@ -1,0 +1,21 @@
+# robots.txt - https://www.blueseatra.com
+User-agent: *
+Allow: /
+Disallow: /app
+Disallow: /app/
+Disallow: /login
+
+# Moteurs de reponse IA : autorises a lire les pages publiques
+User-agent: GPTBot
+Allow: /
+Disallow: /app/
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /app/
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /app/
+
+Sitemap: https://www.blueseatra.com/sitemap.xml

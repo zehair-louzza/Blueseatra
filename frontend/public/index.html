@@ -1,40 +1,127 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#193852" />
+    <title>Blueseatra | Logiciel de devis IA pour le bâtiment et le BTP</title>
+    <meta name="description" content="Logiciel de devis IA pour artisans et PME du bâtiment : Blueseatra lit emails, PDF et photos et prépare vos devis sur vos prix. Essai gratuit 14 jours." />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="author" content="Zehair Louzza" />
+    <link rel="canonical" href="https://www.blueseatra.com/" />
+    <link rel="alternate" hreflang="fr" href="https://www.blueseatra.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://www.blueseatra.com/" />
     <link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/brand/favicon-32.png" />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/brand/apple-touch.png" />
-    <meta name="description" content="Blueseatra – AI-powered quote automation for construction and services" />
+    <link rel="manifest" href="%PUBLIC_URL%/site.webmanifest" />
+    <!-- Google Search Console : collez ici la balise de verification si vous choisissez la methode "balise HTML"
+    <meta name="google-site-verification" content="VOTRE_CODE" /> -->
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Blueseatra" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:title" content="Blueseatra | Logiciel de devis IA pour le bâtiment" />
+    <meta property="og:description" content="Des demandes brutes aux devis validés, sur vos prix. Lecture IA des emails, PDF et photos, lots TCE, TVA bâtiment et PDF client." />
+    <meta property="og:url" content="https://www.blueseatra.com/" />
+    <meta property="og:image" content="https://www.blueseatra.com/og/blueseatra-og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Blueseatra | Logiciel de devis IA pour le bâtiment" />
+    <meta name="twitter:description" content="Des demandes brutes aux devis validés, sur vos prix." />
+    <meta name="twitter:image" content="https://www.blueseatra.com/og/blueseatra-og.png" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>Blueseatra</title>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Organization",
+          "@id": "https://www.blueseatra.com/#organisation",
+          "name": "Blueseatra",
+          "url": "https://www.blueseatra.com/",
+          "logo": "https://www.blueseatra.com/brand/blueseatra-mark.png",
+          "email": "contact@blueseatra.com",
+          "description": "Logiciel de devis assisté par l'IA pour les artisans, les PME du bâtiment et les entreprises de maintenance.",
+          "address": { "@type": "PostalAddress", "addressLocality": "Paris", "addressRegion": "Île-de-France", "addressCountry": "FR" },
+          "contactPoint": { "@type": "ContactPoint", "email": "contact@blueseatra.com", "contactType": "customer support", "availableLanguage": ["French", "English"] },
+          "founder": { "@id": "https://www.blueseatra.com/a-propos#fondateur" },
+          "sameAs": ["https://github.com/zehair-louzza"]
+        },
+        {
+          "@type": "Person",
+          "@id": "https://www.blueseatra.com/a-propos#fondateur",
+          "name": "Zehair Louzza",
+          "jobTitle": "Fondateur de Blueseatra",
+          "url": "https://www.blueseatra.com/a-propos",
+          "sameAs": [
+            "https://github.com/zehair-louzza",
+            "https://www.linkedin.com/in/zehair-louzza-873367109",
+            "https://journeyinto-ai.com"
+          ]
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://www.blueseatra.com/#site",
+          "name": "Blueseatra",
+          "url": "https://www.blueseatra.com/",
+          "inLanguage": ["fr-FR", "en"],
+          "publisher": { "@id": "https://www.blueseatra.com/#organisation" }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "Blueseatra",
+          "applicationCategory": "BusinessApplication",
+          "applicationSubCategory": "Logiciel de devis et chiffrage BTP",
+          "operatingSystem": "Web",
+          "url": "https://www.blueseatra.com/",
+          "image": "https://www.blueseatra.com/og/blueseatra-og.png",
+          "description": "Blueseatra lit vos emails, PDF et photos, structure les lots TCE et prépare un devis chiffré sur vos prix que vous validez. Devis IA, automatisation des devis, devis-facture pro forma.",
+          "featureList": [
+            "Lecture IA des emails, PDF, Excel et photos",
+            "Lots et sous-lots TCE, main-d'oeuvre et déplacements",
+            "TVA bâtiment 20 %, 10 %, 5,5 % et 0 %",
+            "Catalogues fournisseurs et import de votre catalogue",
+            "PDF client avec mentions légales, devis-facture pro forma",
+            "Relances des devis et journal d'audit"
+          ],
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR", "description": "Essai gratuit 14 jours sans carte bancaire" },
+          "publisher": { "@id": "https://www.blueseatra.com/#organisation" }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            { "@type": "Question", "name": "L'IA peut-elle modifier mes prix ?", "acceptedAnswer": { "@type": "Answer", "text": "Non. L'IA lit la demande et propose des lignes. Les montants viennent de votre catalogue et sont calculés par des règles fixes. Vous validez chaque devis." } },
+            { "@type": "Question", "name": "Quels documents puis-je envoyer ?", "acceptedAnswer": { "@type": "Answer", "text": "Texte d'email, PDF, DOCX, XLSX, CSV et photos (PNG, JPG), y compris une note manuscrite prise sur le chantier." } },
+            { "@type": "Question", "name": "Puis-je importer mon propre catalogue ?", "acceptedAnswer": { "@type": "Answer", "text": "Oui, en CSV ou Excel. Les colonnes sont reconnues automatiquement et chaque import crée une version que vous activez quand vous voulez." } },
+            { "@type": "Question", "name": "Mes données sont-elles séparées de celles des autres entreprises ?", "acceptedAnswer": { "@type": "Answer", "text": "Oui. Chaque espace est isolé au niveau de la base de données et chaque action est enregistrée dans un journal." } }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
+    <noscript>Activez JavaScript pour utiliser l'application Blueseatra. Contact : contact@blueseatra.com</noscript>
+    <!-- Contenu de secours lisible par tous les robots ; React le remplace au chargement. -->
+    <div id="root">
+      <main style="max-width:860px;margin:0 auto;padding:40px 20px;font-family:system-ui,sans-serif;line-height:1.6">
+        <h1>Logiciel de devis IA pour le bâtiment : des demandes brutes aux devis validés, sur vos prix</h1>
+        <p>Blueseatra lit vos emails, PDF et photos, structure les lots TCE et prépare un devis que vous validez. L'IA ne fixe jamais les prix : ils viennent de votre catalogue.</p>
+        <h2>Solutions</h2>
+        <ul>
+          <li><a href="/logiciel-devis-ia">Logiciel de devis IA</a></li>
+          <li><a href="/automatisation-devis">Automatisation des devis</a></li>
+          <li><a href="/logiciel-devis-batiment">Logiciel de devis bâtiment et TCE</a></li>
+          <li><a href="/facturation-ia">Facturation IA : du devis à la facture</a></li>
+        </ul>
+        <p><a href="/signup">Essai gratuit 14 jours</a> · <a href="/a-propos">À propos</a> · <a href="mailto:contact@blueseatra.com">contact@blueseatra.com</a></p>
+      </main>
+    </div>
   </body>
 </html>
