@@ -33,7 +33,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22  # @supabase/supabase-js 2.117 exige Node >= 22
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
