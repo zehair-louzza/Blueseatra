@@ -1741,6 +1741,85 @@ async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80)
 # ===========================================================================
 # QUOTES
 # ===========================================================================
+
+# 04/10/2026 — rapprochement fournisseur par ligne : une ligne de fourniture
+# sans prix reçoit la meilleure offre des sources actives (pertinence puis
+# prix) et ses alternatives, pour le menu de choix par ligne de l'éditeur.
+# L'IA ne choisit PAS le fournisseur : la recherche classe (preuve = pertinence),
+# l'humain peut changer avant envoi. Le prix reste figé à la sélection.
+def _resume_offre(offre: dict) -> dict:
+    return {
+        "id": offre.get("id"),
+        "fournisseur": offre.get("fournisseur"),
+        "designation": offre.get("designation"),
+        "marque": offre.get("marque"),
+        "reference_fournisseur": offre.get("reference_fournisseur"),
+        "prix_net_ht": offre.get("prix_net_ht"),
+        "prix_public_ht": offre.get("prix_public_ht"),
+        "unite_vente": offre.get("unite_vente"),
+        "url_produit": offre.get("url_produit"),
+        "pertinence": (round(float(offre.get("_pertinence")), 3)
+                      if offre.get("_pertinence") is not None else None),
+    }
+
+
+def _applique_offre_ligne(ligne: dict, offre: dict) -> None:
+    """Applique une offre fournisseur à une ligne : prix, unité, preuve.
+
+    Le prix est FIGÉ à l'application (règle « source tarifaire figée ») ;
+    changer d'offre repasse par l'endpoint dédié, qui refige.
+    """
+    prix = offre.get("prix_net_ht")
+    ligne["unit_price_ht"] = float(prix) if prix is not None else None
+    qte = float(ligne.get("qty") or 1)
+    ligne["line_ht"] = round(float(prix) * qte, 2) if prix is not None else None
+    if offre.get("unite_vente"):
+        ligne["unit"] = offre["unite_vente"]
+    ligne["chosen_offer"] = {**_resume_offre(offre), "choisie_le": now_iso()}
+    ligne["status"] = "proposed"
+    motif = f"offre_fournisseur:{offre.get('fournisseur')}"
+    # Un seul motif d'offre par ligne : le changement de fournisseur
+    # remplace la preuve, il ne l'accumule pas.
+    ligne["reasons"] = [r for r in (ligne.get("reasons") or [])
+                       if not r.startswith("offre_fournisseur:")] + [motif]
+
+
+def _garde_alternatives(offres: list[dict]) -> list[dict]:
+    """Règle pertinence 3/3 — garde anti-accessoire (04/10/2026, même règle
+    que le panneau du comparateur) : une alternative dont la pertinence vaut
+    moins de la moitié du leader est un accessoire qui MENTIONNE la demande,
+    pas le produit demandé (panneau PVC pour « porte coupe feu »). Elle est
+    retirée du menu — la ligne elle-même reste inchangée si tout est faible :
+    le leader est toujours proposé, l'humain décide. Sans pertinences
+    exploitables, tout est gardé."""
+    scores = [float(o.get("pertinence") or 0.0) for o in offres if o.get("pertinence") is not None]
+    if not scores or max(scores) <= 0:
+        return list(offres)
+    plancher = 0.5 * max(scores)
+    gardees = [o for o in offres
+               if o.get("pertinence") is None or float(o.get("pertinence")) >= plancher]
+    return gardees or [offres[0]]
+
+
+def _enrichit_lignes_fournisseurs(lignes: list[dict], offres_par_ligne: dict) -> None:
+    """Attache à chaque ligne de fourniture sans prix sa meilleure offre
+    (appliquée) et ses alternatives (menu de l'éditeur)."""
+    for ligne in lignes:
+        if ligne.get("line_type") in ("travel", "labor", "lot", "sublot", "note", "page_break"):
+            continue  # structure et tarifs internes : jamais de rapprochement fournisseur
+        if ligne.get("unit_price_ht") is not None and ligne.get("chosen_offer") is not None:
+            continue  # déjà prixée par une sélection antérieure
+        cles = [str(ligne.get("request_label") or "").strip().lower(),
+                str(ligne.get("description") or "").strip().lower()]
+        offres = next((offres_par_ligne[c] for c in cles if c and c in offres_par_ligne), None)
+        if not offres:
+            continue
+        alternatives = _garde_alternatives([_resume_offre(o) for o in offres[:8]])
+        if ligne.get("unit_price_ht") is None:
+            _applique_offre_ligne(ligne, offres[0])
+        ligne["alternatives"] = alternatives
+
+
 async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str | None) -> list[dict]:
     """Coeur partage de la creation de brouillon(s) de devis depuis une
     demande deja traitee. Utilise a la fois par l'endpoint manuel
@@ -1798,6 +1877,18 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
             except Exception:
                 logger.warning("expand_work_into_materials skipped for request %s", request_id)
         lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, pool_matching)
+        # 04/10/2026 : rapprochement fournisseur PAR LIGNE — chaque ligne de
+        # fourniture sans prix reçoit la meilleure offre des sources actives
+        # (appliquée, prix figé) et ses alternatives pour le menu de l'éditeur.
+        if await catalogue_chiffrage.a_sources_actives(tenant_id):
+            try:
+                offres_par_ligne = await catalogue_chiffrage.meilleures_offres_par_ligne(
+                    tenant_id, extracted0)
+                _enrichit_lignes_fournisseurs(lines, offres_par_ligne)
+                total_ht, total_vat, _ = match_engine.recompute_totals(lines)
+            except Exception:
+                logger.warning("rapprochement par ligne indisponible (request %s)", request_id,
+                               exc_info=True)
         # role=describe (redaction uniquement) : glm-4.7-flash enrichit
         # description + etapes, jamais les quantites/prix de ce devis --
         # repli automatique et transparent sur le gabarit deterministe en
@@ -1984,6 +2075,93 @@ async def validate_quote(quote_id: str, cu: CurrentUser = Depends(require_role("
     await db.quotes.update_one({"id": quote_id}, {"$set": {"status": "validated", "validated_at": now_iso()}})
     await audit(cu.tenant_id, cu.email, "quote.validate", quote_id)
     return {"ok": True, "status": "validated"}
+
+
+def _ligne_devis_ou_404(quote: dict, index: int) -> dict:
+    """Ligne d'un devis par index, avec garde structurelle."""
+    lignes = quote.get("lines") or []
+    if not 0 <= index < len(lignes):
+        raise HTTPException(404, "Ligne introuvable")
+    ligne = lignes[index]
+    if ligne.get("line_type") in ("lot", "sublot", "note", "page_break"):
+        raise HTTPException(400, "Cette ligne est structurelle (lot/sous-lot), pas une fourniture")
+    return ligne
+
+
+@api.get("/quotes/{quote_id}/lines/{line_index}/offers")
+async def quote_line_offers(quote_id: str, line_index: int,
+                            cu: CurrentUser = Depends(get_current)):
+    """Alternatives fournisseur d'une ligne du devis (menu de l'éditeur).
+
+    Recherche FRAÎCHE dans les sources actives par requête matériau de la
+    ligne — les alternatives figées au moment de la génération peuvent être
+    périmées (nouveau tarif importé depuis).
+    """
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    ligne = _ligne_devis_ou_404(q, line_index)
+    label = str(ligne.get("request_label") or ligne.get("description") or "").strip()
+    requete = catalogue_chiffrage.requete_materielle(label) or label
+    offres: list[dict] = []
+    try:
+        async with tenant_context(cu.tenant_id):
+            offres = await catalogue_chiffrage.rechercher(requete, 6) or []
+    except Exception:
+        logger.warning("recherche offres ligne indisponible (quote %s)", quote_id, exc_info=True)
+    resumees = _garde_alternatives([_resume_offre(o) for o in offres])
+    return {
+        "line_index": line_index,
+        "requete": requete,
+        "actuelle": ligne.get("chosen_offer"),
+        "offres": resumees,
+    }
+
+
+@api.post("/quotes/{quote_id}/lines/{line_index}/offer")
+async def quote_line_choose_offer(quote_id: str, line_index: int, body: dict,
+                                   cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    """Change l'offre fournisseur d'une ligne : prix REFIGÉ, preuve mise à
+    jour, totaux recalculés. Le devis doit être en brouillon — une fois
+    validé/envoyé, la source tarifaire est historisée, on ne la change plus."""
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    if q.get("status") not in ("draft",):
+        raise HTTPException(409, "Le devis est déjà validé ou envoyé : la source tarifaire est figée.")
+    ligne = _ligne_devis_ou_404(q, line_index)
+    offre_id = str((body or {}).get("offer_id") or "").strip()
+    if not offre_id:
+        raise HTTPException(400, "offer_id manquant")
+    # L'offre vient du cache de la ligne ou d'une recherche fraîche — jamais
+    # de la confiance du client : on la retrouve par id dans les sources.
+    label = str(ligne.get("request_label") or ligne.get("description") or "").strip()
+    candidats = list(ligne.get("alternatives") or [])
+    try:
+        async with tenant_context(cu.tenant_id):
+            for source in (catalogue_chiffrage.requete_materielle(label), label):
+                if not source:
+                    continue
+                for o in (await catalogue_chiffrage.rechercher(source, 6) or []):
+                    candidats.append(_resume_offre(o))
+    except Exception:
+        logger.warning("recherche offres changement indisponible (quote %s)", quote_id, exc_info=True)
+    offre = next((o for o in candidats if str(o.get("id")) == offre_id), None)
+    if not offre:
+        raise HTTPException(404, "Offre introuvable dans les sources actives pour cette ligne")
+    _applique_offre_ligne(ligne, offre)
+    # Rafraîchit les alternatives connues de la ligne.
+    ligne["alternatives"] = _garde_alternatives(candidats)
+    total_ht, total_vat, total_ttc = match_engine.recompute_totals(q["lines"])
+    await db.quotes.update_one(
+        {"id": quote_id},
+        {"$set": {"lines": q["lines"], "total_ht": total_ht,
+                  "total_vat": total_vat, "total_ttc": total_ttc}})
+    await audit(cu.tenant_id, cu.email, "quote.line.offer", quote_id,
+                {"line_index": line_index, "offer_id": offre_id,
+                 "fournisseur": offre.get("fournisseur")})
+    q.update({"total_ht": total_ht, "total_vat": total_vat, "total_ttc": total_ttc})
+    return {"ok": True, "quote": q}
 
 
 @api.post("/quotes/{quote_id}/send")

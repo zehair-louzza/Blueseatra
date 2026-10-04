@@ -232,7 +232,10 @@ def test_candidats_rapprochement_agrege_et_deduplique(monkeypatch):
     async def faux_rechercher(q, limite):
         recherches.append((q, limite))
         # deux libelles, un article commun (id 'frn:x' dedouble)
-        if "évacuation" in q:
+        # 04/10/2026 : la recherche part de la REQUÊTE MATÉRIAU (sans
+        # accent : requete_materielle normalise) — « évacuation » ne peut
+        # plus matcher, la clé du mock est la forme normalisée.
+        if "evacuation" in q:
             return [{"id": "frn:x", "item_label": "Grille", "source": "fournisseur"},
                     {"id": "frn:y", "item_label": "Evacuation", "source": "fournisseur"}]
         return [{"id": "frn:x", "item_label": "Grille", "source": "fournisseur"}]

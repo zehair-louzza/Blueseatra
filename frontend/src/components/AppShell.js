@@ -48,7 +48,7 @@ const GROUP_LABELS = {
   en: { sales: 'Sales', clients: 'Clients', purchases: 'Purchasing', company: 'Company' },
 };
 
-const NavList = ({ onNavigate }) => {
+const NavList = ({ onNavigate, replie }) => {
   const { t, i18n } = useTranslation();
   const labels = GROUP_LABELS[i18n.language?.startsWith('en') ? 'en' : 'fr'];
   const [aRelancer, setARelancer] = useState(0);
@@ -60,7 +60,7 @@ const NavList = ({ onNavigate }) => {
     <nav className="flex flex-col gap-5 px-3 py-4">
       {navGroups.map((g) => (
         <div key={g.key || 'root'}>
-          {g.key && (
+          {g.key && !replie && (
             <p className="mb-1.5 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/80">{labels[g.key]}</p>
           )}
           <div className="flex flex-col gap-0.5">
@@ -73,8 +73,8 @@ const NavList = ({ onNavigate }) => {
                     ? 'bg-primary/[0.07] font-medium text-primary before:absolute before:left-0 before:top-1.5 before:h-[calc(100%-12px)] before:w-[3px] before:rounded-full before:bg-[hsl(var(--brand-teal))]'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
                 <item.icon className="h-[17px] w-[17px] shrink-0" />
-                {t(`nav2.${item.key}`)}
-                {item.badge && aRelancer > 0 && (
+                {!replie && t(`nav2.${item.key}`)}
+                {!replie && item.badge && aRelancer > 0 && (
                   <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[11px] font-semibold leading-none text-primary-foreground" aria-label={`${aRelancer}`}>{aRelancer}</span>
                 )}
               </NavLink>
@@ -86,9 +86,9 @@ const NavList = ({ onNavigate }) => {
   );
 };
 
-const Brand = () => (
-  <div className="px-2">
-    <BrandLogo to="/app" imgClassName="h-9 max-w-[170px]" />
+const Brand = ({ compact }) => (
+  <div className={compact ? 'px-0' : 'px-2'}>
+    <BrandLogo to="/app" imgClassName={compact ? 'h-9 max-w-[36px]' : 'h-9 max-w-[170px]'} />
   </div>
 );
 
@@ -96,12 +96,21 @@ export const AppShell = ({ children }) => {
   const { t } = useTranslation();
   const { user, tenant, tenants, logout, switchTenant } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [replie, setReplie] = useState(() => {
+    try { return localStorage.getItem('bs.sidebar') === 'replie'; } catch { return false; }
+  });
+  const basculerRepli = () => {
+    setReplie((r) => {
+      try { localStorage.setItem('bs.sidebar', r ? 'ouvert' : 'replie'); } catch { /* ignore */ }
+      return !r;
+    });
+  };
   const navigate = useNavigate();
 
   const tenantSwitcher = tenant && (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="h-9 w-full justify-between gap-1.5 px-3" data-testid="tenant-switcher">
+        <Button variant="outline" size="sm" className={cn('h-9 w-full justify-between gap-1.5', replie ? 'px-0' : 'px-3')} data-testid="tenant-switcher">
           <span className="flex min-w-0 items-center gap-2">
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-primary text-[10px] font-semibold text-primary-foreground">
               {(tenant.name || '?').slice(0, 1).toUpperCase()}
@@ -127,21 +136,29 @@ export const AppShell = ({ children }) => {
 
   const sidebar = (onNavigate) => (
     <div className="flex h-full flex-col">
-      <div className="flex h-16 items-center px-5"><Brand /></div>
-      <div className="px-3 pb-1">{tenantSwitcher}</div>
-      <div className="flex-1 overflow-y-auto"><NavList onNavigate={onNavigate} /></div>
-      <div className="border-t border-border/70 p-3 text-[11px] text-muted-foreground">
-        <span className="px-3">Blueseatra</span>
+      <div className={replie ? 'flex h-16 items-center justify-center px-2' : 'flex h-16 items-center px-5'}><Brand compact={replie} /></div>
+      <div className={replie ? 'px-1.5 pb-1' : 'px-3 pb-1'}>{tenantSwitcher}</div>
+      <div className="flex-1 overflow-y-auto"><NavList onNavigate={onNavigate} replie={replie} /></div>
+      <div className="flex items-center justify-between border-t border-border/70 p-3">
+        {!replie && <span className="text-[11px] text-muted-foreground">Blueseatra</span>}
+        <Button
+          variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground"
+          onClick={basculerRepli}
+          data-testid="sidebar-toggle"
+          aria-label={replie ? 'Déplier le menu' : 'Replier le menu'}
+        >
+          {replie ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </Button>
       </div>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border/70 bg-card lg:block">
+      <aside className={cn('fixed inset-y-0 left-0 z-30 hidden border-r border-border/70 bg-card lg:block transition-[width] duration-150', replie ? 'w-16' : 'w-64')}>
         {sidebar()}
       </aside>
-      <div className="lg:pl-64">
+      <div className={replie ? 'lg:pl-16' : 'lg:pl-64'}>
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b border-border/70 bg-background/85 px-4 backdrop-blur-md sm:px-6">
           <div className="flex items-center gap-2">
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 
 from sqlalchemy import text
@@ -40,6 +41,7 @@ import asyncio
 import catalogue_navigation
 import catalogue_commun
 import pertinence
+import negation_recherche
 from designation_fournisseur import designation_affichee
 from database import get_current_tenant, tenant_context, tenant_session
 from fournisseur_recherche import termes_recherche
@@ -139,6 +141,64 @@ async def basculer(cle: str, actif: bool, utilisateur: str | None = None) -> dic
 
 # --- Candidats fournisseurs pour le rapprochement d'un devis --------------
 
+# Mots d'une prestation (pas d'un article) : ils ne figurent JAMAIS dans
+# une désignation catalogue et cassent la recherche AND-tous-les-mots.
+# Constat réel du 04/10/2026 (devis BS-2026-0055) : « fourniture et pose de
+# prises 2p+t 16 a, gamme blanche standard » = 10 mots → 0 résultat, alors
+# que le catalogue Rexel vend des prises 2P+T. La requête matériau courte
+# (« prise 2p+t 16 a ») les trouve toutes.
+_MOTS_PRESTATION = re.compile(
+    r"\b(?:fourniture|fournitures|fournir|pose|poses|et|de|des|du|d|un|une|"
+    r"le|la|les|avec|pour|sur|sous|au|aux|en|"
+    r"installation|installe|installee|installer|creation|creations|creer|"
+    r"mise|place|adaptation|protection|proteger|reparation|reparer|"
+    r"remplacement|remplacer|depose|deposer|evacuation|evacuer|"
+    r"raccordement|raccordements|raccorder|essais|essai|verifier|"
+    r"verification|verifications|etiquette|remise|gamme|standard|type|"
+    r"existant|existants|existante|existantes|chantier|appareillage|"
+    r"appareillages|element|elements|dechet|dechets|gravat|gravats|"
+    r"dedie|dediee|dediees|dedie)\b", re.I)
+
+# Mots d'UNE lettre ambigus : « a » et « l » sont tantôt des articles (à
+# retirer), tantôt des UNITÉS après un chiffre (« 16 a » = ampères,
+# « 150 l » = litres — jamais retirés).
+_MOTS_UNE_LETTRE = {"a", "l", "à"}
+
+
+def requete_materielle(label: str) -> str:
+    """Extrait la requête ARTICLE d'un libellé de prestation.
+
+    « fourniture et pose de prises 2p+t 16 a, gamme blanche standard »
+      → « prise 2p+t 16 a »
+    « fourniture et pose d'un chauffe-eau electric vertical 150 l, ... »
+      → « chauffe eau electric vertical 150 l »
+
+    Règles : coupe à la première virgule (les qualificatifs qui suivent
+    décrivent la prestation, pas l'article), retire les mots de prestation
+    (une lettre après un chiffre = une unité, conservée), singulierise les
+    pluriels longs. Le résultat est NORMALISÉ (mêmes règles que
+    pertinence.normalise) : prêt pour une recherche catalogue.
+    """
+    s = str(label or "").strip()
+    if not s:
+        return ""
+    s = s.split(",")[0]
+    s = _MOTS_PRESTATION.sub(" ", s)
+    mots = pertinence.normalise(s).split()
+    gardes = []
+    for i, m in enumerate(mots):
+        if m in _MOTS_UNE_LETTRE:
+            precedent = mots[i - 1] if i > 0 else ""
+            if not (precedent[:-1].isdigit() or precedent.isdigit()):
+                continue  # article, pas une unité
+        gardes.append(m)
+    # Singulier des pluriels longs (prises -> prise) : les désignations
+    # catalogue sont majoritairement au singulier.
+    singuliers = [m[:-1] if len(m) > 4 and m.endswith("s") and not m.endswith("ss") else m
+                  for m in gardes]
+    return " ".join(singuliers)
+
+
 def _libelles_extraits(extraits: dict, maxi: int = 15) -> list[str]:
     """Libelles a chercher dans les catalogues fournisseurs : ceux des lignes
     de la demande, sinon la description generale. Uniques, dans l'ordre."""
@@ -179,14 +239,22 @@ async def candidats_rapprochement(tenant_id: str, extraits: dict,
         return []
     try:
         async with tenant_context(tenant_id):
-            # Recherches par libellé en parallele (jeton borne : la base est
-            # lointaine et le pool de connexions limite, command_timeout
-            # 30 s) : sequentiel, 15 libelles x 3 s = 45 s ; x3, ~15 s.
+            # 04/10/2026 : la recherche se fait sur la REQUÊTE MATÉRIAU
+            # (mots de l'article, pas de la prestation) — un libellé de
+            # devis de 10 mots ne matche aucune désignation catalogue avec
+            # la sémantique AND-tous-les-mots. Repli sur le libellé complet
+            # si la requête matériau ne trouve rien.
             sem = asyncio.Semaphore(3)
 
             async def une_recherche(lb):
                 async with sem:
-                    return await rechercher(lb, par_ligne)
+                    for q in (requete_materielle(lb), lb):
+                        if not q:
+                            continue
+                        offres = await rechercher(q, par_ligne)
+                        if offres:
+                            return offres
+                    return []
 
             resultats = await asyncio.gather(*(une_recherche(lb) for lb in libelles),
                                              return_exceptions=True)
@@ -200,6 +268,50 @@ async def candidats_rapprochement(tenant_id: str, extraits: dict,
     except Exception:
         log.exception("candidats fournisseurs indisponibles (tenant %s)", tenant_id)
         return []
+
+
+async def meilleures_offres_par_ligne(tenant_id: str, extraits: dict,
+                                      par_ligne: int = 6) -> dict[str, list[dict]]:
+    """Meilleures offres fournisseurs PAR LIGNE de la demande, pour le menu
+    de choix par ligne dans l'éditeur de devis (04/10/2026).
+
+    Renvoie {libellé_normalisé: [offres]} — chaque offre avec fournisseur,
+    désignation, référence, prix net HT et unité. L'offre de tête est celle
+    que le devis applique par défaut (pertinence puis prix, la recherche
+    classe déjà ainsi) ; les suivantes sont les alternatives du menu.
+
+    Ne lève JAMAIS : sans source active, sans libellé ou en erreur, {}.
+    """
+    libelles = _libelles_extraits(extraits or {})
+    if not libelles:
+        return {}
+    try:
+        async with tenant_context(tenant_id):
+            sem = asyncio.Semaphore(3)
+
+            async def une_recherche(lb):
+                async with sem:
+                    for q in (requete_materielle(lb), lb):
+                        if not q or len(q) < 3:
+                            continue
+                        offres = await rechercher(q, par_ligne)
+                        if offres:
+                            return lb, offres
+                    return lb, []
+
+            resultats = await asyncio.gather(*(une_recherche(lb) for lb in libelles),
+                                             return_exceptions=True)
+            sortie: dict[str, list[dict]] = {}
+            for res in resultats:
+                if not isinstance(res, tuple):
+                    continue
+                lb, offres = res
+                if offres:
+                    sortie[lb.lower()] = offres
+            return sortie
+    except Exception:
+        log.exception("offres par ligne indisponibles (tenant %s)", tenant_id)
+        return {}
 
 
 async def a_sources_actives(tenant_id: str) -> bool:
@@ -257,6 +369,9 @@ def _en_article(offre: dict) -> dict:
         "source": "fournisseur",
         "source_fournisseur": fournisseur,
         "url_produit": offre.get("url_produit"),
+        # 04/10/2026 : pertinence de l'offre POUR LA REQUÊTE de la recherche —
+        # la garde anti-accessoire du rapprochement par ligne s'en sert.
+        "_pertinence": offre.get("_pertinence"),
     }
 
 
@@ -420,10 +535,21 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
             resultats = await asyncio.gather(
                 *(_chercher_groupe(g, visibles, tenant, termes, limite) for g in groupes))
             lignes = [l for r in resultats for l in r]
+        # RÈGLE PERTINENCE 2/3 — exclusions par négation (04/10/2026, même
+        # règle que le comparateur) : « non coupe-feu » pour une recherche
+        # « coupe feu » contredit la demande, tous les mots y sont mais le
+        # libellé dit le contraire. Ces offres ne doivent jamais prixer une
+        # ligne de devis, même en alternative du menu.
+        lignes, _rapport_negations = negation_recherche.exclure(lignes, q)
         # Pertinence d'abord, prix ensuite : la designation qui MENE avec les
         # mots demandes (« bloc porte coupe feu ») passe devant l'accessoire
         # moins cher qui les mentionne en fin de libelle (« gache pour
         # porte coupe-feu »). Egalite de score -> prix croissant, comme avant.
+        # Le score est GARDE sur la ligne (_pertinence) : le rapprochement
+        # par ligne l'utilise pour sa garde anti-accessoire.
+        for l in lignes:
+            l["_pertinence"] = pertinence.score(
+                pertinence.normalise(l.get("designation") or ""), q)
         lignes.sort(key=lambda l: (
             -pertinence.score(pertinence.normalise(l.get("designation") or ""), q),
             l.get("prix_net_ht") is None, l.get("prix_net_ht") or 0.0, str(l.get("id"))))
