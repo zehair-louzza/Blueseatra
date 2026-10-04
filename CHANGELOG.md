@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-04 (6) — Devis 9 pages lettre par lettre : normalisation des listes narratives IA
+
+**Constat** (devis BS-2026-0055, premier devis généré après la réparation de la chaîne d'extraction) : les sections « Préliminaires », « Déroulement » et « Contrôles de fin de travaux » explosaient **lettre par lettre** — chaque caractère devenait une ligne à puce, étirant le devis sur 9 pages.
+
+**Cause racine** : le modèle de rédaction (role=describe) renvoie parfois `etapes` comme CHAÎNE au lieu d'un tableau (schéma ignoré). Le code itérait `for x in (data.get("etapes") or [])` — itérer une chaîne Python produit ses caractères un par un. La validation `len(etapes) >= 2` passait puisque les caractères comptent comme des étapes.
+
+**Correction** : `_liste_propre()` normalise les trois champs avant tout usage —
+- chaîne → découpée sur sauts de ligne, points-virgules ou numérotations « 1. » (une chaîne plate devient une seule entrée)
+- liste d'éléments d'au plus 2 caractères (chaîne cassée en caractères) → recollée sur les éléments BRUTS en une seule phrase
+- vrai tableau → intact ; éléments plus courts que 4 caractères écartés
+
+**Tests** : +6 dans `test_extraction_prompt_cpu.py` (numérotation découpée, chaîne plate, recollure avec espaces préservés, tableau valide, vide/null) ; suite 293 verts.
+
 ## 2026-10-04 (5) — Extraction sur VPS CPU : prompt borné et cascade réordonnée
 
 **Constat** (mesures Ollama du 04/10 sur le VPS, CPU seul) : évaluation de prompt ~16 jetons/s, génération ~3 jetons/s. Un prompt d'extraction de ~6 000 jetons (consigne 6 858 caractères + document ~8 400 + contexte web 1 200) = **6 minutes de silence avant le premier fragment** — au-delà du timeout d'étage (600 s) et du seuil « stream stale » de la passerelle (900 s). Du 02/10 au 04/10 : 23 flux tués à 900 s, toutes les extractions de fichiers en échec. Une requête à petit prompt (519 jetons) passait en 8m30 — le mécanisme est purement la taille du prompt.
