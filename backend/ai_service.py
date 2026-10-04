@@ -1604,6 +1604,39 @@ def _parse_json_object(text: str) -> dict:
     return json.loads(text[start:end + 1])
 
 
+def _liste_propre(v, min_items: int = 1):
+    """Normalise un champ liste du modèle : accepte une liste OU une chaîne
+    (un modèle qui ignore le schéma renvoie parfois "etapes": "étape 1.\nétape 2"
+    au lieu d'un tableau — itérer une chaîne caractère par caractère produisait
+    un devis de 9 pages avec une lettre par ligne, constat réel 04/10/2026).
+
+    - liste → chaque élément nettoyé ; les éléments d'un seul caractère
+      (morceaux d'une chaîne cassée) sont FUSIONNÉS en une seule phrase
+    - chaîne → découpée sur les sauts de ligne, points-virgules ou
+      numérotations « 1. » ; sinon une seule entrée
+    """
+    if v is None:
+        return []
+    if isinstance(v, str):
+        v = v.strip()
+        if not v:
+            return []
+        morceaux = re.split(r"[\n;]+|(?=\b\d{1,2}[.)] )", v)
+        return [m.strip(" \t-•") for m in morceaux
+                if m.strip(" \t-•") and len(m.strip(" \t-•")) >= min_items]
+    if isinstance(v, (list, tuple)):
+        items = [str(x).strip() for x in v if str(x).strip()]
+        if items and max(len(x) for x in items) <= 2:
+            # Chaîne cassée en caractères par l'itération : on la recolle
+            # sur les éléments BRUTS (sinon les espaces sont perdus au
+            # strip de chaque caractère et « Rendez-vous et » devient
+            # « Rendez-vouset »).
+            recollee = "".join(str(x) for x in v).strip()
+            return [recollee] if len(recollee) >= min_items else []
+        return items
+    return []
+
+
 def _is_restatement(extracted: dict) -> bool:
     items = extracted.get("line_items") or []
     desc = (extracted.get("description") or "").strip().lower()
@@ -1742,9 +1775,13 @@ async def generate_ai_works_narrative(extracted: dict, tenant_settings: dict) ->
             raw = await _call_describe(model, DESCRIPTION_SYSTEM, user)
         data = _parse_json_object(_strip_think(raw))
         desc_text = (data.get("description") or "").strip()
-        etapes = [str(s).strip() for s in (data.get("etapes") or []) if str(s).strip()]
-        preliminaires = [str(x).strip() for x in (data.get("preliminaires") or []) if str(x).strip()]
-        controles = [str(x).strip() for x in (data.get("controles_fin_travaux") or []) if str(x).strip()]
+        # 04/10/2026 : un modèle qui ignore le schéma peut renvoyer "etapes"
+        # comme CHAÎNE — l'ancien code itérait caractère par caractère et
+        # produisait un devis de 9 pages avec une lettre par ligne. Voir
+        # _liste_propre : chaîne découpée proprement, liste cassée recollée.
+        etapes = _liste_propre(data.get("etapes"), min_items=4)
+        preliminaires = _liste_propre(data.get("preliminaires"), min_items=4)
+        controles = _liste_propre(data.get("controles_fin_travaux"), min_items=4)
         if not desc_text or len(etapes) < 2:
             return None
         combined = " ".join([desc_text, *etapes, *preliminaires, *controles])

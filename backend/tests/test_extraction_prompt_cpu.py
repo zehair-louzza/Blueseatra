@@ -110,3 +110,42 @@ def test_cascade_choisit_le_message_compact_pour_le_bon_etage():
     finally:
         ai_service._hermes_chat = capture_orig
         ai_service.IA_VIA_HERMES = ia_via_orig
+
+
+# ----------------------------------------------- listes narratives IA (04/10)
+def test_liste_chaine_avec_numerotation_decoupee():
+    v = "1. Réseaux repérés. 2. Mise en place. 3. Dépose de l'existant. 4. Essais."
+    out = ai_service._liste_propre(v, min_items=4)
+    assert len(out) == 4 and all(len(x) >= 4 for x in out)
+
+
+def test_liste_chaine_simple_une_seule_entree():
+    v = "Rendez-vous et accueil par l'occupant, repérage des réseaux."
+    out = ai_service._liste_propre(v, min_items=4)
+    assert out == [v]
+
+
+def test_liste_cassee_en_caracteres_recollee():
+    """Le bug réel du 04/10 : itérer une chaîne caractère par caractère
+    produisait un devis de 9 pages avec une lettre par ligne."""
+    casse = list("Rendez-vous et accueil par l'occupant")
+    out = ai_service._liste_propre(casse, min_items=4)
+    assert len(out) == 1
+    assert out[0] == "Rendez-vous et accueil par l'occupant"
+
+
+def test_liste_valide_intacte():
+    v = ["Couper l'eau", "Protéger les sols", "Baliser la zone"]
+    assert ai_service._liste_propre(v, min_items=4) == v
+
+
+def test_liste_vide_ou_nulle():
+    assert ai_service._liste_propre(None) == []
+    assert ai_service._liste_propre("") == []
+    assert ai_service._liste_propre("   ") == []
+
+
+def test_liste_chaine_avec_sauts_de_ligne():
+    v = "Couper l'eau\nProtéger les sols\nBaliser la zone de travail"
+    out = ai_service._liste_propre(v, min_items=4)
+    assert len(out) == 3
