@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-04 (5) — Extraction sur VPS CPU : prompt borné et cascade réordonnée
+
+**Constat** (mesures Ollama du 04/10 sur le VPS, CPU seul) : évaluation de prompt ~16 jetons/s, génération ~3 jetons/s. Un prompt d'extraction de ~6 000 jetons (consigne 6 858 caractères + document ~8 400 + contexte web 1 200) = **6 minutes de silence avant le premier fragment** — au-delà du timeout d'étage (600 s) et du seuil « stream stale » de la passerelle (900 s). Du 02/10 au 04/10 : 23 flux tués à 900 s, toutes les extractions de fichiers en échec. Une requête à petit prompt (519 jetons) passait en 8m30 — le mécanisme est purement la taille du prompt.
+
+**Correctifs (les timeouts d'étage ne sont PAS modifiés — mesure d'abord, ajustement ensuite)** :
+1. **Document borné** : la structuration locale reçoit la tête (client, articles) et la queue (totaux, validité) du document — le milieu (CGV, mentions légales) est remplacé par un marqueur annoncé. Bornes réglables : `EXTRACTION_DOC_MAX=9000`, compact `3000`. Les chemins cloud (Mistral, OpenAI) gardent le document intégral.
+2. **Contexte web réservé aux demandes courtes** (< 4 000 caractères) : un long document importé se suffit à lui-même — 1 200 caractères économisés et un appel DuckDuckGo évité à chaque extraction de fichier.
+3. **Cascade réordonnée** : l'ancien étage 2 (Qwen2.5-VL-7B) était un modèle VISION appelé sans image — un 7B vision sur du texte n'est qu'un 7B plus lent qui rejouait le même prompt full déjà mort au timeout de l'étage 1 (7 minutes de CPU perdues à coup sûr). Remplacé par un **deuxième essai de l'étage 1 sur le prompt compact** — une vraie seconde chance dans la fenêtre du timeout. Hermes-3 en dernier étage joue aussi sur le compact.
+
+**Tests** : `test_extraction_prompt_cpu.py` (9, sans base de données) ; suite complète 287 verts, échecs inchangés (environnementaux). Prochaine étape si un échec subsiste : relever les timeouts d'étage (600 → 900 s), maintenant que le prompt est sain.
+
 ## 2026-10-04 (4) — Panneau « meilleure correspondance » : seuls les fournisseurs qui vendent le produit demandé
 
 **Constat** (capture du 04/10 au soir) : pour « porte coupe feu », le panneau de négociation affichait Rexel avec un panneau PVC à 1,80 €, AFDB avec une garniture et YESSS avec un déclencheur — des accessoires qui MENTIONNENT la demande. L'écart affiché, +22 593 % entre le panneau et une porte métallique à 409 €, n'a aucun sens de négociation.
