@@ -180,18 +180,64 @@ HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3", "herme
 # une réponse plus longue ; 300 s ne suffisaient plus sur le processeur du VPS.
 _STRUCTURING_CASCADE_TIMEOUTS = {
     "Qwen2.5-7B": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_1", "600")),
-    "Qwen2.5-VL-7B": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_2", "420")),
+    "Qwen2.5-7B (compact)": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_2", "420")),
     "Hermes-3": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_3", "300")),
 }
+
+# 04/10/2026 — MESURES OLLAMA SUR LE VPS (CPU seul) : évaluation de prompt
+# ~16 jetons/s, génération ~3 jetons/s. Un prompt d'extraction de ~6 000
+# jetons (consigne 6 858 caractères + document 8 400 + contexte web) =
+# 6 minutes de SILENCE avant le premier fragment — au-delà du timeout
+# d'étage (600 s) et du seuil « stream stale » de la passerelle (900 s).
+# Constat réel du 02/10 au 04/10 : 23 flux tués à 900 s, toutes les demandes
+# d'extraction de fichiers en échec.
+# Le document envoyé à la structuration est donc BORNÉ (tête + queue : le
+# milieu d'un devis est fait de CGV et mentions légales inutiles à
+# l'extraction), et le contexte web n'est ajouté que pour les demandes
+# courtes (un long document se suffit à lui-même).
+EXTRACTION_DOC_MAX = int(os.environ.get("EXTRACTION_DOC_MAX", "9000"))
+EXTRACTION_DOC_TETE = int(os.environ.get("EXTRACTION_DOC_TETE", "6500"))
+EXTRACTION_DOC_QUEUE = int(os.environ.get("EXTRACTION_DOC_QUEUE", "2500"))
+EXTRACTION_DOC_COMPACT_MAX = int(os.environ.get("EXTRACTION_DOC_COMPACT_MAX", "3000"))
+
+
+def _tronque_document(texte: str, max_chars: int | None = None,
+                      tete: int | None = None, queue: int | None = None) -> str:
+    """Borne un document long en gardant sa TÊTE (client, coordonnées,
+    articles) et sa QUEUE (totaux, validité, signatures) ; le milieu
+    (CGV, mentions légales, publicité) est remplacé par un marqueur.
+
+    Un document plus court que la borne est renvoyé tel quel. La troncature
+    est annoncée au modèle par le marqueur — jamais silencieuse.
+    """
+    s = (texte or "").strip()
+    m = max_chars if max_chars is not None else EXTRACTION_DOC_MAX
+    if len(s) <= m:
+        return s
+    t = tete if tete is not None else EXTRACTION_DOC_TETE
+    q = queue if queue is not None else EXTRACTION_DOC_QUEUE
+    marqueur = "\n[... section intermédiaire tronquée pour tenir dans le temps de calcul local ...]\n"
+    return (s[:t].rstrip() + marqueur + s[len(s) - q:].lstrip())[:m + len(marqueur)]
 
 
 def _structuring_cascade_stages() -> list[tuple[str, str, float]]:
     """Etages de la cascade de structuration (label, modele, timeout),
     recalcule a chaque appel (modeles surchargeables par variable
-    d'environnement en cours d'execution)."""
+    d'environnement en cours d'execution).
+
+    04/10/2026 — REORDRE CPU : la cascade ne s'applique QU'AU TEXTE (jamais
+    d'image, voir use_structuring_cascade). L'ancien étage 2 (Qwen2.5-VL-7B)
+    était un modèle VISION appelé sans image : un 7B vision sur du texte
+    n'est qu'un 7B plus lent, qui rejouait LE MÊME prompt full déjà mort au
+    timeout de l'étage 1 — 7 minutes de CPU gaspillées à coup sûr. Il est
+    remplacé par un DEUXIÈME ESSAI de l'étage 1 sur un prompt COMPACT
+    (document borné serré, sans contexte web) : une vraie seconde chance à
+    ~16 jetons/s, dans la fenêtre du timeout. L'étage 3 (Hermes-3, plus
+    gros) joue aussi sur le prompt compact en dernier recours.
+    """
     order = [
         ("Qwen2.5-7B", HERMES_STRUCTURING_MODEL_1),
-        ("Qwen2.5-VL-7B", HERMES_STRUCTURING_MODEL_2),
+        ("Qwen2.5-7B (compact)", HERMES_STRUCTURING_MODEL_1),
         ("Hermes-3", HERMES_STRUCTURING_MODEL_3),
     ]
     return [
@@ -201,19 +247,26 @@ def _structuring_cascade_stages() -> list[tuple[str, str, float]]:
 
 
 async def _call_structuring_cascade(system_prompt: str, user_message: str,
-                                    json_schema: dict | None = None) -> tuple[str, str]:
+                                    json_schema: dict | None = None,
+                                    user_message_compact: str | None = None) -> tuple[str, str]:
     """Essaie chaque etage de _structuring_cascade_stages() dans l'ordre ;
     une reponse VIDE compte comme un echec de cet etage (pas seulement une
     exception/timeout), et passe a l'etage suivant -- c'est precisement le
-    mode d'echec observe chez gemma4:26b sur certains documents. Renvoie
+    mode d'echec observe chez gemma4:26b sur certains documents. Les etages
+    marqués « (compact) » reçoivent user_message_compact (document borné
+    serré) : a ~16 jetons/s sur le CPU du VPS, rejouer le prompt full déjà
+    mort au timeout précédent est une perte sèche. Renvoie
     (contenu_brut, label_du_modele_qui_a_reussi). Leve RuntimeError si tous
     les etages echouent, avec le detail de chaque echec."""
     errors = []
     for label, model, timeout in _structuring_cascade_stages():
+        message = (user_message_compact
+                   if "(compact)" in label and user_message_compact
+                   else user_message)
         if IA_VIA_HERMES:
             try:
                 sp = system_prompt + (_THINK_BREVITY_HINT if _wants_think(model) else "")
-                return await _hermes_chat(model, sp, user_message, timeout=max(timeout, 60.0), role="structuration",
+                return await _hermes_chat(model, sp, message, timeout=max(timeout, 60.0), role="structuration",
                                           json_schema=json_schema), label
             except HermesIndisponible:
                 raise
@@ -227,7 +280,7 @@ async def _call_structuring_cascade(system_prompt: str, user_message: str,
             "model": MODEL_ALIASES.get((model or "").strip(), model),
             "messages": [
                 {"role": "system", "content": effective_system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": "user", "content": message},
             ],
             "stream": False,
             "options": {"temperature": 0.2, "num_predict": 4096},
@@ -1389,13 +1442,31 @@ async def extract_request_data(
             logger.info("ocr_local image routee vers %s au lieu de %s/%s", HERMES_VISION_MODEL, provider, model)
             provider, model, role = "hermes", HERMES_VISION_MODEL, "vision"
 
-    web_ctx = await _web_context_sans_prix(raw_text)
+    # 04/10/2026 : le contexte web n'enrichit que les demandes COURTES —
+    # un long document importé se suffit à lui-même, et 1 200 caractères
+    # de plus sur un CPU à ~16 jetons/s coûtent une minute de silence.
+    web_ctx = ""
+    if (not from_file and not image_bytes) or len((raw_text or "")) < 4000:
+        web_ctx = await _web_context_sans_prix(raw_text)
     user_message = f"Extract structured data from this quote request:\n\n{raw_text}"
     if web_ctx:
         user_message += (
             "\n\nContexte technique internet (SANS aucun prix — ne pas en deduire un tarif):\n"
             + web_ctx
         )
+    # Prompt de cascade BORNÉ (tête + queue du document) et variante compacte
+    # pour les étages de deuxième essai — voir les constantes EXTRACTION_DOC_*.
+    # Les chemins cloud (Mistral, OpenAI) gardent le document intégral.
+    doc_cascade = _tronque_document(raw_text or "")
+    user_message_cascade = f"Extract structured data from this quote request:\n\n{doc_cascade}"
+    if web_ctx and not from_file:
+        user_message_cascade += (
+            "\n\nContexte technique internet (SANS aucun prix — ne pas en deduire un tarif):\n"
+            + web_ctx
+        )
+    doc_compact = _tronque_document(
+        raw_text or "", max_chars=EXTRACTION_DOC_COMPACT_MAX, tete=2000, queue=1000)
+    user_message_compact = f"Extract structured data from this quote request:\n\n{doc_compact}"
 
     # Cascade de structuration sequentielle (decision du 2026-08-19) : ne
     # s'applique QUE lorsqu'il n'y a pas d'image (texte deja lisible, sortie
@@ -1414,8 +1485,9 @@ async def extract_request_data(
         if use_structuring_cascade:
             raw_response, structuring_engine = await _call_structuring_cascade(
                 system_prompt=EXTRACTION_SYSTEM,
-                user_message=user_message,
+                user_message=user_message_cascade,
                 json_schema=SCHEMA_EXTRACTION if IA_SCHEMA_STRICT else None,
+                user_message_compact=user_message_compact,
             )
         elif est_mistral_via_hermes(provider, model):
             raw_response = await _call_mistral_via_hermes(
