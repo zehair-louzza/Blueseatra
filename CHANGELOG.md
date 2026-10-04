@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-04 (3) — Recherche : exclusion des désignations qui nient un terme demandé
+
+**Constat** : « porte coupe feu » ramenait des portes Prolians « multi-usage TWIN **non coupe-feu** » — les mots demandés y sont tous présents, mais le libellé affirme le CONTRAIRE de la recherche. La pertinence reléguait ces faux positifs en bas de classement, mais un tri par prix les faisait remonter en tête de tableau.
+
+**Correction** : nouveau module autonome `negation_recherche.py`. Une désignation contenant « non » + un groupe de mots de la requête (1 à 3 mots) ou « sans » + un groupe d'au moins 2 mots est exclue des résultats — avant les statistiques, le panneau par fournisseur et les produits identiques. Le respect du principe « la pertinence trie, elle ne filtre jamais » est préservé en esprit : la négation n'est pas un manque de pertinence mais une contradiction explicite, et RIEN ne disparaît silencieusement — le compte, les motifs (ex. « non coupe feu ») et trois désignations exemples sont renvoyés et affichés dans un bandeau dédié (FR/EN).
+
+**Garde-fous** : une négation hors requête n'exclut pas (« porte coupe feu non isole » reste candidate pour « porte coupe feu ») ; « vis sans fin » n'est pas une négation de « vis » (le « sans » exige 2 mots) ; le motif le plus long est rapporté.
+
+**Tests** : `test_negation_recherche.py` (14, sans base de données) ; suite pertinence/comparateur/matching 38 verts.
+
 ## 2026-10-04 (2) — Comparateur : tri par défaut du tableau conforme à la règle de pertinence
 
 **Constat** : le correctif porte-coupe-feu (#166) classait bien les résultats par pertinence côté backend, mais `SupplierResultsTable` (PR #159, antérieure) re-triait tout **par prix croissant côté navigateur** au moment de l'affichage — l'ordre pertinent était écrasé à l'écran et les accessoires pas chers repassaient en tête du tableau.

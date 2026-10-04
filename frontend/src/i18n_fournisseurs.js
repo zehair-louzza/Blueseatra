@@ -70,6 +70,9 @@ export const foFr = {
   r_tri: 'Triés par prix comparable croissant (ramené à l’unité de base)',
   r_tri_pertinence: 'Triés par pertinence : les désignations qui mènent avec vos mots d’abord, puis prix croissant',
   r_legende: 'Offres fournisseurs comparables, triées par pertinence puis par prix hors taxes ramené à l’unité de base, croissant',
+  // Exclusions par négation
+  n_titre: '{{n}} offres exclues : désignation contraire à la recherche',
+  n_detail: 'Leur libellé contient une négation d’un terme demandé (ex. « non coupe-feu » pour une recherche « coupe feu ») : ces produits affirment le contraire de ce qui est cherché.',
   col_fournisseur: 'Fournisseur',
   col_designation: 'Désignation',
   col_marque: 'Marque',
@@ -230,6 +233,8 @@ export const foEn = {
   r_tri: 'Sorted by comparable price (per base unit), lowest first',
   r_tri_pertinence: 'Sorted by relevance: descriptions that lead with your words first, then price ascending',
   r_legende: 'Comparable supplier offers, sorted by relevance then price excluding VAT per base unit, lowest first',
+  n_titre: '{{n}} offers excluded: description contradicts the search',
+  n_detail: 'Their label negates a searched term (e.g. “non coupe-feu” for a “coupe feu” search): these products state the opposite of what is being looked for.',
   col_fournisseur: 'Supplier',
   col_designation: 'Description',
   col_marque: 'Brand',

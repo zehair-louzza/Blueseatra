@@ -48,6 +48,7 @@ from sqlalchemy import text
 from database import get_current_tenant, tenant_session
 import catalogue_commun
 import pertinence
+import negation_recherche
 from designation_fournisseur import nettoyer_ligne
 import comparateur_produits as cp
 from vocabulaire_btp import (
@@ -489,6 +490,12 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         lignes = [dict(r) for r in resultat.mappings().all()]
         for l in lignes:
             l["prix_net_ht"] = l.pop("price_ht")
+        # Négations : une désignation « ... non coupe-feu » pour la requête
+        # « porte coupe feu » contredit la demande — tous les mots y sont,
+        # mais le libellé dit le contraire. Exclues AVANT tout le reste
+        # (stats, panneau par fournisseur, produits identiques) et le
+        # rapport est renvoyé pour affichage. Voir negation_recherche.py.
+        lignes, negations_exclues = negation_recherche.exclure(lignes, requete)
         noms = {(r["tenant_id"], r["id"]): r["name"] for r in (await session.execute(
             sql_noms, {"tenant_id": tenant, "commun": parametres["commun"]})).mappings()}
         for l in lignes:
@@ -618,6 +625,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         "tronque": tronque,
         "comparables": len(retenus),
         "termes_reconnus": reconnus,
+        "negations_exclues": negations_exclues,
         "prix": bloc_prix,
         "resultats": retenus[:limite],
         "moins_cher_par_fournisseur": meilleurs,
