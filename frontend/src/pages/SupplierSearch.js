@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SupplierFamilyFilter } from '@/components/SupplierFamilyFilter';
 import { Spinner, EmptyState } from '@/components/Spinner';
-import { SupplierSearchSummary, RecognizedTerms } from '@/components/SupplierSearchSummary';
+import { SupplierSearchSummary, RecognizedTerms, NegationsExclues } from '@/components/SupplierSearchSummary';
 import { SupplierCheapestPanel } from '@/components/SupplierCheapestPanel';
 import { SupplierResultsTable } from '@/components/SupplierResultsTable';
 import { SupplierProductGroups } from '@/components/SupplierProductGroups';
@@ -330,6 +330,7 @@ export default function SupplierSearch() {
             )}
             <SupplierSearchSummary reponse={reponse} />
             <RecognizedTerms termes={reponse.termes_reconnus} requete={reponse.requete} />
+            <NegationsExclues rapport={reponse.negations_exclues} />
 
             {aucunResultat ? (
               <EmptyState
