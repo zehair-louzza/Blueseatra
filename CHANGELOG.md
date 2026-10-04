@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-04 — Vocabulaire Rexel terminé en production + traces d'explication du moteur
+
+**Résultat** : la source Rexel (747 771 offres) a désormais son vocabulaire complet en production — 406 562 entrées dont 306 863 groupes de mots (113 997 paires ≥ 5, 192 866 triples ≥ 3), 100 % des offres couvertes par tranches contiguës, suggestions multi-mots vérifiées (« porte c », « coupe feu »). Les 10 versions de sources du catalogue commun sont complètes. Procédure, mesures et constats d'exploitation détaillés dans `docs/vocabulaire-rexel-passe-nuit.md` (dont deux constats majeurs : le connecteur execute_sql continue d'exécuter côté serveur après son timeout client — vérifier `pg_stat_activity` avant toute relance — et deux requêtes zombies de 15-23 h saturaient l'I/O et expliquaient tous les échecs précédents).
+
+**Ajouts** :
+- `scripts/traces/trace_hermes_selection.py` — exécute le vrai `matching.py` (match_line, build_quote_lines, wrap_in_lots, estimate_chantier) sur un catalogue réel : scores, raisons, décision matched/to_confirm, prix uniquement du catalogue, main-d'œuvre au barème. Démontre le principe « l'IA propose, la base décide ».
+- `scripts/traces/trace_comparateur.py` — exécute le vrai `pertinence.py` et `meilleurs_par_fournisseur` sur des offres réelles (Rexel, LPB, YESSS) : le produit principal passe devant les accessoires moins chers.
+- `docs/vocabulaire-rexel-passe-nuit.md` — procédure par tranches reproductible, seuils, résultats et leçons d'exploitation.
+
 ## 2026-10-03 — Vocabulaire des gros catalogues : version tables de travail
 
 **Mesuré en production sur le Rexel (747 000 offres, ~7,5 millions de paires)**, la construction des groupes de mots a buté sur trois murs, chacun documenté dans la migration :
