@@ -13,7 +13,6 @@ import {
 import {
   LayoutDashboard, Inbox, BookOpen, FileText, Users, ScrollText,
   Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Store, Library, Building2, BellRing,
-  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
 import { cn } from '@/lib/utils';
