@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-05 (1) — Correctif : page blanche après la mise en ligne de #181
+
+**Constat** : après le déploiement de la PR #181, l'application affichait une page blanche. Cause : l'import des icônes `PanelLeftClose` / `PanelLeftOpen` (bouton de repli du menu latéral) ne s'était pas appliqué dans `AppShell.js` ; le build passe (pas de contrôle des identifiants JSX non définis), mais React plante au premier rendu de la coque de l'application.
+
+**Correction** : import ajouté. Vérifié avec un contrôle `react/jsx-no-undef` + `no-undef` sur les fichiers modifiés : 2 erreurs sur la version déployée, 0 sur la version corrigée.
+
 ## 2026-10-04 (7) — Rapprochement fournisseur par ligne de devis + menu de choix
 
 **Constat** (devis BS-2026-0055) : les lignes de fournitures restaient des libellés de prestation (« fourniture et pose de prises 2p+t 16 a, gamme blanche standard ») sans aucun rapprochement catalogue — toutes « à confirmer » sans prix. Cause : la recherche exige TOUS les mots présents (AND), et un libellé de 10 mots ne matche aucune désignation catalogue, alors que le catalogue Rexel vend des prises 2P+T.
