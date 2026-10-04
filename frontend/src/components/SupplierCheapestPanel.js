@@ -12,7 +12,7 @@ import { PrixParUnite } from '@/components/SupplierProductGroups';
 // l'ecart en pourcentage entre le moins cher et le plus cher des fournisseurs.
 // Comparaison au prix par unite de base (format unique) : un lot de 100 m
 // n'est plus classe « le plus cher » ; son prix publie reste affiche.
-export const SupplierCheapestPanel = ({ offres }) => {
+export const SupplierCheapestPanel = ({ offres, ecartes }) => {
   const { t } = useTranslation();
   const liste = [...(offres || [])].sort((a, b) => (prixComparable(a) ?? 0) - (prixComparable(b) ?? 0));
   if (liste.length === 0) return null;
@@ -95,6 +95,17 @@ export const SupplierCheapestPanel = ({ offres }) => {
           </li>
         ))}
       </ul>
+      {(Array.isArray(ecartes) ? ecartes : []).length > 0 && (
+        <div className="border-t bg-muted/40 px-4 py-2 sm:px-5" data-testid="fournisseurs-panneau-ecartes">
+          <p className="text-xs text-muted-foreground">
+            {t('fo.m_ecartes_titre', { n: ecartes.length })}
+            {' '}
+            {ecartes.map((e) => e.fournisseur).filter(Boolean).join(', ')}
+            {' \u2014 '}
+            {t('fo.m_ecartes_detail')}
+          </p>
+        </div>
+      )}
     </Card>
   );
 };

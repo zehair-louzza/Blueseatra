@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-04 (4) — Panneau « meilleure correspondance » : seuls les fournisseurs qui vendent le produit demandé
+
+**Constat** (capture du 04/10 au soir) : pour « porte coupe feu », le panneau de négociation affichait Rexel avec un panneau PVC à 1,80 €, AFDB avec une garniture et YESSS avec un déclencheur — des accessoires qui MENTIONNENT la demande. L'écart affiché, +22 593 % entre le panneau et une porte métallique à 409 €, n'a aucun sens de négociation.
+
+**Correction** : la MEILLEURE offre d'un fournisseur doit valoir au moins 50 % de la pertinence du leader (`garder_meilleures_correspondances`, mesuré : portes réelles 1,08-1,83, accessoires 0,62-0,78, soit 34-43 % du leader). Un fournisseur écarté n'est retiré que du PANNEAU — jamais silencieusement : fournisseurs et désignations sont renvoyés (`fournisseurs_ecartes_pertinence`) et affichés dans une note sous le panneau (FR/EN) ; ses offres restent dans les résultats, les produits identiques et le sélecteur du devis.
+
+**Tests** : `test_comparateur_produits.py` +5 (cas réel mesuré, sans pertinence, unique, seuil personnalisé) ; suite comparateur/négation/pertinence 44 verts.
+
 ## 2026-10-04 (3) — Recherche : exclusion des désignations qui nient un terme demandé
 
 **Constat** : « porte coupe feu » ramenait des portes Prolians « multi-usage TWIN **non coupe-feu** » — les mots demandés y sont tous présents, mais le libellé affirme le CONTRAIRE de la recherche. La pertinence reléguait ces faux positifs en bas de classement, mais un tri par prix les faisait remonter en tête de tableau.

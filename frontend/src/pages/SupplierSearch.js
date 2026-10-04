@@ -339,7 +339,7 @@ export default function SupplierSearch() {
               />
             ) : (
               <>
-                <SupplierCheapestPanel offres={reponse.moins_cher_par_fournisseur} />
+                <SupplierCheapestPanel offres={reponse.moins_cher_par_fournisseur} ecartes={reponse.fournisseurs_ecartes_pertinence} />
                 <SupplierProductGroups produits={reponse.produits_identiques} />
                 <SupplierResultsTable resultats={resultats} />
               </>
