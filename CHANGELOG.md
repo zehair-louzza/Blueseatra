@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-05 (2) — CI frontend : contrôle des identifiants non définis + build sur chaque PR
+
+**Pourquoi** : la page blanche du 05/10 (#181 → #182) venait de deux icônes utilisées sans import. Le script `build` désactive ESLint (`DISABLE_ESLINT_PLUGIN=true`) : la compilation passait, React plantait au rendu, en production. Aucun workflow ne contrôlait le frontend.
+
+**Nouveau workflow `Frontend`** (chaque PR + push sur main) : `yarn lint:undef` (règles `no-undef`, `react/jsx-no-undef` — seulement ce qui casse l'exécution, aucune règle de style), puis build de production complet.
+
+**Vérifié** : 105 fichiers analysés, 0 erreur sur le code actuel ; en rejouant la panne (import retiré), le contrôle échoue avec les 2 erreurs exactes.
+
 ## 2026-10-05 (1) — Correctif : page blanche après la mise en ligne de #181
 
 **Constat** : après le déploiement de la PR #181, l'application affichait une page blanche. Cause : l'import des icônes `PanelLeftClose` / `PanelLeftOpen` (bouton de repli du menu latéral) ne s'était pas appliqué dans `AppShell.js` ; le build passe (pas de contrôle des identifiants JSX non définis), mais React plante au premier rendu de la coque de l'application.
