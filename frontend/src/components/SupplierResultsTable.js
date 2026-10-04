@@ -1,5 +1,6 @@
 import { BadgeCommun } from '@/components/CatalogueCommunPanel';
-import React from 'react';
+import React, { useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TruncatedText } from '@/components/TruncatedText';
@@ -7,10 +8,12 @@ import { prixHT, prixComparable } from '@/lib/fournisseursFormat';
 import { PrixParUnite, BadgesAnomalies } from '@/components/SupplierProductGroups';
 import { useTranslation } from 'react-i18next';
 
-// Tableau des resultats, trie par prix comparable croissant : prix par
-// unite de base (format unique) quand il est connu, sinon prix net HT.
-// Le tri est refait cote client : meme si le backend renvoie un ordre de
-// pertinence, la colonne prix doit etre lisible de haut en bas.
+// Tri par PRIX comparable croissant : prix par unité de base (format unique)
+// quand il est connu, sinon prix net HT. Utilisé uniquement quand le tri
+// « prix » est choisi — le tri PAR DÉFAUT reste l'ordre du backend :
+// pertinence décroissante (les désignations qui mènent avec les mots
+// demandés d'abord), puis prix croissant. Le tableau ne doit plus écraser
+// cet ordre à l'affichage (règle porte-coupe-feu, 04/10/2026).
 const triParPrix = (resultats) =>
   [...(resultats || [])].sort((a, b) => {
     const pa = prixComparable(a);
@@ -22,13 +25,41 @@ const triParPrix = (resultats) =>
 
 export const SupplierResultsTable = ({ resultats }) => {
   const { t } = useTranslation();
-  const lignes = triParPrix(resultats);
+  const [tri, setTri] = useState('pertinence');
+  // Pertinence : ordre du backend, conservé tel quel. Prix : re-tri local.
+  const lignes = tri === 'prix' ? triParPrix(resultats) : [...(resultats || [])];
 
   return (
     <Card className="card-shadow overflow-hidden border-0" data-testid="fournisseurs-resultats">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3 sm:px-5">
-        <h2 className="font-display text-base font-semibold">{t('fo.r_titre')}</h2>
-        <p className="text-xs text-muted-foreground">{t('fo.r_tri')}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="font-display text-base font-semibold">{t('fo.r_titre')}</h2>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant={tri === 'pertinence' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setTri('pertinence')}
+              data-testid="fournisseurs-tri-pertinence"
+            >
+              {t('fo.tri_pertinence')}
+            </Button>
+            <Button
+              type="button"
+              variant={tri === 'prix' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setTri('prix')}
+              data-testid="fournisseurs-tri-prix"
+            >
+              {t('fo.tri_prix')}
+            </Button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {tri === 'prix' ? t('fo.r_tri') : t('fo.r_tri_pertinence')}
+        </p>
       </div>
 
       {/* Tablette et ordinateur : tableau dense, defilement horizontal si besoin. */}
