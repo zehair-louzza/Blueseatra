@@ -41,6 +41,7 @@ import asyncio
 import catalogue_navigation
 import catalogue_commun
 import pertinence
+import negation_recherche
 from designation_fournisseur import designation_affichee
 from database import get_current_tenant, tenant_context, tenant_session
 from fournisseur_recherche import termes_recherche
@@ -368,6 +369,9 @@ def _en_article(offre: dict) -> dict:
         "source": "fournisseur",
         "source_fournisseur": fournisseur,
         "url_produit": offre.get("url_produit"),
+        # 04/10/2026 : pertinence de l'offre POUR LA REQUÊTE de la recherche —
+        # la garde anti-accessoire du rapprochement par ligne s'en sert.
+        "_pertinence": offre.get("_pertinence"),
     }
 
 
@@ -531,10 +535,21 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
             resultats = await asyncio.gather(
                 *(_chercher_groupe(g, visibles, tenant, termes, limite) for g in groupes))
             lignes = [l for r in resultats for l in r]
+        # RÈGLE PERTINENCE 2/3 — exclusions par négation (04/10/2026, même
+        # règle que le comparateur) : « non coupe-feu » pour une recherche
+        # « coupe feu » contredit la demande, tous les mots y sont mais le
+        # libellé dit le contraire. Ces offres ne doivent jamais prixer une
+        # ligne de devis, même en alternative du menu.
+        lignes, _rapport_negations = negation_recherche.exclure(lignes, q)
         # Pertinence d'abord, prix ensuite : la designation qui MENE avec les
         # mots demandes (« bloc porte coupe feu ») passe devant l'accessoire
         # moins cher qui les mentionne en fin de libelle (« gache pour
         # porte coupe-feu »). Egalite de score -> prix croissant, comme avant.
+        # Le score est GARDE sur la ligne (_pertinence) : le rapprochement
+        # par ligne l'utilise pour sa garde anti-accessoire.
+        for l in lignes:
+            l["_pertinence"] = pertinence.score(
+                pertinence.normalise(l.get("designation") or ""), q)
         lignes.sort(key=lambda l: (
             -pertinence.score(pertinence.normalise(l.get("designation") or ""), q),
             l.get("prix_net_ht") is None, l.get("prix_net_ht") or 0.0, str(l.get("id"))))

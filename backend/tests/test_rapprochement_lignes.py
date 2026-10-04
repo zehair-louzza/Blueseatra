@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("REACT_APP_BACKEND_URL", "http://localhost:8000")
 
 import catalogue_chiffrage as cc  # noqa: E402
+import negation_recherche  # noqa: E402
 import server  # noqa: E402
 
 
@@ -135,3 +136,54 @@ def test_resume_offre_champs_utiles():
     assert r["fournisseur"] == "Rexel"
     assert r["designation"] == "Prise 2P+T 16A"
     assert r["prix_net_ht"] == 6.42
+
+
+# --------------------------------------- règles pertinence sur le rapprochement
+def _offre_p(pertinence, fid, prix):
+    return {"id": f"o-{fid}", "fournisseur": fid, "designation": f"article {fid}",
+            "prix_net_ht": prix, "pertinence": pertinence}
+
+
+def test_garde_alternatives_retire_les_accessoires():
+    offres = [
+        _offre_p(1.958, "LPB", 370.72),     # vraie porte
+        _offre_p(1.200, "Prolians", 409.0),  # vraie porte
+        _offre_p(0.783, "Rexel", 1.80),      # panneau PVC : accessoire
+        _offre_p(0.617, "YESSS", 302.59),    # déclencheur : accessoire
+    ]
+    gardees = server._garde_alternatives(offres)
+    assert {o["fournisseur"] for o in gardees} == {"LPB", "Prolians"}
+
+
+def test_garde_alternatives_sans_pertinences_tout_garde():
+    offres = [{"fournisseur": "A", "pertinence": None}, {"fournisseur": "B", "pertinence": None}]
+    assert len(server._garde_alternatives(offres)) == 2
+
+
+def test_garde_alternatives_leader_toujours_garde():
+    # Même si tout est faible (que des accessoires), le leader reste
+    # proposé : c'est la meilleure offre disponible, l'humain décide.
+    offres = [_offre_p(0.40, "A", 10.0), _offre_p(0.10, "B", 5.0)]
+    gardees = server._garde_alternatives(offres)
+    assert gardees and gardees[0]["fournisseur"] == "A"
+
+
+def test_resume_offre_porte_la_pertinence():
+    # _resume_offre reçoit la forme BRUTE de la recherche (_pertinence)
+    r = server._resume_offre({"id": "o-R", "fournisseur": "Rexel", "prix_net_ht": 6.42,
+                              "_pertinence": 1.5})
+    assert r["pertinence"] == 1.5
+
+
+def test_en_article_porte_la_pertinence():
+    art = cc._en_article({"id": "x1", "designation": "Prise", "fournisseur": "Rexel",
+                          "prix_net_ht": 5.0, "_pertinence": 1.234})
+    assert art["_pertinence"] == 1.234
+
+
+def test_negation_exclue_du_rapprochement_par_ligne():
+    """La règle pertinence 2/3 (négations, PR #177) doit s'appliquer aussi au
+    chemin du rapprochement par ligne : une porte « non coupe-feu » ne doit
+    jamais prixer une ligne « coupe feu »."""
+    assert negation_recherche.negation_presente(
+        "porte metallique multi usage non coupe feu", "porte coupe feu") == "non coupe feu"

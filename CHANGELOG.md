@@ -12,7 +12,9 @@
 
 **Éditeur compact** : colonnes resserrées (désignation flexible, plus de scroll horizontal), bloc « Description / déroulement des travaux » élargi (10 lignes, toujours visible et modifiable), **menu latéral pliable** (icônes seules, état persisté par navigateur, bouton en pied de barre) qui libère la largeur de l'éditeur.
 
-**Tests** : `test_rapprochement_lignes.py` (11 : requête matériau sur les vraies lignes du devis, enrichissement, refige du prix, preuve remplacée) ; mock de `candidats_rapprochement` adapté à la requête normalisée ; suite 304 verts.
+**Règles pertinence appliquées au rapprochement** (mêmes règles que le comparateur) : 1/3 tri pertinence puis prix (déjà en place), 2/3 exclusion des négations — une porte « non coupe-feu » ne peut jamais prixer une ligne « coupe feu » ni figurer dans le menu, 3/3 garde anti-accessoire — les alternatives dont la pertinence vaut moins de 50 % du leader sont retirées du menu (le leader reste toujours proposé, l'humain décide).
+
+**Tests** : `test_rapprochement_lignes.py` (17 : requête matériau sur les vraies lignes du devis, enrichissement, refige du prix, preuve remplacée, garde anti-accessoire, négations, pertinence portée par les offres) ; mock de `candidats_rapprochement` adapté à la requête normalisée ; suite 310 verts.
 
 ## 2026-10-04 (6) — Devis 9 pages lettre par lettre : normalisation des listes narratives IA
 

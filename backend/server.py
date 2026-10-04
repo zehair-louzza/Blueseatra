@@ -1758,6 +1758,8 @@ def _resume_offre(offre: dict) -> dict:
         "prix_public_ht": offre.get("prix_public_ht"),
         "unite_vente": offre.get("unite_vente"),
         "url_produit": offre.get("url_produit"),
+        "pertinence": (round(float(offre.get("_pertinence")), 3)
+                      if offre.get("_pertinence") is not None else None),
     }
 
 
@@ -1782,6 +1784,23 @@ def _applique_offre_ligne(ligne: dict, offre: dict) -> None:
                        if not r.startswith("offre_fournisseur:")] + [motif]
 
 
+def _garde_alternatives(offres: list[dict]) -> list[dict]:
+    """Règle pertinence 3/3 — garde anti-accessoire (04/10/2026, même règle
+    que le panneau du comparateur) : une alternative dont la pertinence vaut
+    moins de la moitié du leader est un accessoire qui MENTIONNE la demande,
+    pas le produit demandé (panneau PVC pour « porte coupe feu »). Elle est
+    retirée du menu — la ligne elle-même reste inchangée si tout est faible :
+    le leader est toujours proposé, l'humain décide. Sans pertinences
+    exploitables, tout est gardé."""
+    scores = [float(o.get("pertinence") or 0.0) for o in offres if o.get("pertinence") is not None]
+    if not scores or max(scores) <= 0:
+        return list(offres)
+    plancher = 0.5 * max(scores)
+    gardees = [o for o in offres
+               if o.get("pertinence") is None or float(o.get("pertinence")) >= plancher]
+    return gardees or [offres[0]]
+
+
 def _enrichit_lignes_fournisseurs(lignes: list[dict], offres_par_ligne: dict) -> None:
     """Attache à chaque ligne de fourniture sans prix sa meilleure offre
     (appliquée) et ses alternatives (menu de l'éditeur)."""
@@ -1795,7 +1814,7 @@ def _enrichit_lignes_fournisseurs(lignes: list[dict], offres_par_ligne: dict) ->
         offres = next((offres_par_ligne[c] for c in cles if c and c in offres_par_ligne), None)
         if not offres:
             continue
-        alternatives = [_resume_offre(o) for o in offres[:6]]
+        alternatives = _garde_alternatives([_resume_offre(o) for o in offres[:8]])
         if ligne.get("unit_price_ht") is None:
             _applique_offre_ligne(ligne, offres[0])
         ligne["alternatives"] = alternatives
@@ -2090,11 +2109,12 @@ async def quote_line_offers(quote_id: str, line_index: int,
             offres = await catalogue_chiffrage.rechercher(requete, 6) or []
     except Exception:
         logger.warning("recherche offres ligne indisponible (quote %s)", quote_id, exc_info=True)
+    resumees = _garde_alternatives([_resume_offre(o) for o in offres])
     return {
         "line_index": line_index,
         "requete": requete,
         "actuelle": ligne.get("chosen_offer"),
-        "offres": [_resume_offre(o) for o in offres],
+        "offres": resumees,
     }
 
 
@@ -2131,7 +2151,7 @@ async def quote_line_choose_offer(quote_id: str, line_index: int, body: dict,
         raise HTTPException(404, "Offre introuvable dans les sources actives pour cette ligne")
     _applique_offre_ligne(ligne, offre)
     # Rafraîchit les alternatives connues de la ligne.
-    ligne["alternatives"] = candidats[:6]
+    ligne["alternatives"] = _garde_alternatives(candidats)
     total_ht, total_vat, total_ttc = match_engine.recompute_totals(q["lines"])
     await db.quotes.update_one(
         {"id": quote_id},
