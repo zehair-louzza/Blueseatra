@@ -171,7 +171,7 @@ Détails : [architecture.md](./docs/architecture.md).
 | Utiliser l'application | [Manuel d'utilisation](./docs/manuel-utilisateur.md) |
 | Comprendre le système | [Architecture](./docs/architecture.md) · [Infrastructure et parcours complet d'un devis](./docs/infrastructure.md) · [Décisions (ADR)](./docs/decisions) |
 | Développer | [Guide développeur](./docs/guide-developpeur.md) · [Référence API](./docs/reference-api.md) · [Contribuer](./CONTRIBUTING.md) |
-| Mettre en production | [Exploitation](./docs/exploitation.md) · [DEPLOIEMENT.md](./DEPLOIEMENT.md) |
+| Mettre en production | [Exploitation](./docs/exploitation.md) · [DEPLOIEMENT.md](./DEPLOIEMENT.md) · [Vocabulaire des gros catalogues](./docs/vocabulaire-rexel-passe-nuit.md) |
 | Offres et prix | [Tarification](./docs/tarification-2026-09.md) |
 | Module Clients | [Spécification](./docs/specs/module-clients.md) |
 | Sécurité | [SECURITY.md](./SECURITY.md) · [Audit d'isolation](./docs/audit-isolation-tenants-2026-09-12.md) |

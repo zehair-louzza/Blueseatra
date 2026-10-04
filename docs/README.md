@@ -64,6 +64,7 @@ Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/
 | [Checklist des secrets Render](../render-secrets-checklist.md) | Variables à renseigner à la main |
 | [Audit d'isolation](./audit-isolation-tenants-2026-09-12.md) | Audit RLS du 12/09/2026 |
 | [Runbook incident](./runbook-incident.md) | SLO, corrélation par `request_id`, déroulé, RACI, post-mortem |
+| [Vocabulaire Rexel — passe de nuit](./vocabulaire-rexel-passe-nuit.md) | Remplissage par tranches des gros catalogues (747 771 offres) : procédure, seuils, constats `pg_stat_activity` |
 | [Conformité RGPD](./conformite-rgpd.md) | Registre des traitements, droits des personnes, sous-traitants |
 | [SECURITY.md](../SECURITY.md) | Politique de sécurité et signalement |
 
