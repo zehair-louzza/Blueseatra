@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-10-04 (7) — Rapprochement fournisseur par ligne de devis + menu de choix
+
+**Constat** (devis BS-2026-0055) : les lignes de fournitures restaient des libellés de prestation (« fourniture et pose de prises 2p+t 16 a, gamme blanche standard ») sans aucun rapprochement catalogue — toutes « à confirmer » sans prix. Cause : la recherche exige TOUS les mots présents (AND), et un libellé de 10 mots ne matche aucune désignation catalogue, alors que le catalogue Rexel vend des prises 2P+T.
+
+**Correction — requête matériau** : `requete_materielle()` extrait l'ARTICLE du libellé de prestation (« prise 2p+t 16 a »), en coupant à la première virgule, retirant les mots de prestation (fourniture, pose, création, mise en place…), préservant les unités d'une lettre après un chiffre (« 16 a » = ampères, « 150 l » = litres) et singulierisant les pluriels longs.
+
+**Rapprochement par ligne** : à la génération, chaque ligne de fourniture sans prix reçoit la **meilleure offre** des sources actives (pertinence puis prix — prix figé, preuve `chosen_offer` horodatée) et ses **alternatives** (6). L'IA ne choisit PAS le fournisseur : la recherche classe, l'humain tranche.
+
+**Menu de choix** (`LineOfferMenu`) : pastille fournisseur sous chaque ligne de fourniture, popover au clic avec offres alternatives (fournisseur, désignation, marque, référence, prix, unité), recherche fraîche à l'ouverture. Changer d'offre = `POST /quotes/{id}/lines/{n}/offer` → prix refigé, totaux recalculés, audit. Refusé si le devis n'est plus en brouillon (source tarifaire historisée). Les lignes de main-d'œuvre et déplacement ne sont jamais proposées au changement.
+
+**Éditeur compact** : colonnes resserrées (désignation flexible, plus de scroll horizontal), bloc « Description / déroulement des travaux » élargi (10 lignes, toujours visible et modifiable), **menu latéral pliable** (icônes seules, état persisté par navigateur, bouton en pied de barre) qui libère la largeur de l'éditeur.
+
+**Tests** : `test_rapprochement_lignes.py` (11 : requête matériau sur les vraies lignes du devis, enrichissement, refige du prix, preuve remplacée) ; mock de `candidats_rapprochement` adapté à la requête normalisée ; suite 304 verts.
+
 ## 2026-10-04 (6) — Devis 9 pages lettre par lettre : normalisation des listes narratives IA
 
 **Constat** (devis BS-2026-0055, premier devis généré après la réparation de la chaîne d'extraction) : les sections « Préliminaires », « Déroulement » et « Contrôles de fin de travaux » explosaient **lettre par lettre** — chaque caractère devenait une ligne à puce, étirant le devis sur 9 pages.

@@ -15,6 +15,7 @@ import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import QuoteClientPanel from '@/components/clients/QuoteClientPanel';
 import QuoteVersions from '@/components/QuoteVersions';
+import { LineOfferMenu } from '@/components/LineOfferMenu';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
@@ -367,20 +368,20 @@ export default function QuoteEditor() {
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={addPageBreak} data-testid="add-page-break-button"><SeparatorHorizontal className="h-4 w-4" />{t('quote.add_page_break')}</Button>
               </div>
             )}
-            <div className="overflow-x-auto">
+            <div className="w-full overflow-x-auto">
               <Table data-testid="quote-lines-table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[180px]">{t('quote.desc')}</TableHead>
-                    <TableHead className="w-20">{t('quote.qty')}</TableHead>
-                    <TableHead className="w-24">{t('quote.unit')}</TableHead>
-                    <TableHead className="w-28">{t('quote.unit_price')}</TableHead>
-                    <TableHead className="w-20">
+                    <TableHead className="w-auto min-w-0">{t('quote.desc')}</TableHead>
+                    <TableHead className="w-16">{t('quote.qty')}</TableHead>
+                    <TableHead className="w-20">{t('quote.unit')}</TableHead>
+                    <TableHead className="w-24">{t('quote.unit_price')}</TableHead>
+                    <TableHead className="w-16">
                       <span className="inline-flex items-center gap-1">{t('quote.margin')}
                         <TooltipProvider><Tooltip><TooltipTrigger asChild><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger><TooltipContent><p className="max-w-[180px] text-xs">{t('quote.margin_hint')}</p></TooltipContent></Tooltip></TooltipProvider>
                       </span>
                     </TableHead>
-                    <TableHead className="w-24">{t('quote.vat')}</TableHead>
+                    <TableHead className="w-20">{t('quote.vat')}</TableHead>
                     <TableHead className="w-24 text-right">{t('quote.line_total')}</TableHead>
                     <TableHead className="w-20">{t('quote.match')}</TableHead>
                     {isDraft && <TableHead className="w-20"></TableHead>}
@@ -456,6 +457,18 @@ export default function QuoteEditor() {
                           {l.line_type === 'material' && <span className="mr-1 inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Mat.</span>}
                           {isDraft ? <Input value={l.description || ''} onChange={(e) => updateLine(i, 'description', e.target.value)} className="h-8" data-testid="line-description-input" /> : (l.description || l.request_label)}
                           {(l.matched_item_code || l.supplier) && <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{l.matched_item_code}{l.supplier ? ` \u00b7 ${l.supplier}` : ''}</div>}
+                          {/* Menu de choix du fournisseur (04/10/2026) : la ligne
+                              porte sa meilleure offre (prix figé) et ses
+                              alternatives ; changer d'offre refige le prix et
+                              recalcule les totaux. */}
+                          {l.line_type !== 'labor' && l.line_type !== 'travel' && (
+                            <div className="mt-0.5">
+                              <LineOfferMenu
+                                quoteId={id} lineIndex={i} ligne={l} disabled={!isDraft}
+                                onChosen={(qmaj) => setQ(qmaj)}
+                              />
+                            </div>
+                          )}
                           {!l.matched_item_code && l.suggested_item_code && (
                             <div className="mt-0.5 flex items-start gap-1.5 text-[10px] text-amber-700" data-testid="line-catalog-suggestion">
                               <span>{t('quote.catalog_suggestion', { label: l.suggested_label, code: l.suggested_item_code })}</span>
@@ -525,7 +538,7 @@ export default function QuoteEditor() {
                   <textarea
                     value={(q.meta && q.meta.works_description) || ''}
                     onChange={(e) => setQ({ ...q, meta: { ...(q.meta || {}), works_description: e.target.value } })}
-                    rows={6}
+                    rows={10}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     data-testid="quote-works-desc"
                   />
