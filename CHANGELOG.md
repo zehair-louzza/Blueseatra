@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-04 (2) — Comparateur : tri par défaut du tableau conforme à la règle de pertinence
+
+**Constat** : le correctif porte-coupe-feu (#166) classait bien les résultats par pertinence côté backend, mais `SupplierResultsTable` (PR #159, antérieure) re-triait tout **par prix croissant côté navigateur** au moment de l'affichage — l'ordre pertinent était écrasé à l'écran et les accessoires pas chers repassaient en tête du tableau.
+
+**Correction** : le tableau conserve désormais l'ordre du backend (pertinence décroissante puis prix croissant) par défaut, avec une bascule « Pertinence / Prix » dans l'en-tête pour retrouver la lecture par prix comparable croissant. L'étiquette sous le titre reflète le tri actif (FR/EN). Aucun changement backend : l'ordre pertinent était déjà calculé et renvoyé.
+
 ## 2026-10-04 — Vocabulaire Rexel terminé en production + traces d'explication du moteur
 
 **Résultat** : la source Rexel (747 771 offres) a désormais son vocabulaire complet en production — 406 562 entrées dont 306 863 groupes de mots (113 997 paires ≥ 5, 192 866 triples ≥ 3), 100 % des offres couvertes par tranches contiguës, suggestions multi-mots vérifiées (« porte c », « coupe feu »). Les 10 versions de sources du catalogue commun sont complètes. Procédure, mesures et constats d'exploitation détaillés dans `docs/vocabulaire-rexel-passe-nuit.md` (dont deux constats majeurs : le connecteur execute_sql continue d'exécuter côté serveur après son timeout client — vérifier `pg_stat_activity` avant toute relance — et deux requêtes zombies de 15-23 h saturaient l'I/O et expliquaient tous les échecs précédents).
