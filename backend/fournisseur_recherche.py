@@ -612,6 +612,13 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     # Le moins cher chez chaque fournisseur : la vue de negociation, au prix
     # comparable (un lot de 100 m n'est plus « le plus cher »).
     meilleurs = cp.meilleurs_par_fournisseur(retenus)
+    # Panneau « la meilleure correspondance » : si un fournisseur ne vend
+    # pas le produit demandé, sa meilleure offre est un accessoire qui le
+    # mentionne (Rexel : panneau PVC 1,80 € pour « porte coupe feu ») et
+    # l'écart affiché n'a aucun sens. Il est retiré du PANNEAU SEULEMENT
+    # — jamais silencieusement : fournisseur et désignation sont renvoyés
+    # pour affichage. Les résultats et le sélecteur du devis gardent tout.
+    meilleurs, fournisseurs_ecartes = cp.garder_meilleures_correspondances(meilleurs)
 
     for ligne in retenus:
         ligne.pop("recherche_norm", None)
@@ -629,6 +636,7 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         "prix": bloc_prix,
         "resultats": retenus[:limite],
         "moins_cher_par_fournisseur": meilleurs,
+        "fournisseurs_ecartes_pertinence": fournisseurs_ecartes,
         # Produits vendus par au moins deux fournisseurs (cle GTIN ou
         # marque + reference), offres comparees au prix par unite de base.
         "produits_identiques": produits,

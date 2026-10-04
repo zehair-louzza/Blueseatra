@@ -62,6 +62,8 @@ export const foFr = {
   m_ecart: 'Écart moins cher → plus cher',
   m_contre: '{{p1}} chez {{f1}} contre {{p2}} chez {{f2}}',
   m_reference: 'référence',
+  m_ecartes_titre: '{{n}} fournisseurs écartés de ce panneau :',
+  m_ecartes_detail: 'leur meilleure offre est un accessoire qui mentionne la recherche, pas le produit demandé (elle reste dans les résultats ci-dessous).',
   ht: 'HT',
   // Tableau des résultats
   r_titre: 'Résultats comparables',
@@ -226,6 +228,8 @@ export const foEn = {
   m_ecart: 'Spread cheapest → most expensive',
   m_contre: '{{p1}} at {{f1}} versus {{p2}} at {{f2}}',
   m_reference: 'baseline',
+  m_ecartes_titre: '{{n}} suppliers left out of this panel:',
+  m_ecartes_detail: 'their best offer is an accessory that mentions the search, not the requested product (it stays in the results below).',
   ht: 'excl. VAT',
   r_titre: 'Comparable results',
   tri_pertinence: 'Relevance',

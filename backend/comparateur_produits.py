@@ -230,6 +230,43 @@ def meilleurs_par_fournisseur(lignes: list[dict]) -> list[dict]:
                                   x["prix_unite_base_ht"]) )
 
 
+# Rapport de pertinence minimal pour figurer au panneau « la meilleure
+# correspondance » : la MEILLEURE offre d'un fournisseur doit valoir au
+# moins la moitié de la pertinence du leader. En dessous, ce fournisseur
+# ne vend pas le produit demandé — il vend un accessoire qui le mentionne
+# (mesuré le 04/10/2026 sur « porte coupe feu » : portes réelles 1,08 à
+# 1,83 ; panneau PVC Rexel 0,78, déclencheur YESSS 0,62, soit 34-43 % du
+# leader — un écart affiché de +22 593 % entre un panneau à 1,80 € et
+# une porte à 409 € n'a aucun sens de négociation).
+RAPPORT_PERTINENCE_MIN = 0.5
+
+
+def garder_meilleures_correspondances(meilleurs: list[dict],
+                                      rapport: float = RAPPORT_PERTINENCE_MIN) -> tuple[list[dict], list[dict]]:
+    """Fournisseurs dont la meilleure offre EST le produit demandé.
+
+    Renvoie (gardés, écartés). Un fournisseur écarté n'est PAS supprimé
+    du produit : il reste dans les résultats, les produits identiques et
+    le sélecteur du devis ; seul le panneau de négociation l'omet, et il
+    est renvoyé avec fournisseur et désignation pour affichage. Sans
+    pertinences exploitables (toutes nulles ou absentes), tout est gardé.
+    """
+    if not meilleurs:
+        return [], []
+    pmax = max(float(m.get("pertinence") or 0.0) for m in meilleurs)
+    if pmax <= 0:
+        return list(meilleurs), []
+    plancher = rapport * pmax
+    gardes = [m for m in meilleurs
+              if float(m.get("pertinence") or 0.0) >= plancher]
+    ecartes = [{"fournisseur": m.get("fournisseur"),
+                "designation": m.get("designation"),
+                "pertinence": m.get("pertinence")}
+               for m in meilleurs
+               if float(m.get("pertinence") or 0.0) < plancher]
+    return gardes, ecartes
+
+
 def _arrondi(v, n: int = 2):
     f = _positif(v)
     return round(f, n) if f is not None else None
