@@ -41,6 +41,22 @@ def test_hors_requete_rien_n_est_compte():
     assert mt.courante() is None
 
 
+def test_new_engine_is_instrumented_even_when_identity_was_reused(monkeypatch):
+    # Reproduit sans hasard la réutilisation d'un id Python après collecte.
+    # Un registre de nombres conserve cet ancien id et oublie le moteur suivant.
+    monkeypatch.setattr(mt, "id", lambda engine: -1, raising=False)
+    for _ in range(2):
+        moteur = _moteur()
+        mesure, jeton = mt.demarrer()
+        try:
+            with moteur.connect() as connection:
+                connection.execute(text("select 1"))
+        finally:
+            mt.terminer(jeton)
+            moteur.dispose()
+        assert mesure.n_sql == 1 and mesure.n_emprunts == 1
+
+
 def test_requetes_isolees_entre_mesures():
     moteur = _moteur()
     a, ja = mt.demarrer()

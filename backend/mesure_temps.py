@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextvars
 import time
+import weakref
 
 from sqlalchemy import event
 
@@ -63,15 +64,17 @@ def entete(m: Mesure, total_ms: float) -> str:
             f"cnx;dur={m.ms_connexions:.1f};desc=\"{m.n_connexions} nouvelles / {m.n_emprunts} emprunts\"")
 
 
-_branches: set[int] = set()
+# Un id numérique peut être réutilisé après collecte d'un moteur. Le registre
+# faible suit les objets vivants sans les retenir ni oublier un nouveau moteur.
+_branches = weakref.WeakSet()
 
 
 def brancher(moteur) -> None:
     """Attache les compteurs à un moteur (async ou sync). Idempotent."""
     sync = getattr(moteur, "sync_engine", moteur)
-    if sync is None or id(sync) in _branches:
+    if sync is None or sync in _branches:
         return
-    _branches.add(id(sync))
+    _branches.add(sync)
 
     @event.listens_for(sync, "before_cursor_execute")
     def _avant(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
