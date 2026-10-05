@@ -122,7 +122,7 @@
         "properties": {
           "label": {
             "type": "string",
-            "description": "Désignation de l'article ou de la prestation, nom seul sans verbe d'action, avec les caractéristiques utiles au rapprochement catalogue (dimension, section, puissance, classe, matière, teinte : « câble R2V 3G2,5 », « bloc porte coupe-feu EI30 90x204 », « nacelle ciseaux 8 m »)."
+            "description": "Dans un tableau : désignation complète exacte de la ligne source, sans reformulation, pour rattacher sa quantité. Hors tableau : ouvrage et caractéristiques utiles, sans ajouter de prestation."
           },
           "qty": {
             "type": [
@@ -135,6 +135,7 @@
             "type": "string",
             "enum": [
               "u",
+              "point",
               "ml",
               "m2",
               "m3",
@@ -251,11 +252,11 @@
           },
           "preuve": {
             "type": "string",
-            "description": "Citation exacte unique de la prestation, sans reformulation."
+            "description": "Citation exacte unique contenant la désignation et son action, pas une ligne de prix seule."
           },
           "quantite_preuve": {
             "type": "string",
-            "description": "Citation exacte justifiant la quantité ; vide si inconnue."
+            "description": "Citation exacte reliant la quantité à l'article et à l'unité ; jamais un nombre isolé. Vide si inconnue."
           }
         },
         "required": [
@@ -293,7 +294,7 @@
               "properties": {
                 "description": {
                   "type": "string",
-                  "description": "Désignation de l'article ou de la prestation, nom seul sans verbe d'action, avec les caractéristiques utiles au rapprochement catalogue (dimension, section, puissance, classe, matière, teinte : « câble R2V 3G2,5 », « bloc porte coupe-feu EI30 90x204 », « nacelle ciseaux 8 m »)."
+                  "description": "Dans un tableau : désignation complète exacte de la ligne source, sans reformulation. Hors tableau : ouvrage et caractéristiques utiles, sans ajouter de prestation."
                 },
                 "quantity": {
                   "type": [
@@ -306,6 +307,7 @@
                   "type": "string",
                   "enum": [
                     "u",
+                    "point",
                     "ml",
                     "m2",
                     "m3",
@@ -422,11 +424,11 @@
                 },
                 "preuve": {
                   "type": "string",
-                  "description": "Citation exacte unique de la prestation, sans reformulation."
+                  "description": "Citation exacte unique contenant la désignation et son action, pas une ligne de prix seule."
                 },
                 "quantite_preuve": {
                   "type": "string",
-                  "description": "Citation exacte justifiant la quantité ; vide si inconnue."
+                  "description": "Citation exacte reliant la quantité à l'article et à l'unité ; jamais un nombre isolé. Vide si inconnue."
                 }
               },
               "required": [

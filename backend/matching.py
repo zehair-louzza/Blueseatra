@@ -207,6 +207,9 @@ def _presentation_extras(li: dict) -> dict:
         "tce_fourniture_autorisee": li.get("tce_fourniture_autorisee"),
         "preuve": li.get("preuve"),
         "quantite_preuve": li.get("quantite_preuve"),
+        "tce_source_row_id": li.get("tce_source_row_id"),
+        "tce_source_designation": li.get("tce_source_designation"),
+        "tce_correction": li.get("tce_correction"),
     }
 
 

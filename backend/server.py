@@ -2046,6 +2046,9 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
             "tce_fourniture_autorisee": l.get("tce_fourniture_autorisee"),
             "preuve": l.get("preuve"),
             "quantite_preuve": l.get("quantite_preuve"),
+            "tce_source_row_id": l.get("tce_source_row_id"),
+            "tce_source_designation": l.get("tce_source_designation"),
+            "tce_correction": l.get("tce_correction"),
         }
         if ltype in ("note", "page_break", "lot", "sublot"):
             base.update({

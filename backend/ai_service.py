@@ -5,6 +5,7 @@ A tenant can override provider/model/key via Settings (Integrations).
 import ia_garde_fous
 import os
 import tce_v4
+import table_evidence
 import io
 import json
 import re
@@ -229,6 +230,35 @@ EXTRACTION_DOC_MAX = int(os.environ.get("EXTRACTION_DOC_MAX", "9000"))
 EXTRACTION_DOC_TETE = int(os.environ.get("EXTRACTION_DOC_TETE", "6500"))
 EXTRACTION_DOC_QUEUE = int(os.environ.get("EXTRACTION_DOC_QUEUE", "2500"))
 EXTRACTION_DOC_COMPACT_MAX = int(os.environ.get("EXTRACTION_DOC_COMPACT_MAX", "3000"))
+
+
+def _deduplicate_pdf_tables(raw_text: str) -> str:
+    """Retirer seulement la copie tabulaire entièrement présente dans le natif.
+
+    Le texte original reste conservé et sert toujours à la validation des
+    preuves. Une cellule ou une note supplémentaire interdit ce dédoublonnage.
+    """
+    marker = "=== Tableaux détectés ==="
+    if raw_text.count(marker) != 1:
+        return raw_text
+    native, appended = raw_text.split(marker, 1)
+    normal_native = tce_v4.normal(" ".join(native.split()))
+    seen_cell = False
+    for line in appended.splitlines():
+        line = line.strip()
+        if not line or re.fullmatch(r"\[Tableau p\.\d+\.\d+\]", line):
+            continue
+        if not (line.startswith("|") and line.endswith("|")):
+            return raw_text
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        for cell in cells:
+            if not cell or re.fullmatch(r":?-{3,}:?", cell):
+                continue
+            normalized = tce_v4.normal(" ".join(cell.split()))
+            if not normalized or normalized not in normal_native:
+                return raw_text
+            seen_cell = True
+    return native.strip() if seen_cell else raw_text
 
 
 def _tronque_document(texte: str, max_chars: int | None = None,
@@ -602,8 +632,30 @@ def _squelette_schema(schema: dict):
 
 
 _SCHEMA_EXTRACTION_TXT = json.dumps(_squelette_schema(SCHEMA_EXTRACTION), ensure_ascii=False, separators=(",", ":"))
+_TCE_READING_GUIDE = (
+    "\nCodes métier, indépendants des numéros de lots du document : "
+    + "; ".join(f"{code}={label}" for code, (_, label) in tce_v4.LOTS.items())
+    + ".\nDans un devis tabulé, conserve la désignation complète exacte dans label, "
+      "sans la réécrire : le backend relie article, unité et quantité à la ligne source. "
+      "La preuve contient l'article, pas seulement une ligne de nombres ou des prix. "
+      "Pose d'un ensemble = poser ; raccordement = raccorder ; seuls fournir ou "
+      "fourniture et pose explicites autorisent une proposition de fourniture. "
+      "Une phrase générale ne remplace pas une mention contraire sur la ligne. "
+      "L'entreprise émettrice d'un devis n'est pas automatiquement le donneur d'ordre ; "
+      "sa date de devis n'est pas une date d'intervention.\n"
+)
 
-EXTRACTION_SYSTEM = tce_v4.contract() + tce_v4.EXTRACTION_ADAPTER + _SCHEMA_EXTRACTION_TXT
+EXTRACTION_SYSTEM = (tce_v4.contract() + _TCE_READING_GUIDE
+                     + tce_v4.EXTRACTION_ADAPTER + _SCHEMA_EXTRACTION_TXT)
+_TABLE_SOURCE_HINT = (
+    "\nTABLEAUX SOURCE IDENTIFIÉS PAR LE BACKEND : pour une ligne tabulaire, "
+    "recopie la désignation complète exacte dans label, action comprise. "
+    "Laisse preuve et quantite_preuve vides pour cette ligne : le backend "
+    "rattachera lui-même la désignation, l'unité et la quantité aux cellules "
+    "originales, uniquement si la correspondance est exacte et unique. "
+    "Ne résume pas le libellé et ne recopie aucun prix. Pour une prestation "
+    "hors tableau, les preuves exactes restent obligatoires."
+)
 
 _PRICE_RE = re.compile(
     r"(?i)(\d[\d\s.,]{0,14}\s*(€|eur|euros?|\$|usd)|prix\s*[:=]\s*\d|tarif\s*[:=]\s*\d)"
@@ -1427,7 +1479,8 @@ async def extract_request_data(
     # Prompt de cascade BORNÉ (tête + queue du document) et variante compacte
     # pour les étages de deuxième essai — voir les constantes EXTRACTION_DOC_*.
     # Les chemins cloud (Mistral, OpenAI) gardent le document intégral.
-    doc_cascade = _tronque_document(raw_text or "")
+    model_document = _deduplicate_pdf_tables(raw_text or "").strip()
+    doc_cascade = _tronque_document(model_document)
     user_message_cascade = f"Extract structured data from this quote request:\n\n{doc_cascade}"
     if web_ctx and not from_file:
         user_message_cascade += (
@@ -1435,7 +1488,7 @@ async def extract_request_data(
             + web_ctx
         )
     doc_compact = _tronque_document(
-        raw_text or "", max_chars=EXTRACTION_DOC_COMPACT_MAX, tete=2000, queue=1000)
+        model_document, max_chars=EXTRACTION_DOC_COMPACT_MAX, tete=2000, queue=1000)
     user_message_compact = f"Extract structured data from this quote request:\n\n{doc_compact}"
 
     # Cascade de structuration sequentielle (decision du 2026-08-19) : ne
@@ -1453,8 +1506,9 @@ async def extract_request_data(
     structuring_engine = None
     try:
         if use_structuring_cascade:
+            table_hint = _TABLE_SOURCE_HINT if table_evidence.parse_quantity_rows(raw_text) else ""
             raw_response, structuring_engine = await _call_structuring_cascade(
-                system_prompt=EXTRACTION_SYSTEM,
+                system_prompt=EXTRACTION_SYSTEM + table_hint,
                 user_message=user_message_cascade,
                 json_schema=SCHEMA_EXTRACTION if IA_SCHEMA_STRICT else None,
                 user_message_compact=user_message_compact,
@@ -1538,7 +1592,15 @@ async def extract_request_data(
         # Schéma strict (#88) : types vérifiés, aucun prix/TVA/marge venu de l'IA.
         parsed = ia_garde_fous.valider_extraction(parsed)
         parsed = tce_v4.protect_extraction(parsed, raw_text or "")
-        if use_structuring_cascade and len(raw_text or "") > EXTRACTION_DOC_COMPACT_MAX:
+        used_document = (doc_compact if "(compact)" in (structuring_engine or "") else doc_cascade)
+        truncated = use_structuring_cascade and used_document != model_document
+        parsed["_input_preparation"] = {
+            "duplicate_tables_removed": use_structuring_cascade and model_document != (raw_text or "").strip(),
+            "source_chars": len(raw_text or ""),
+            "model_chars": len(used_document if use_structuring_cascade else (raw_text or "")),
+            "truncated": bool(truncated),
+        }
+        if truncated:
             parsed["_tce_issues"].append(
                 "Document long : contrôler la couverture avec l'original, "
                 "la cascade de lecture a utilisé une représentation bornée."

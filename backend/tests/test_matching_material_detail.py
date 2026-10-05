@@ -67,6 +67,7 @@ class TestPresentationExtras:
         assert set(extras.keys()) == {
             "included_items", "notes", "action", "lot_tce", "tce_id",
             "tce_fourniture_autorisee", "preuve", "quantite_preuve",
+            "tce_source_row_id", "tce_source_designation", "tce_correction",
         }
 
 

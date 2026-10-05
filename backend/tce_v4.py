@@ -14,6 +14,8 @@ import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
+import table_evidence
+
 VERSION = "4.0.0"
 ROOT = Path(__file__).with_name("skills_tce")
 LOTS = {
@@ -132,7 +134,8 @@ def _supports_quantity(value, unit, proof):
 
 def supply_authorized(row):
     """Conservative text evidence, not a professional approval."""
-    proof = normal(row.get("preuve"))
+    # Ligne de tableau vérifiée : seule la désignation porte l'action.
+    proof = normal(row.get("tce_source_designation") or row.get("preuve"))
     action_text = re.sub(r"^\s*fourniture et pose\b", "fourniture", proof)
     return bool(
         row.get("preuve_valide") is True
@@ -145,6 +148,81 @@ def supply_authorized(row):
     )
 
 
+# Action déduite du SEUL début de la désignation source vérifiée. Une
+# « installation » ou une « alimentation » reste ambiguë : jamais une fourniture.
+SOURCE_ACTIONS = (
+    (r"fourniture et pose|fourniture et mise en place", "fournir_et_poser"),
+    (r"fourniture", "fournir"),
+    (r"pose|mise en place", "poser"),
+    (r"raccordements?", "raccorder"),
+    (r"creation", "creer"),
+    (r"modification", "modifier"),
+    (r"deposes?", "deposer"),
+    (r"essais?", "tester"),
+    (r"protections?", "proteger"),
+    (r"mise en service", "mettre_en_service"),
+    (r"nettoyage", "nettoyer"),
+    (r"evacuation", "evacuer"),
+)
+
+
+def action_from_source(designation):
+    text = table_evidence.key(designation)
+    for pattern, action in SOURCE_ACTIONS:
+        if re.match(rf"(?:{pattern})\b", text):
+            return action
+    return None
+
+
+def _bind_table_row(row, table_rows, source_text):
+    """Rattache une ligne IA à une ligne de tableau source exacte et unique.
+
+    Le tableau fait autorité pour quantité/unité/preuve. Trace de correction
+    serveur, jamais une approbation : le chiffreur valide toujours.
+    """
+    label = row.get("label") or row.get("description")
+    found, conflict = table_evidence.match_row(table_rows, label, row.get("source_row_id"),
+                                               row.get("preuve") or None)
+    if found and source_text.count(found["source_text"]) != 1:
+        found, conflict = None, True
+    if conflict:
+        return "conflit"
+    if not found:
+        return False
+    changed = []
+    value = row.get("qty") if "qty" in row else row.get("quantity")
+    if found["quantity"] is not None and value != found["quantity"]:
+        changed.append("quantite")
+    if row.get("unit") != found["unit"]:
+        changed.append("unite")
+    if row.get("preuve") != found["source_text"]:
+        changed.append("preuve")
+    row["preuve"] = found["source_text"]
+    row["preuve_valide"] = True
+    # Unité source seule autorité : jamais héritée de l'IA (None si inconnue).
+    row["unit"] = found["unit"]
+    row["qty"] = row["quantity"] = found["quantity"]
+    row["quantite_preuve"] = found["quantity_text"] if found["quantity"] is not None else ""
+    action = action_from_source(found["designation"])
+    if action is None and row.get("action") in {"fournir", "fournir_et_poser"}:
+        changed.append("action")  # fourniture non écrite dans la source
+    elif action and row.get("action") != action:
+        changed.append("action")
+    if action or row.get("action") in {"fournir", "fournir_et_poser"}:
+        row["action"] = action
+    # Libellé exact de la source (ponctuation, dimensions) : le catalogue et
+    # le rendu ne repartent jamais d'une variante réécrite par l'IA.
+    label_field = "label" if row.get("label") else "description"
+    if row.get(label_field) != found["designation"]:
+        changed.append("libelle")
+    row[label_field] = found["designation"]
+    row["tce_source_row_id"] = found["source_id"]
+    row["tce_source_designation"] = found["designation"]
+    row["tce_correction"] = {"source": "tableau", "source_id": found["source_id"],
+                             "champs": changed, "approbation": False}
+    return True
+
+
 def protect_extraction(data, source_text):
     """Traceability tripwire; semantic completeness still requires human review."""
     out = copy.deepcopy(data)
@@ -153,6 +231,7 @@ def protect_extraction(data, source_text):
         if key.startswith("_tce"):
             out.pop(key)
     issues = []
+    table_rows = table_evidence.parse_quantity_rows(source_text)
     groups = [out] + [x for x in out.get("quote_options", []) if isinstance(x, dict)]
     for group in groups:
         for field in ("labor_hours", "travel_days", "crew_size"):
@@ -160,15 +239,33 @@ def protect_extraction(data, source_text):
         for index, row in enumerate(group.get("line_items") or [], 1):
             if not isinstance(row, dict):
                 continue
-            quote = row.get("preuve")
-            valid = isinstance(quote, str) and bool(quote) and source_text.count(quote) == 1
+            # Champs serveur : jamais acceptés depuis la sortie du modèle.
+            for field in ("tce_source_row_id", "tce_source_designation", "tce_correction"):
+                row.pop(field, None)
             row["tce_id"] = f"P{index}"
-            row["preuve_valide"] = valid
             row["tce_fourniture_autorisee"] = False
             if row.get("lot_tce") not in LOTS:
                 row["lot_tce"] = None
             if row.get("action") not in ACTION_LABELS:
                 row["action"] = None
+            name = row.get("label") or row.get("description") or index
+            bound = _bind_table_row(row, table_rows, source_text)
+            if bound == "conflit":
+                # Doublon, ID source incohérent ou citation d'un autre objet :
+                # bloqué, jamais rattrapé par une preuve prose.
+                row["qty"] = row["quantity"] = None
+                row["preuve_valide"] = False
+                issues.append(f"Source tableau ambiguë ou incohérente : {name}")
+                issues.append(f"Quantité à relever : {name}")
+                continue
+            if bound:
+                if row["qty"] is None:
+                    issues.append(f"Quantité à relever : {name}")
+                row["tce_fourniture_autorisee"] = supply_authorized(row)
+                continue
+            quote = row.get("preuve")
+            valid = isinstance(quote, str) and bool(quote) and source_text.count(quote) == 1
+            row["preuve_valide"] = valid
             value = row.get("qty") if "qty" in row else row.get("quantity")
             qproof = row.get("quantite_preuve")
             label = normal(row.get("label") or row.get("description"))
@@ -193,15 +290,27 @@ def protect_extraction(data, source_text):
     return out
 
 
-def detect_lot(row, fallback=""):
-    if row.get("lot_tce") in LOTS:
-        return row["lot_tce"]
-    text = normal(" ".join(str(row.get(k) or "") for k in ("label", "description", "category")))
+# Tâches transverses reconnues en TÊTE de libellé uniquement : « dépose » au
+# milieu d'une fourniture ne fait pas basculer la ligne en lot 02.
+LEADING_LOTS = (
+    ("01", r"protections?|balisage|installation de chantier"),
+    ("02", r"deposes?|curage|evacuation des (?:gravats|dechets)"),
+    ("19", r"essais?|verifications?|reception|mise en service|nettoyage"),
+)
+
+
+def lot_from_text(text):
+    text = table_evidence.key(text)
+    for code, pattern in LEADING_LOTS:
+        if re.match(rf"(?:{pattern})\b", text):
+            return code
     # Dominant object before generic words; never use another line's trade.
     patterns = [
         ("13", r"\bvmc\b|ventilation|bouche.*extraction"),
-        ("11", r"plomberie|sanitaire|vasque|receveur|douche|chauffe.eau|evier|\bwc\b|robinet|siphon|evacuation pvc"),
-        ("14", r"electric|disjonct|differentiel|\bdcl\b|interrupteur|prise|circuit|eclairage|cable"),
+        ("11", r"plomberie|sanitaire|vasque|receveur|douche|chauffe eau|evier|\bwc\b|robinet|siphon"
+               r"|evacuations? (?:en )?pvc|eau (?:chaude|froide)|\bef\b|\becs\b|\bper\b|multicouche"),
+        ("14", r"electric|disjonct|differentiel|\bdcl\b|interrupteur|prise|circuit|eclairage|cable"
+               r"|tableau electrique|alimentation dediee|points? lumineux"),
         ("12", r"chauffage|climatisation|chaudiere|radiateur|pompe a chaleur"),
         ("10", r"peinture|ratissage|impression"),
         ("09", r"carrelage|faience|parquet|revetement|plinthe"),
@@ -223,8 +332,23 @@ def detect_lot(row, fallback=""):
     for code, pattern in patterns:
         if re.search(pattern, text):
             return code
+    return None
+
+
+def detect_lot(row, fallback=""):
+    """Lot du libellé. Le code du modèle n'est gardé que s'il est spécifique
+    (pas 00/01 génériques) ou si le libellé n'est pas clair ; une ligne de
+    tableau vérifiée suit toujours le sens de sa désignation source."""
+    model = row.get("lot_tce") if row.get("lot_tce") in LOTS else None
+    text = " ".join(str(row.get(k) or "") for k in (
+        "tce_source_designation", "label", "description", "category"))
+    found = lot_from_text(text)
+    if found and (model in (None, "00", "01") or row.get("tce_source_row_id")):
+        return found
+    if model:
+        return model
     if fallback:
-        return detect_lot({"description": fallback})
+        return lot_from_text(fallback)
     return None
 
 
@@ -240,6 +364,9 @@ def attach_checklists(extracted):
         row.setdefault("tce_id", f"P{i}")
         lot = detect_lot(row, result.get("work_type", ""))
         if lot:
+            if row.get("lot_tce") in LOTS and row["lot_tce"] != lot and isinstance(
+                    row.get("tce_correction"), dict):
+                row["tce_correction"]["champs"].append("lot")
             row["lot_tce"] = lot
             by_lot.setdefault(lot, []).append(row["tce_id"])
     checks = []
