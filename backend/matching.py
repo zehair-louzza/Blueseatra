@@ -6,6 +6,7 @@ import re
 import unicodedata
 from collections import OrderedDict
 from rapidfuzz import fuzz
+import tce_v4
 
 UNIT_COMPAT = {
     "m2": {"m2"}, "ml": {"ml"}, "hr": {"hr"}, "u": {"u", "ens"}, "ens": {"ens", "u"},
@@ -161,7 +162,7 @@ def _ensure_line_items(extracted: dict) -> list:
     if items:
         return items
     desc = (extracted.get("description") or extracted.get("work_type") or "").strip()
-    return [{"description": desc or "Prestation selon demande", "quantity": 1, "unit": "u"}]
+    return [{"description": desc or "Prestation selon demande", "quantity": None, "unit": "u"}]
 
 
 def _empty_rubric(line_type: str, description: str, qty, unit: str, reasons: list) -> dict:
@@ -200,6 +201,12 @@ def _presentation_extras(li: dict) -> dict:
     return {
         "included_items": [str(x) for x in included if x] if isinstance(included, list) else [],
         "notes": str(notes).strip() if notes else None,
+        "action": li.get("action"),
+        "lot_tce": li.get("lot_tce"),
+        "tce_id": li.get("tce_id"),
+        "tce_fourniture_autorisee": li.get("tce_fourniture_autorisee"),
+        "preuve": li.get("preuve"),
+        "quantite_preuve": li.get("quantite_preuve"),
     }
 
 
@@ -209,19 +216,25 @@ def build_quote_lines(extracted: dict, catalog: list):
     total_vat = 0.0
     for li in _ensure_line_items(extracted):
         m = match_line(li, catalog)
-        try:
-            qty = float(li.get("qty") or li.get("quantity") or 1)
-        except (TypeError, ValueError):
-            qty = 1.0
+        qty = tce_v4.positive_number(li.get("qty") if "qty" in li else li.get("quantity"))
+        if li.get("action") in tce_v4.SERVICE_ACTIONS:
+            # Une pose/réparation/raccordement ne peut acheter l'appareil dont
+            # le nom ressemble à une référence catalogue.
+            m = None
+        if extracted.get("_tce_version") and not tce_v4.supply_authorized(li):
+            m = None
         # rich description: label + dimensions / specs / location
         extra = [str(li.get(k)) for k in ("dimensions", "specs", "location") if li.get(k)]
         desc = clean_text(li.get("label") or li.get("description") or "")
+        action_label = tce_v4.ACTION_LABELS.get(li.get("action"))
+        if action_label and not normalize(desc).startswith(normalize(action_label)):
+            desc = action_label + " : " + desc
         if extra:
             sep = " \u00b7 "
             desc = desc + " (" + sep.join(extra) + ")"
         if m and m["status"] == "matched":
             item = m["item"]
-            eff_qty = max(qty, float(item.get("min_qty") or 0))
+            eff_qty = max(qty, float(item.get("min_qty") or 0)) if qty is not None else None
             unit_price = float(item.get("unit_price_ht") or 0)
             vat_rate = None  # TVA toujours vide (consigne ANELEC)
             margin = item.get("margin") or 0
@@ -241,7 +254,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "margin": margin,
                 "vat_rate": None,
                 "line_ht": line_ht,
-                "status": m["status"],
+                "status": m["status"] if eff_qty is not None else "to_confirm",
                 "score": m["score"],
                 "reasons": m["reasons"],
                 **_presentation_extras(li),
@@ -254,7 +267,7 @@ def build_quote_lines(extracted: dict, catalog: list):
                 "line_type": _line_type_hint(li),
                 "request_label": li.get("label"),
                 "description": desc,
-                "category": li.get("category") or extracted.get("work_type"),
+                "category": li.get("category"),
                 "matched_item_code": None,
                 "matched_label": None,
                 "suggested_item_code": suggestion.get("item_code") if suggestion else None,
@@ -565,6 +578,16 @@ def build_works_description(extracted: dict, chantier: dict | None = None) -> st
     (ai_service.build_works_description_ai) est indisponible ou echoue --
     doit donc rester correct et complet par lui-meme, sans dependre d'IA.
     """
+    if extracted.get("_tce_version"):
+        # Repli sans invention : pas de pose/fourniture/dépose ajoutée, pas de
+        # texte brut intégral recopié ni d'estimation interne dans le devis.
+        labels = []
+        for row in extracted.get("line_items") or []:
+            label = clean_text(row.get("label") or row.get("description") or "")
+            action = tce_v4.ACTION_LABELS.get(row.get("action"))
+            if label:
+                labels.append(f"{action} : {label}" if action else label)
+        return "\n".join("- " + x for x in labels) or "Prestations à préciser avant validation."
     n = _narrative_inputs(extracted, chantier)
     head = (
         f"Option {n['idx']}/{n['cnt']} — {n['title']}."
@@ -673,11 +696,13 @@ def wrap_in_lots(lines: list) -> list:
         if l.get("line_type") in ("note", "page_break"):
             leftovers.append(l)
             continue
-        name = _tce_lot_name(l.get("category"), l.get("description") or l.get("request_label") or "")
+        lot = tce_v4.detect_lot(l)
+        name = tce_v4.LOTS[lot][1] if lot else _tce_lot_name(
+            l.get("category"), l.get("description") or l.get("request_label") or "")
         groups.setdefault(name, []).append(l)
     for name, items in groups.items():
         out.append(_struct_line("lot", lot_n, name))
-        out.append(_struct_line("sublot", f"{lot_n}.1", "Fournitures"))
+        out.append(_struct_line("sublot", f"{lot_n}.1", "Prestations"))
         out.extend(items)
         lot_n += 1
     out.extend(leftovers)

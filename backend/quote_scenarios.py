@@ -184,6 +184,14 @@ def split_quote_scenarios(extracted: dict, raw_text: str = "") -> list[dict]:
         row["option_label"] = opt["label"]
         row["description"] = opt["description"] or opt["label"]
         row["line_items"] = opt["line_items"]
+        if base.get("_tce_version"):
+            for item in row["line_items"]:
+                if not item.get("preuve_valide"):
+                    item["qty"] = item["quantity"] = None
+                    item["action"] = None
+                    item["tce_fourniture_autorisee"] = False
+                    row.setdefault("_tce_issues", []).append(
+                        "Variante à relever : aucune quantité de repli n'est autorisée.")
         if opt.get("labor_hours") is not None:
             row["labor_hours"] = opt["labor_hours"]
         if opt.get("travel_days") is not None:
@@ -193,3 +201,18 @@ def split_quote_scenarios(extracted: dict, raw_text: str = "") -> list[dict]:
         row["option_excludes"] = excl
         out.append(row)
     return out
+
+
+def scenario_for_quote(extracted: dict, raw_text: str, meta: dict) -> dict:
+    """Reprendre la même variante, sans recombiner les options au rematching."""
+    scenarios = split_quote_scenarios(extracted, raw_text)
+    count = int(meta.get("option_count") or 1)
+    if count <= 1:
+        if len(scenarios) != 1:
+            raise ValueError("La demande contient désormais plusieurs variantes : régénérer les brouillons.")
+        return scenarios[0]
+    expected_label = meta.get("option_label")
+    matches = [s for s in scenarios if s.get("option_label") == expected_label]
+    if len(matches) != 1 or len(scenarios) != count:
+        raise ValueError("La variante a changé : régénérer les brouillons avant rapprochement.")
+    return matches[0]
