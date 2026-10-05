@@ -16,6 +16,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import QuoteClientPanel from '@/components/clients/QuoteClientPanel';
 import QuoteVersions from '@/components/QuoteVersions';
 import { LineOfferMenu } from '@/components/LineOfferMenu';
+import TceReview from '@/components/TceReview';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
@@ -49,6 +50,8 @@ export default function QuoteEditor() {
   const [family, setFamily] = useState('__all__');
   const [supplierBy, setSupplierBy] = useState({});
   const [applyingIdx, setApplyingIdx] = useState(null);
+  const [tceReviewed, setTceReviewed] = useState(false);
+  useEffect(() => { setTceReviewed(false); }, [id, q?.lines, q?.object, q?.site, q?.meta?.works_description]);
 
   const load = () => api.get(`/quotes/${id}`).then((r) => setQ(r.data)).catch((err) => {
     toast.error(apiError(err, 'Failed'));
@@ -183,6 +186,10 @@ export default function QuoteEditor() {
   }, [q]);
 
   const persist = async (validate = false) => {
+    if (validate && q.meta?.tce_version && !tceReviewed) {
+      toast.error('Vérifiez et confirmez les points de contrôle TCE avant validation.');
+      return;
+    }
     setBusy(true);
     try {
       const lines = q.lines.map((l) => ({ ...l, qty: num(l.qty), unit_price_ht: num(l.unit_price_ht), vat_rate: num(l.vat_rate), margin: num(l.margin) }));
@@ -191,7 +198,7 @@ export default function QuoteEditor() {
         works_description: (q.meta && q.meta.works_description) || q.works_description || '',
       });
       setQ(data);
-      if (validate) { await api.post(`/quotes/${id}/validate`); toast.success(t('status.validated')); await load(); }
+      if (validate) { await api.post(`/quotes/${id}/validate`, { review_tce: tceReviewed, expected_digest: data.review_digest }); toast.success(t('status.validated')); await load(); }
       else toast.success(t('quote.save'));
     } catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
@@ -526,6 +533,9 @@ export default function QuoteEditor() {
         </div>
 
         <div className="lg:col-span-4">
+          <div className="mb-4">
+            <TceReview meta={q.meta} isDraft={isDraft} checked={tceReviewed} onChange={setTceReviewed} />
+          </div>
           <Card className="card-shadow border-0 p-5" data-testid="quote-totals-panel">
             <div className="space-y-2 text-sm">
               <div className="space-y-1.5">

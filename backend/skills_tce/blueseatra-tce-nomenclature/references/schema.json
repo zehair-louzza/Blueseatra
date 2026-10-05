@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "Candidate": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Parent Id",
+          "type": "string"
+        },
+        "lot": {
+          "enum": [
+            "00",
+            "01",
+            "02",
+            "03",
+            "04",
+            "05",
+            "06",
+            "07",
+            "08",
+            "09",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19"
+          ],
+          "title": "Lot",
+          "type": "string"
+        },
+        "nature": {
+          "enum": [
+            "equipement",
+            "materiau",
+            "reseau",
+            "accessoire",
+            "consommable",
+            "main_oeuvre",
+            "depose",
+            "protection",
+            "location",
+            "transport",
+            "dechet",
+            "etude",
+            "document",
+            "finition"
+          ],
+          "title": "Nature",
+          "type": "string"
+        },
+        "designation": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Designation",
+          "type": "string"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9_-]{1,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rule Id"
+        },
+        "condition": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Condition",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "null"
+        },
+        "kit": {
+          "enum": [
+            "a_verifier",
+            "non_concerne"
+          ],
+          "title": "Kit",
+          "type": "string"
+        },
+        "question": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "parent_id",
+        "lot",
+        "nature",
+        "designation",
+        "rule_id",
+        "condition",
+        "quantity",
+        "kit",
+        "question"
+      ],
+      "title": "Candidate",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/Candidate"
+      },
+      "maxItems": 300,
+      "title": "Candidates",
+      "type": "array"
+    },
+    "questions": {
+      "items": {
+        "maxLength": 600,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 80,
+      "title": "Questions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "candidates",
+    "questions"
+  ],
+  "title": "Nomenclature",
+  "type": "object"
+}

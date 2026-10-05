@@ -64,7 +64,10 @@ class TestPresentationExtras:
         # zero effect: only whitelisted keys are ever returned.
         li = {"included_items": ["x"], "notes": "y", "unit_price_ht": 999, "line_ht": 999}
         extras = matching._presentation_extras(li)
-        assert set(extras.keys()) == {"included_items", "notes"}
+        assert set(extras.keys()) == {
+            "included_items", "notes", "action", "lot_tce", "tce_id",
+            "tce_fourniture_autorisee", "preuve", "quantite_preuve",
+        }
 
 
 class TestBuildQuoteLinesNeverPricedByAI:

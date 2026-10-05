@@ -23,8 +23,10 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 
 import ai_service
+import tce_v4
 import matching as match_engine
 import quote_scenarios
+import quote_approval
 import pdf_service
 import fournisseur_recherche
 from fournisseur_recherche import normalise
@@ -1771,12 +1773,12 @@ def _applique_offre_ligne(ligne: dict, offre: dict) -> None:
     """
     prix = offre.get("prix_net_ht")
     ligne["unit_price_ht"] = float(prix) if prix is not None else None
-    qte = float(ligne.get("qty") or 1)
-    ligne["line_ht"] = round(float(prix) * qte, 2) if prix is not None else None
+    qte = tce_v4.positive_number(ligne.get("qty"))
+    ligne["line_ht"] = round(float(prix) * qte, 2) if prix is not None and qte is not None else None
     if offre.get("unite_vente"):
         ligne["unit"] = offre["unite_vente"]
     ligne["chosen_offer"] = {**_resume_offre(offre), "choisie_le": now_iso()}
-    ligne["status"] = "proposed"
+    ligne["status"] = "proposed" if ligne["line_ht"] is not None else "to_confirm"
     motif = f"offre_fournisseur:{offre.get('fournisseur')}"
     # Un seul motif d'offre par ligne : le changement de fournisseur
     # remplace la preuve, il ne l'accumule pas.
@@ -1805,6 +1807,10 @@ def _enrichit_lignes_fournisseurs(lignes: list[dict], offres_par_ligne: dict) ->
     """Attache à chaque ligne de fourniture sans prix sa meilleure offre
     (appliquée) et ses alternatives (menu de l'éditeur)."""
     for ligne in lignes:
+        if ligne.get("action") in tce_v4.SERVICE_ACTIONS:
+            continue
+        if ligne.get("tce_id") and ligne.get("tce_fourniture_autorisee") is not True:
+            continue
         if ligne.get("line_type") in ("travel", "labor", "lot", "sublot", "note", "page_break"):
             continue  # structure et tarifs internes : jamais de rapprochement fournisseur
         if ligne.get("unit_price_ht") is not None and ligne.get("chosen_offer") is not None:
@@ -1835,6 +1841,8 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
     cat, items = await get_active_catalog(tenant_id)
 
     extracted0 = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    if not extracted0.get("_tce_version"):
+        extracted0 = tce_v4.protect_extraction(extracted0, req.get("raw_text") or "")
     # 01/10/2026 : tout type de catalogue activé par l'entreprise est
     # utilisable pour le chiffrage. Les sources fournisseurs activées
     # (boutons de la page Catalogues / Catalogue fournisseurs) complètent le
@@ -1866,16 +1874,15 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
     n_opt = len(scenarios)
     created = []
     for i, extracted in enumerate(scenarios, 1):
+        # Protection après découpage aussi : les replis historiques des variantes
+        # ne doivent pas réintroduire 1 forfait ou une quantité sans preuve.
+        if any(not row.get("preuve_valide") for row in extracted.get("line_items") or []):
+            extracted = tce_v4.protect_extraction(extracted, req.get("raw_text") or "")
         # Multi-option drafts already have scoped line_items. Do not block on Ollama
         # (Hermes 404 / cold start caused a 90s browser timeout on "Générer un devis").
-        if n_opt == 1:
-            try:
-                extracted = await asyncio.wait_for(
-                    ai_service.expand_work_into_materials(extracted, settings, labels),
-                    timeout=15,
-                )
-            except Exception:
-                logger.warning("expand_work_into_materials skipped for request %s", request_id)
+        # V4 : fiches déterministes par lot, sans nouvelle requête IA. Chaque
+        # variante reçoit sa propre nomenclature, jamais celle d'une autre option.
+        extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
         lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, pool_matching)
         # 04/10/2026 : rapprochement fournisseur PAR LIGNE — chaque ligne de
         # fourniture sans prix reçoit la meilleure offre des sources actives
@@ -1883,7 +1890,7 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
         if await catalogue_chiffrage.a_sources_actives(tenant_id):
             try:
                 offres_par_ligne = await catalogue_chiffrage.meilleures_offres_par_ligne(
-                    tenant_id, extracted0)
+                    tenant_id, extracted)
                 _enrichit_lignes_fournisseurs(lines, offres_par_ligne)
                 total_ht, total_vat, _ = match_engine.recompute_totals(lines)
             except Exception:
@@ -1919,6 +1926,11 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
                 "option_index": i,
                 "option_count": n_opt,
                 "option_label": extracted.get("option_label"),
+                "tce_version": tce_v4.VERSION,
+                "tce_nomenclature": extracted.get("_tce_nomenclature") or [],
+                "tce_issues": extracted.get("_tce_issues") or [],
+                "reserves": extracted.get("reserves") or [],
+                "exclusions": extracted.get("option_excludes") or "",
             },
             "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
             "total_ttc": round(total_ht + total_vat, 2),
@@ -1993,6 +2005,7 @@ async def get_quote(quote_id: str, cu: CurrentUser = Depends(get_current)):
     q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
     if not q:
         raise HTTPException(404, "Quote not found")
+    q["review_digest"] = tce_v4.review_digest(q)
     return q
 
 
@@ -2027,6 +2040,12 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
             "margin": _num(l.get("margin")),
             "score": l.get("score", 0),
             "reasons": l.get("reasons") or [],
+            "action": l.get("action"),
+            "lot_tce": l.get("lot_tce"),
+            "tce_id": l.get("tce_id"),
+            "tce_fourniture_autorisee": l.get("tce_fourniture_autorisee"),
+            "preuve": l.get("preuve"),
+            "quantite_preuve": l.get("quantite_preuve"),
         }
         if ltype in ("note", "page_break", "lot", "sublot"):
             base.update({
@@ -2057,24 +2076,27 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
         meta = dict(q.get("meta") or {})
         meta["works_description"] = body["works_description"]
         update["meta"] = meta
-    await db.quotes.update_one({"id": quote_id}, {"$set": update})
+    changed = await db.quotes.update_one(
+        {"id": quote_id, "tenant_id": cu.tenant_id, "status": "draft", "version": q.get("version", 1)},
+        {"$set": update})
+    if changed.matched_count != 1:
+        raise HTTPException(409, "Le devis a changé de version ou a été validé. Rechargez-le.")
     await audit(cu.tenant_id, cu.email, "quote.edit", quote_id)
     q.update(update)
+    q["review_digest"] = tce_v4.review_digest(q)
     return q
 
 
 @api.post("/quotes/{quote_id}/validate")
-async def validate_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
-    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
-    if not q:
-        raise HTTPException(404, "Quote not found")
-    await db.quote_versions.insert_one({
-        "id": new_id(), "tenant_id": cu.tenant_id, "quote_id": quote_id,
-        "version": q.get("version", 1), "snapshot": q, "created_at": now_iso(),
-    })
-    await db.quotes.update_one({"id": quote_id}, {"$set": {"status": "validated", "validated_at": now_iso()}})
+async def validate_quote(quote_id: str, body: dict | None = None,
+                         cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    result = await quote_approval.transition(
+        cu.tenant_id, quote_id, cu.email, "validated",
+        expected_digest=(body or {}).get("expected_digest"),
+        review_tce=(body or {}).get("review_tce"),
+    )
     await audit(cu.tenant_id, cu.email, "quote.validate", quote_id)
-    return {"ok": True, "status": "validated"}
+    return result
 
 
 def _ligne_devis_ou_404(quote: dict, index: int) -> dict:
@@ -2153,10 +2175,12 @@ async def quote_line_choose_offer(quote_id: str, line_index: int, body: dict,
     # Rafraîchit les alternatives connues de la ligne.
     ligne["alternatives"] = _garde_alternatives(candidats)
     total_ht, total_vat, total_ttc = match_engine.recompute_totals(q["lines"])
-    await db.quotes.update_one(
-        {"id": quote_id},
+    changed = await db.quotes.update_one(
+        {"id": quote_id, "tenant_id": cu.tenant_id, "status": "draft", "version": q.get("version", 1)},
         {"$set": {"lines": q["lines"], "total_ht": total_ht,
                   "total_vat": total_vat, "total_ttc": total_ttc}})
+    if changed.matched_count != 1:
+        raise HTTPException(409, "Le devis a changé de version ou a été validé. Rechargez-le.")
     await audit(cu.tenant_id, cu.email, "quote.line.offer", quote_id,
                 {"line_index": line_index, "offer_id": offre_id,
                  "fournisseur": offre.get("fournisseur")})
@@ -2166,16 +2190,13 @@ async def quote_line_choose_offer(quote_id: str, line_index: int, body: dict,
 
 @api.post("/quotes/{quote_id}/send")
 async def send_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
-    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
-    if not q:
-        raise HTTPException(404, "Quote not found")
-    await db.quotes.update_one({"id": quote_id}, {"$set": {"status": "sent", "sent_at": now_iso()}})
+    result = await quote_approval.transition(cu.tenant_id, quote_id, cu.email, "sent")
     await audit(cu.tenant_id, cu.email, "quote.send", quote_id)
     try:
         await clients_module.planifier_relances_devis(quote_id, cu.email)
     except Exception:
         logger.exception("relances : planification impossible pour le devis %s", quote_id)
-    return {"ok": True, "status": "sent"}
+    return result
 
 
 @api.post("/quotes/{quote_id}/reopen")
@@ -2280,6 +2301,13 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     if not cat:
         raise HTTPException(400, "No active pricing catalog")
     extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    if not extracted.get("_tce_version"):
+        extracted = tce_v4.protect_extraction(extracted, req.get("raw_text") or "")
+    try:
+        extracted = quote_scenarios.scenario_for_quote(
+            extracted, req.get("raw_text") or "", q.get("meta") or {})
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     settings = await get_tenant_ai_settings(cu.tenant_id)
     labels = [it.get("item_label") for it in items if it.get("item_label")]
     extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
@@ -2291,6 +2319,12 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     if old_mat > 0 and new_mat <= 0:
         raise HTTPException(400, "Aucun article catalogue correspondant. Les prix du brouillon sont conservés.")
     meta = dict(q.get("meta") or {})
+    meta.update(tce_version=tce_v4.VERSION,
+                tce_nomenclature=extracted.get("_tce_nomenclature") or [],
+                tce_issues=extracted.get("_tce_issues") or [],
+                reserves=extracted.get("reserves") or [],
+                exclusions=extracted.get("option_excludes") or "")
+    meta.pop("tce_review_digest", None)
     # role=describe (redaction uniquement), meme repli deterministe qu'en
     # creation -- voir ai_service.build_works_description_ai.
     meta["works_description"] = await ai_service.build_works_description_ai(extracted, settings)
@@ -2302,7 +2336,11 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
         "meta": meta,
         "object": _intitule_with_di(q.get("object") or extracted.get("description"), meta.get("di_number")),
     }
-    await db.quotes.update_one({"id": quote_id}, {"$set": update})
+    changed = await db.quotes.update_one(
+        {"id": quote_id, "tenant_id": cu.tenant_id, "status": "draft", "version": q.get("version", 1)},
+        {"$set": update})
+    if changed.matched_count != 1:
+        raise HTTPException(409, "Le devis a changé de version ou a été validé. Rechargez-le.")
     await audit(cu.tenant_id, cu.email, "quote.rematch", quote_id)
     q.update(update)
     return q
@@ -2375,10 +2413,14 @@ async def quote_pdf(quote_id: str, token: Optional[str] = None,
         )
         if not q:
             raise HTTPException(404, "Quote not found")
+        if q.get("status") in ("validated", "sent") and (
+            tce_v4.blockers(q) or not tce_v4.reviewed(q)
+        ):
+            raise HTTPException(409, "Devis à rouvrir et revalider avant export client.")
         tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
         profile = await get_company_profile(tenant_id)
         pdf_bytes = pdf_service.generate_quote_pdf(
-            q, tenant["name"] if tenant else "Blueseatra", profile
+            tce_v4.client_quote(q), tenant["name"] if tenant else "Blueseatra", profile
         )
 
     return StreamingResponse(
@@ -2550,7 +2592,8 @@ async def health():
     Render) : renvoie alors "unknown" plutot que d'echouer.
     """
     commit = os.environ.get("RENDER_GIT_COMMIT", "unknown")
-    return {"status": "healthy", "commit": commit[:7] if commit != "unknown" else commit}
+    return {"status": "healthy", "commit": commit[:7] if commit != "unknown" else commit,
+            "tce": tce_v4.manifest()}
 
 
 # ===========================================================================
