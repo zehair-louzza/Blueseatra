@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "omission",
+            "doublon",
+            "lot",
+            "perimetre",
+            "quantite",
+            "fuite",
+            "reserve",
+            "technique",
+            "publication"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "related_ids": {
+          "items": {
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "type": "string"
+          },
+          "maxItems": 30,
+          "title": "Related Ids",
+          "type": "array"
+        },
+        "message": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "related_ids",
+        "message"
+      ],
+      "title": "Finding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "maxItems": 100,
+      "title": "Findings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "findings"
+  ],
+  "title": "Audit",
+  "type": "object"
+}
