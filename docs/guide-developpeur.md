@@ -68,8 +68,8 @@ ollama serve   # écoute sur http://localhost:11434
 | `HERMES_DEFAULT_MODEL` | Modèle Ollama de secours final (défaut : `hermes-3`) |
 | `HERMES_API_KEY` | Clé `X-Api-Key` (identique à `OLLAMA_API_KEY` du VPS) |
 | `HERMES_REASONING_MODEL` | Modèle pour le rôle `reason` (extraction, raisonnement, expansion de devis) — défaut : `gpt-oss:20b` |
-| `HERMES_EXTRACT_MODEL` | Modèle pour le rôle `extract` (texte collé manuellement, sans vision) — défaut : `qwen2.5:7b` |
-| `HERMES_VISION_MODEL` | Modèle vision pour fichiers importés (PDF/image illisibles) — défaut : `qwen2.5vl:7b`. ⚠️ si vide, retombe sur `HERMES_REASONING_MODEL` (voir `ai_service.py`) — toujours le définir explicitement pour ne jamais hériter d'un modèle sans capacité vision. |
+| `HERMES_EXTRACT_MODEL` | Modèle pour le rôle `extract` (texte collé manuellement, sans vision) — défaut : `gpt-oss:20b` (effort `HERMES_STRUCTURING_EFFORT`, `low`) depuis le 05/10/2026 |
+| `HERMES_VISION_MODEL` | Modèle vision pour fichiers importés (PDF/image illisibles) — défaut : `qwen2.5vl:7b`. Depuis le 05/10/2026, un `HERMES_VISION_MODEL` vide retombe sur `qwen2.5vl:7b` et n'hérite plus de `HERMES_REASONING_MODEL` (gpt-oss, texte seul) — le définir quand même explicitement. |
 | `HERMES_DESCRIPTION_MODEL` | Modèle pour le rôle `describe` — **uniquement** les champs Description des travaux + Étapes à suivre, jamais le calcul/chiffrage — défaut : `glm-4.7-flash:Q3_K_M` (voir ADR correspondant dans `docs/decisions/` du dépôt `ovh-ai-stack`) |
 | `MAX_UPLOAD_SIZE` | (optionnel) Taille max d'upload en octets (défaut 15 Mo) |
 | `CORS_ORIGINS` | (optionnel) Origines autorisées séparées par virgule |
@@ -91,7 +91,7 @@ ollama serve   # écoute sur http://localhost:11434
 | `REDIS_URL` | File d'extraction séquentielle et cache catalogue (facultatif ; repli en mémoire) |
 | `OLLAMA_MAX_CONCURRENCY` | Nombre de lectures IA simultanées envoyées au VPS |
 | `HERMES_OCR_MODEL`, `HERMES_OCR_SECONDARY_MODEL`, `HERMES_OCR_TERTIARY_MODEL`, `HERMES_OCR_ESCALATION_MODEL`, `HERMES_OCR_GLM_MODEL` | Cascade OCR (voir [`decisions/ADR-OCR-CASCADE.md`](./decisions/ADR-OCR-CASCADE.md)) |
-| `HERMES_STRUCTURING_MODEL_1..3`, `HERMES_REASONING_EFFORT` | Modèles de structuration en lots et effort de raisonnement |
+| `HERMES_STRUCTURING_MODEL_1..3`, `HERMES_STRUCTURING_EFFORT`, `HERMES_REASONING_EFFORT` | Cascade de structuration (étage 1 `gpt-oss:20b` full puis compact, étage 3 repli `hermes3` ; `_2` n'est plus appelé), effort texte (`low`) et effort `reason` (`medium`) |
 | `HERMES_GATEWAY_URL`, `HERMES_GATEWAY_KEY`, `HERMES_GATEWAY_MODEL` | Passerelle IA facultative |
 | `MCP_API_KEY`, `MCP_TENANT_ID` | Pont MCP (`/mcp`), voir [`MCP-PERPLEXITY.md`](./MCP-PERPLEXITY.md) |
 | `BLUESEATRA_IA_COUPURE` | Coupure d'urgence de l'IA : vide (normal), `repli` ou `arret` |

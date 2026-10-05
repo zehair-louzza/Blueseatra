@@ -2593,7 +2593,9 @@ async def health():
     """
     commit = os.environ.get("RENDER_GIT_COMMIT", "unknown")
     return {"status": "healthy", "commit": commit[:7] if commit != "unknown" else commit,
-            "tce": tce_v4.manifest()}
+            "tce": {**tce_v4.manifest(),
+                    "text_model": ai_service.HERMES_EXTRACT_MODEL,
+                    "structuring_model": ai_service.HERMES_STRUCTURING_MODEL_1}}
 
 
 # ===========================================================================
