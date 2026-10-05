@@ -132,10 +132,13 @@ def _build_where(model, flt):
                 conds.append(~col.in_(val["$nin"]))
             elif "$ne" in val:
                 conds.append(col.isnot(None) if val["$ne"] is None else col != val["$ne"])
+            elif set(val) == {"$lt"}:
+                # Position dans la file : SQL paramétré, filtre tenant conservé.
+                conds.append(col < val["$lt"])
             else:
                 raise ValueError(
                     f"Unsupported Mongo operator in filter for column '{key}': {val}. "
-                    f"Supported: $in, $nin, $ne."
+                    f"Supported: $in, $nin, $ne, $lt."
                 )
         else:
             conds.append(col == val)
