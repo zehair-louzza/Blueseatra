@@ -45,14 +45,24 @@ envVarGroups:
 
       # 2026-08-23 : gemma4:26b, qwen3.6:27b, qwen3:14b, deepseek-r1:14b,
       # qwen2.5:14b et Phi-4-reasoning-vision-15B ont ete supprimes du VPS
-      # (63 Go liberes). Valeurs alignees sur les defauts de ai_service.py
-      # (voir PR #44) : qwen2.5:7b (texte) / qwen2.5vl:7b (vision, seul
-      # modele multimodal restant sur le VPS).
+      # (63 Go liberes). Valeurs alignees sur les defauts de ai_service.py.
+      # 05/10/2026 : texte (extract + structuration) = gpt-oss:20b, effort
+      # low, repli hermes3 (HERMES_STRUCTURING_MODEL_3, defaut du code) ;
+      # vision = qwen2.5vl:7b (seul modele multimodal restant sur le VPS).
+      # HERMES_REASONING_MODEL realigne sur le defaut du code (gpt-oss:20b,
+      # role=reason, effort HERMES_REASONING_EFFORT inchange) ; la vision ne
+      # l'herite plus (HERMES_VISION_MODEL explicite ci-dessous).
       - key: HERMES_EXTRACT_MODEL
-        value: qwen2.5:7b
+        value: gpt-oss:20b
+
+      - key: HERMES_STRUCTURING_MODEL_1
+        value: gpt-oss:20b
+
+      - key: HERMES_STRUCTURING_EFFORT
+        value: low
 
       - key: HERMES_REASONING_MODEL
-        value: qwen2.5vl:7b
+        value: gpt-oss:20b
 
       # Modele utilise pour toute extraction avec image (photo, PDF au calque
       # texte illisible rendu en image). DOIT etre un modele multimodal

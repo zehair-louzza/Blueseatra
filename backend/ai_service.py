@@ -51,6 +51,9 @@ HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3:latest")
 # donc sans raisonnement (voir decision du 2026-08-18 "raisonnement
 # toujours actif pour tout fichier importe", caduque pour ce role tant
 # qu'un modele de raisonnement multimodal n'est pas reinstalle).
+# 05/10/2026 (demande explicite) : le texte (role=extract et cascade de
+# structuration) passe de qwen2.5:7b a gpt-oss:20b, think="low" (voir
+# HERMES_STRUCTURING_EFFORT) ; repli explicite hermes3. Vision/OCR inchanges.
 #
 # role=reason (decomposition materiaux/lots, EXPAND_SYSTEM) -- IMPACTE LE
 # CALCUL (les line_items qui en sortent sont ensuite matches/chiffres par
@@ -60,7 +63,7 @@ HERMES_DEFAULT_MODEL = os.environ.get("HERMES_DEFAULT_MODEL", "hermes-3:latest")
 # confine au seul role=describe (voir HERMES_DESCRIPTION_MODEL plus bas),
 # jamais a role=reason. Retour a gpt-oss:20b (seul modele avec raisonnement
 # natif confirme installe, cf. _wants_think, deja valide en reel).
-HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b")
+HERMES_EXTRACT_MODEL = os.environ.get("HERMES_EXTRACT_MODEL", "gpt-oss:20b")
 HERMES_REASONING_MODEL = os.environ.get("HERMES_REASONING_MODEL", "gpt-oss:20b")
 
 # role=describe (redaction UNIQUEMENT : Description des travaux + Etapes a
@@ -107,9 +110,12 @@ def _has_graduated_think(model: str) -> bool:
     return (model or "").lower().startswith(_GRADUATED_THINK_PREFIXES)
 
 
+# Repli texte (extract/reason) : gpt-oss:20b puis hermes3 explicite. Les
+# constantes ci-dessus (et non un defaut duplique) evitent qu'un env absent
+# reintroduise silencieusement qwen2.5:7b dans la liste.
 HERMES_FALLBACK_MODELS = [
-    os.environ.get("HERMES_REASONING_MODEL", "gpt-oss:20b"),
-    os.environ.get("HERMES_EXTRACT_MODEL", "qwen2.5:7b"),
+    HERMES_REASONING_MODEL,
+    HERMES_EXTRACT_MODEL,
     "hermes3",
     "hermes-3",
 ]
@@ -132,7 +138,10 @@ HERMES_DESCRIPTION_FALLBACK_MODELS = [
 # aucun repli vision possible si lui-meme echoue (un "fallback" identique
 # au modele principal n'est pas un vrai fallback -- laisse vide plutot que
 # de simuler une redondance qui n'existe pas).
-HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL") or os.environ.get("HERMES_REASONING_MODEL", "qwen2.5vl:7b")
+# 05/10/2026 : plus d'heritage de HERMES_REASONING_MODEL (desormais
+# gpt-oss:20b, texte seul) -- un HERMES_VISION_MODEL vide enverrait sinon les
+# images a un modele sans vision (HTTP 400).
+HERMES_VISION_MODEL = os.environ.get("HERMES_VISION_MODEL") or "qwen2.5vl:7b"
 HERMES_VISION_FALLBACK_MODELS: list[str] = []
 # 02/10/2026 : « hermes-3:latest » et « hermes3:latest » (ollama list du
 # VPS, deux tags de la même image 4f6b83f30b62) rejoignent les alias
@@ -167,23 +176,43 @@ MODEL_ALIASES = {"hermes-3": "hermes3", "hermes3": "hermes3",
 # cascade sans aucune diversite reelle (si qwen2.5:7b echoue une fois, il
 # echoue identiquement les 3 fois suivantes) avec des etiquettes mensongeres.
 # Cette version restaure 3 modeles REELLEMENT distincts.
-HERMES_STRUCTURING_MODEL_1 = os.environ.get("HERMES_STRUCTURING_MODEL_1", "qwen2.5:7b")
+#
+# 05/10/2026 : etage 1 (et son second essai compact) = gpt-oss:20b avec
+# think=HERMES_STRUCTURING_EFFORT ("low" par defaut) ; etage 3 = hermes3,
+# repli explicite sans raisonnement. HERMES_STRUCTURING_MODEL_2 n'est plus
+# appele par la cascade depuis le 04/10 (voir _structuring_cascade_stages).
+HERMES_STRUCTURING_MODEL_1 = os.environ.get("HERMES_STRUCTURING_MODEL_1", "gpt-oss:20b")
 HERMES_STRUCTURING_MODEL_2 = os.environ.get("HERMES_STRUCTURING_MODEL_2", "qwen2.5vl:7b")
 HERMES_STRUCTURING_MODEL_3 = os.environ.get("HERMES_STRUCTURING_MODEL_3", "hermes3")
-# Timeouts PROVISOIRES par etage (secondes) : aucun de ces 3 modeles n'a
-# ete mesure jusqu'a une completion reussie sur une structuration de devis
-# a cette date -- valeurs prudentes deduites de la taille (7B, sans
-# raisonnement, donc bien moins de tokens generes que les anciens etages a
-# raisonnement), PAS de la regle 1.2x-de-l-etape-suivante utilisee pour la
-# cascade OCR (qui exige une duree reelle mesuree). A RECALIBRER des qu'un
-# test complet jusqu'a completion est disponible pour chaque modele.
+# Niveau gradue de gpt-oss pour le TEXTE (role=extract + cascade) ; le
+# role=reason garde HERMES_REASONING_EFFORT. Ignore pour hermes3.
+HERMES_STRUCTURING_EFFORT = os.environ.get("HERMES_STRUCTURING_EFFORT", "low")
+if HERMES_STRUCTURING_EFFORT not in _VALID_REASONING_EFFORTS:
+    HERMES_STRUCTURING_EFFORT = "low"
+# Timeouts PROVISOIRES par POSITION d'etage (secondes) : 1 = modele 1 prompt
+# full, 2 = modele 1 prompt compact, 3 = repli. Indexes par position et non
+# par etiquette : une etiquette derivee du modele (surcharge Render) ne doit
+# jamais faire perdre HERMES_STRUCTURATION_TIMEOUT_* au profit d'un 300 s
+# implicite. Pas de la regle 1.2x-de-l-etape-suivante de la cascade OCR
+# (qui exige une duree reelle mesuree). A RECALIBRER apres une completion
+# reelle de gpt-oss:20b (think=low) sur une structuration de devis.
 # 01/10/2026 : le relevé plus détaillé (14 familles, notes, réserves) produit
 # une réponse plus longue ; 300 s ne suffisaient plus sur le processeur du VPS.
-_STRUCTURING_CASCADE_TIMEOUTS = {
-    "Qwen2.5-7B": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_1", "600")),
-    "Qwen2.5-7B (compact)": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_2", "420")),
-    "Hermes-3": float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_3", "300")),
-}
+_STRUCTURING_CASCADE_TIMEOUTS = (
+    float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_1", "600")),
+    float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_2", "420")),
+    float(os.environ.get("HERMES_STRUCTURATION_TIMEOUT_3", "300")),
+)
+# Etiquettes de trace : suivent le modele REELLEMENT appele (nom normalise
+# via MODEL_ALIASES), jamais un nom conserve apres bascule.
+_STRUCTURING_LABELS = {"qwen2.5:7b": "Qwen2.5-7B", "gpt-oss:20b": "GPT-OSS-20B",
+                       "hermes3": "Hermes-3"}
+
+
+def _structuring_label(model: str) -> str:
+    name = MODEL_ALIASES.get((model or "").strip(), (model or "").strip())
+    return _STRUCTURING_LABELS.get(name, name)
+
 
 # 04/10/2026 — MESURES OLLAMA SUR LE VPS (CPU seul) : évaluation de prompt
 # ~16 jetons/s, génération ~3 jetons/s. Un prompt d'extraction de ~6 000
@@ -233,17 +262,19 @@ def _structuring_cascade_stages() -> list[tuple[str, str, float]]:
     timeout de l'étage 1 — 7 minutes de CPU gaspillées à coup sûr. Il est
     remplacé par un DEUXIÈME ESSAI de l'étage 1 sur un prompt COMPACT
     (document borné serré, sans contexte web) : une vraie seconde chance à
-    ~16 jetons/s, dans la fenêtre du timeout. L'étage 3 (Hermes-3, plus
-    gros) joue aussi sur le prompt compact en dernier recours.
+    ~16 jetons/s, dans la fenêtre du timeout. L'étage 3 (Hermes-3, repli
+    explicite sans raisonnement) joue aussi sur le prompt compact en
+    dernier recours. 05/10/2026 : l'étage 1 est gpt-oss:20b (think=low).
     """
+    first = _structuring_label(HERMES_STRUCTURING_MODEL_1)
     order = [
-        ("Qwen2.5-7B", HERMES_STRUCTURING_MODEL_1),
-        ("Qwen2.5-7B (compact)", HERMES_STRUCTURING_MODEL_1),
-        ("Hermes-3", HERMES_STRUCTURING_MODEL_3),
+        (first, HERMES_STRUCTURING_MODEL_1),
+        (first + " (compact)", HERMES_STRUCTURING_MODEL_1),
+        (_structuring_label(HERMES_STRUCTURING_MODEL_3), HERMES_STRUCTURING_MODEL_3),
     ]
     return [
-        (label, model, _STRUCTURING_CASCADE_TIMEOUTS.get(label, 300.0))
-        for label, model in order
+        (label, model, timeout)
+        for (label, model), timeout in zip(order, _STRUCTURING_CASCADE_TIMEOUTS)
     ]
 
 
@@ -264,19 +295,24 @@ async def _call_structuring_cascade(system_prompt: str, user_message: str,
         message = (user_message_compact
                    if "(compact)" in label and user_message_compact
                    else user_message)
+        # Consigne de brièveté réservée aux modèles à raisonnement booléen,
+        # comme _call_hermes_ollama : gpt-oss règle déjà sa profondeur (low).
+        graduated = _has_graduated_think(model)
+        effective_system_prompt = system_prompt
+        if _wants_think(model) and not graduated:
+            effective_system_prompt = system_prompt + _THINK_BREVITY_HINT
         if IA_VIA_HERMES:
             try:
-                sp = system_prompt + (_THINK_BREVITY_HINT if _wants_think(model) else "")
-                return await _hermes_chat(model, sp, message, timeout=max(timeout, 60.0), role="structuration",
-                                          json_schema=json_schema), label
+                return await _hermes_chat(model, effective_system_prompt, message,
+                                          timeout=max(timeout, 60.0), role="structuration",
+                                          json_schema=json_schema,
+                                          reasoning_effort=HERMES_STRUCTURING_EFFORT
+                                          if graduated else None), label
             except HermesIndisponible:
                 raise
             except Exception as exc:
                 errors.append(f"{label}: {type(exc).__name__}: {exc or repr(exc)}")
                 continue
-        effective_system_prompt = system_prompt
-        if _wants_think(model):
-            effective_system_prompt = system_prompt + _THINK_BREVITY_HINT
         payload = {
             "model": MODEL_ALIASES.get((model or "").strip(), model),
             "messages": [
@@ -288,7 +324,9 @@ async def _call_structuring_cascade(system_prompt: str, user_message: str,
         }
         if json_schema:
             payload["format"] = json_schema
-        if _wants_think(model):
+        if graduated:
+            payload["think"] = HERMES_STRUCTURING_EFFORT
+        elif _wants_think(model):
             payload["think"] = True
         headers = {}
         if HERMES_API_KEY:
@@ -648,8 +686,12 @@ async def resolve_ai_config(
     dans matching.py) -- perimetre etroit voulu par l'utilisateur, ce modele
     ne voit jamais quantites/prix/articles catalogue.
 
-    role=extract → HERMES_EXTRACT_MODEL (qwen2.5:7b par defaut, texte seul).
-      Reserve au texte colle manuellement (pas un fichier importe).
+    role=extract → HERMES_EXTRACT_MODEL (gpt-oss:20b par défaut depuis le
+      05/10/2026, think=HERMES_STRUCTURING_EFFORT). Reserve au texte colle
+      manuellement ; un fichier texte importe passe par la cascade de
+      structuration (HERMES_STRUCTURING_MODEL_1, gpt-oss:20b), pas par ce role.
+      Un choix explicite gpt-oss* sur role=file/vision est redirige vers
+      HERMES_VISION_MODEL (gpt-oss est texte seul).
     role=file → HERMES_VISION_MODEL (qwen2.5vl:7b par defaut, seul modele
       multimodal restant sur le VPS). Modele PAR DEFAUT pour tout fichier
       importe (PDF, DOCX, XLSX, CSV, TXT, image) — tableaux inclus — quel
@@ -663,7 +705,7 @@ async def resolve_ai_config(
     role=reason (tout autre role, y compris le defaut) → HERMES_REASONING_MODEL
       (gpt-oss:20b -- decomposition materiaux/lots, EXPAND_SYSTEM, IMPACTE le
       calcul en aval). Timeout 900s (voir _wants_think). Repli sur
-      qwen2.5:7b/hermes3 en cas d'echec (voir HERMES_FALLBACK_MODELS).
+      hermes3 en cas d'echec (voir HERMES_FALLBACK_MODELS).
     Un tenant qui a choisi un vrai modèle (pas hermes*) garde son override.
     """
     provider = tenant_settings.get("ai_provider") or DEFAULT_PROVIDER
@@ -683,6 +725,10 @@ async def resolve_ai_config(
         model = model or HERMES_DEFAULT_MODEL
         if est_mistral_via_hermes(provider, model):
             pass  # modèle Mistral choisi dans Paramètres : routé par l'agent Hermès
+        elif role in ("vision", "file") and (model or "").lower().startswith("gpt-oss"):
+            # GPT-OSS sélectionné pour le texte n'est pas envoyé à des images.
+            # OCR/vision conservent leur modèle spécialisé.
+            model = HERMES_VISION_MODEL
         elif (model or "").lower().startswith("hermes"):
             if role in ("vision", "file"):
                 model = HERMES_VISION_MODEL
@@ -764,6 +810,10 @@ async def _call_hermes_ollama(
     else:
         messages.append({"role": "user", "content": user_message})
 
+    # Texte colle (role=extract) : meme niveau court que la cascade de
+    # structuration ; role=reason garde HERMES_REASONING_EFFORT (medium).
+    if role == "extract" and reasoning_effort is None:
+        reasoning_effort = HERMES_STRUCTURING_EFFORT
     model = MODEL_ALIASES.get((model or "").strip(), model)
     payload = {
         "model": model,
@@ -2188,7 +2238,7 @@ def render_pdf_pages_to_images(content: bytes, max_pages: int = 4, scale: float 
 def _extract_pdf_tables_markdown(content: bytes) -> str:
     """Extraction DÉTERMINISTE des tableaux d'un PDF natif via pdfplumber.
     Rend chaque tableau en markdown (structure lignes/colonnes préservée) pour
-    qu'un petit modèle rapide (qwen2.5:7b) puisse le structurer sans avoir à
+    que le modèle texte (gpt-oss:20b, think=low, depuis le 05/10/2026) puisse le structurer sans avoir à
     « démêler » la mise en page — ce qui évite le recours à un gros modèle en
     mode raisonnement (gemma4:26b, ~11 min sur CPU). Ne lève jamais : si
     pdfplumber échoue, on renvoie "" et le texte pypdfium reste la source."""
