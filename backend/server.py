@@ -759,7 +759,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
     req = await db.requests.find_one({"id": request_id, "tenant_id": tenant_id}, {"_id": 0})
     if not req:
         return
-    await db.requests.update_one({"id": request_id}, {"$set": {"status": "processing"}})
+    await db.requests.update_one({"id": request_id}, {"$set": {"status": "processing", "progression": None}})
     try:
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
@@ -785,8 +785,11 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
                 "reimportez le fichier pour relancer une extraction visuelle.")
         elif stype == "image" and req.get("file_b64"):
             import base64
+
+            async def _progres(infos: dict):
+                await db.requests.update_one({"id": request_id, "tenant_id": tenant_id}, {"$set": {"progression": infos}})
             extracted = await ai_service.extract_from_image(
-                base64.b64decode(req["file_b64"]), settings, session_id=request_id)
+                base64.b64decode(req["file_b64"]), settings, session_id=request_id, on_progress=_progres)
         elif text.strip():
             # Gemma (role="file", raisonnement actif) est le moteur d'extraction
             # par defaut pour tout fichier importe (PDF, DOCX, XLSX, CSV, TXT),
@@ -804,7 +807,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         await db.requests.update_one({"id": request_id}, {"$set": {
             "status": status, "extracted": extracted,
             "language": extracted.get("language"), "confidence": extracted.get("confidence"),
-            "error": extracted.get("_error"),
+            "error": extracted.get("_error"), "progression": None,
         }})
         await audit(tenant_id, req.get("created_by"), "request.processed", request_id,
                     {"items": len(extracted.get("line_items", [])), "lang": extracted.get("language")})
@@ -813,7 +816,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         await _auto_generate_quote_if_needed(request_id, tenant_id, req.get("created_by"))
     except Exception as e:
         logger.exception("process_request failed")
-        await db.requests.update_one({"id": request_id}, {"$set": {"status": "failed", "error": str(e)}})
+        await db.requests.update_one({"id": request_id}, {"$set": {"status": "failed", "error": str(e), "progression": None}})
         # Extraction échouée : le devis assisté et les pages sont rendus
         # (ligne inverse dans le registre, jamais de modification).
         await quotas.annuler(request_id, f"Extraction échouée : {type(e).__name__}")

@@ -166,7 +166,7 @@ export default function RequestDetail() {
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="card-shadow border-0 p-5">
           <h2 className="mb-3 font-display text-base font-semibold">{t('req.extracted')}</h2>
-          {!ex && req.status === 'failed' ? <p className="py-6 text-center text-sm text-muted-foreground">{t('req.no_extraction')}</p> : !ex ? <Spinner label={req.status === 'queued' ? t('status.queued_position', { n: req.queue_position || 1 }) : t('req.processing')} /> : (
+          {!ex && req.status === 'failed' ? <p className="py-6 text-center text-sm text-muted-foreground">{t('req.no_extraction')}</p> : !ex ? <Spinner label={req.status === 'queued' ? t('status.queued_position', { n: req.queue_position || 1 }) : (req.progression ? t('req.progress', { libelle: req.progression.libelle, etape: req.progression.etape, total: req.progression.total, min: Math.max(0, Math.floor((Date.now() - new Date(req.progression.debut).getTime()) / 60000)) }) : t('req.processing'))} /> : (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <Field label={t('req.donneur')} value={ex.donneur_d_ordre || ex.client_name} />

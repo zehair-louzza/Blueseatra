@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pytest \
-            tests/test_cache_ia.py tests/test_lectures_en_thread.py tests/test_gpt_oss_text.py tests/test_tce_v4.py tests/test_ai_service_unit.py tests/test_description_role_isolation.py \
+            tests/test_cascade_ocr_resultat_partiel.py tests/test_cache_ia.py tests/test_lectures_en_thread.py tests/test_gpt_oss_text.py tests/test_tce_v4.py tests/test_ai_service_unit.py tests/test_description_role_isolation.py \
             tests/test_matching_material_detail.py tests/test_ocr_model_preference.py \
             tests/test_queue_watchdog.py tests/test_ia_garde_fous.py tests/test_corpus_ia.py tests/test_catalogue_comparaison.py tests/test_facturation_stripe.py tests/test_mistral.py tests/test_schemas_devis.py tests/test_catalogue_chiffrage.py tests/test_fournisseur_recherche_sql.py tests/test_designation_fournisseur.py tests/test_comparateur_produits.py tests/test_lecture_tableur.py tests/test_mesure_temps.py tests/test_cache_auth_sources.py tests/test_suggestions_mots.py tests/test_pertinence.py tests_clients/test_versions_devis.py \
             tests_quotas/test_quotas_branchement.py tests_quotas/test_projection.py tests_security/test_observabilite.py \
