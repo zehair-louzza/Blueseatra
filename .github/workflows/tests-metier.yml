@@ -36,10 +36,10 @@ jobs:
       TEST_PG_DSN: postgresql://postgres:ci@localhost:5432/ci
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -79,11 +79,11 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:1/ci
       REACT_APP_BACKEND_URL: http://127.0.0.1:1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Secret JWT jetable, généré pour cette exécution
         run: echo "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" >> "$GITHUB_ENV"
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
