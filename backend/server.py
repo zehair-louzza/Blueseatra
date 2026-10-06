@@ -787,7 +787,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
             import base64
 
             async def _progres(infos: dict):
-                await db.requests.update_one({"id": request_id}, {"$set": {"progression": infos}})
+                await db.requests.update_one({"id": request_id, "tenant_id": tenant_id}, {"$set": {"progression": infos}})
             extracted = await ai_service.extract_from_image(
                 base64.b64decode(req["file_b64"]), settings, session_id=request_id, on_progress=_progres)
         elif text.strip():
