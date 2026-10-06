@@ -4,9 +4,8 @@ name: Sécurité
 # dépendance externe : un contrôle de sécurité lent ou instable finit
 # désactivé, et un contrôle désactivé ne protège rien.
 #
-# N'installe PAS backend/requirements.txt (≈130 paquets, dont une wheel
-# litellm hébergée sur customer-assets.emergentagent.com — point de panne
-# unique hors de notre contrôle). Seules les dépendances réellement
+# N'installe PAS backend/requirements.txt (une cinquantaine de paquets depuis le
+# 06/10/2026) : ce contrôle doit rester rapide. Seules les dépendances réellement
 # nécessaires à l'import de pg_adapter / models_sql sont installées, avec
 # les mêmes versions épinglées que requirements.txt.
 

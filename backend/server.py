@@ -833,9 +833,12 @@ async def create_request(
         content = await file.read()
         _check_size(content)
         lower = (filename or "").lower()
+        # 06/10/2026 : lectures de fichiers dans un thread (asyncio.to_thread). Appelées
+        # directement, elles bloquaient la boucle d'événements (un seul processus) :
+        # pendant l'analyse d'un PDF, toute l'API, /api/health compris, ne répondait plus.
         if lower.endswith(".pdf"):
             source_type = "pdf"
-            raw_text = ai_service.extract_pdf_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_pdf_text, content)
             # Certains PDF (police subset sans table ToUnicode, export tableau
             # vectoriel, scan) ont un calque texte illisible meme si la page
             # se lit tres bien a l'oeil. On rend alors les pages en image et on
@@ -861,16 +864,16 @@ async def create_request(
                 # observes de certains modeles OCR sur des images composites
                 # multi-pages (decision du 2026-08-19, voir
                 # ai_service.extract_from_pdf_pages).
-                vision_bytes = ai_service.render_pdf_pages_to_images(content)
+                vision_bytes = await asyncio.to_thread(ai_service.render_pdf_pages_to_images, content)
         elif lower.endswith(".docx"):
             source_type = "docx"
-            raw_text = ai_service.extract_docx_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_docx_text, content)
         elif lower.endswith((".xlsx", ".xlsm")):
             source_type = "xlsx"
-            raw_text = ai_service.extract_xlsx_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_xlsx_text, content)
         elif lower.endswith((".csv", ".tsv")):
             source_type = "csv"
-            raw_text = ai_service.extract_csv_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_csv_text, content)
         elif lower.endswith(".txt"):
             source_type = "text_file"
             raw_text = ai_service.extract_plain_text(content)
@@ -2419,8 +2422,9 @@ async def quote_pdf(quote_id: str, token: Optional[str] = None,
             raise HTTPException(409, "Devis à rouvrir et revalider avant export client.")
         tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
         profile = await get_company_profile(tenant_id)
-        pdf_bytes = pdf_service.generate_quote_pdf(
-            tce_v4.client_quote(q), tenant["name"] if tenant else "Blueseatra", profile
+        pdf_bytes = await asyncio.to_thread(
+            pdf_service.generate_quote_pdf,
+            tce_v4.client_quote(q), tenant["name"] if tenant else "Blueseatra", profile,
         )
 
     return StreamingResponse(
