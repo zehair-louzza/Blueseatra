@@ -23,6 +23,7 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 
 import ai_service
+import cache_ia
 import tce_v4
 import matching as match_engine
 import quote_scenarios
@@ -763,7 +764,13 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
         stype = req.get("source_type")
-        if stype == "pdf_ocr" and vision_pages:
+        # Cache par empreinte du contenu (cache_ia.py) : un document déjà extrait avec la même
+        # configuration n'est pas recalculé. Les échecs et les résultats douteux ne sont jamais figés.
+        cle_cache = cache_ia.cle_demande(req, settings, vision_pages)
+        extracted = await cache_ia.lire(tenant_id, cle_cache[1]) if cle_cache else None
+        if extracted is not None:
+            logger.info("cache_ia : extraction réutilisée pour la demande %s (source %s)", request_id, cle_cache[0])
+        elif stype == "pdf_ocr" and vision_pages:
             extracted = await ai_service.extract_from_pdf_pages(vision_pages, settings, session_id=request_id)
             extracted["_warning"] = (
                 (extracted.get("_warning") + " ") if extracted.get("_warning") else ""
@@ -791,6 +798,8 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
             raise ValueError("No content to process")
         if extracted.get("_error"):
             raise RuntimeError(extracted["_error"])
+        if cle_cache and not extracted.get("_cache_ia"):
+            await cache_ia.ecrire(tenant_id, cle_cache[1], cle_cache[0], extracted)
         status = "needs_review" if (extracted.get("confidence") or 0) < 0.6 else "done"
         await db.requests.update_one({"id": request_id}, {"$set": {
             "status": status, "extracted": extracted,
@@ -1070,6 +1079,11 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     # Retraitement : gratuit si le devis de cette demande est déjà compté ;
     # recompté seulement si la première extraction avait échoué (rendue).
     await quotas.reserver(request_id, 1, 1 if r.get("source_type") == "image" else 0, cu.email)
+    # « Retraiter » est une demande de nouvel essai : le résultat en cache de ce contenu est
+    # retiré pour que la file ne le resserve pas (cache_ia.py).
+    cle_cache = cache_ia.cle_demande(r, await get_tenant_ai_settings(cu.tenant_id))
+    if cle_cache:
+        await cache_ia.invalider(cu.tenant_id, cle_cache[1])
     if _redis_sync() is not None:
         _enqueue_extraction(request_id, cu.tenant_id)
         background.add_task(_watchdog_reprocess_if_stuck, request_id, cu.tenant_id)
