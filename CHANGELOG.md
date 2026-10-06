@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-06 — Dépendances allégées, lectures de fichiers hors de la boucle, audit des dépendances
+
+- **requirements.txt : 139 -> 62 lignes.** 91 paquets jamais importés par l'API sont retirés (litellm, openai, google-*, boto3, stripe, jq, tiktoken, alembic, passlib, python-jose, aiohttp...). Les outils de test et de développement passent dans `backend/requirements-dev.txt` (pytest, black, flake8, isort, mypy, requests, jsonschema, motor, pymongo). Le nombre de paquets avec une faille connue passe de 15 à 5.
+- **API non bloquée par les imports :** lecture des PDF, DOCX, XLSX et CSV et génération du PDF de devis passent par `asyncio.to_thread`. Avant, un PDF lent figeait toute l'API (un seul processus), `/api/health` compris. Test : `tests/test_lectures_en_thread.py`.
+- **CI :** workflow « Audit des dépendances » (pip-audit et yarn audit, en cliquet, plus un passage hebdomadaire) et `dependabot.yml` (une PR groupée par semaine).
+
 ## 2026-10-05 (2) — CI frontend : contrôle des identifiants non définis + build sur chaque PR
 
 **Pourquoi** : la page blanche du 05/10 (#181 → #182) venait de deux icônes utilisées sans import. Le script `build` désactive ESLint (`DISABLE_ESLINT_PLUGIN=true`) : la compilation passait, React plantait au rendu, en production. Aucun workflow ne contrôlait le frontend.

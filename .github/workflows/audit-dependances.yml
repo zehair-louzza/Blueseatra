@@ -1,0 +1,98 @@
+name: Audit des dépendances
+
+# Détecte les dépendances avec une faille connue. 06/10/2026 : l'état de départ n'est pas
+# propre (starlette 0.37.2, pyjwt, pillow, cryptography, anyio côté Python ; deux failles
+# critiques et dix élevées dans la chaîne de build du frontend). Un contrôle qui échouerait
+# dès le premier jour serait désactivé : il fonctionne donc en CLIQUET.
+#   - Python : échoue si un paquet NOUVEAU apparaît avec une faille, ou si un paquet de la
+#     liste de départ doit rester (.github/ci/audit-python-base.txt). Pour retirer un paquet de la
+#     liste après mise à jour, supprimer sa ligne dans le même commit.
+#   - Frontend : échoue si le nombre de failles critiques + élevées dépasse FRONT_MAX.
+#     Après une mise à jour, baisser FRONT_MAX.
+# Une exécution hebdomadaire détecte les failles publiées après coup.
+
+on:
+  pull_request:
+    paths:
+      - "backend/requirements*.txt"
+      - "frontend/package.json"
+      - "frontend/yarn.lock"
+      - ".github/workflows/audit-dependances.yml"
+      - ".github/ci/audit-python-base.txt"
+  schedule:
+    - cron: "17 5 * * 1"   # lundi, 05 h 17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: pip-audit (API)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: pip-audit sur requirements.txt
+        run: |
+          python -m pip install --upgrade pip pip-audit
+          # --no-deps : requirements.txt est déjà la liste complète et épinglée.
+          pip-audit -r backend/requirements.txt --no-deps --disable-pip -f json > audit.json || true
+          python - <<'PY'
+          import json, os, sys
+          d = json.load(open("audit.json"))
+          vulnerables = {x["name"].lower(): x for x in d["dependencies"] if x.get("vulns")}
+          base = {l.strip().lower() for l in open(".github/ci/audit-python-base.txt")
+                  if l.strip() and not l.startswith("#")}
+          nouveaux = sorted(set(vulnerables) - base)
+          resolus = sorted(base - set(vulnerables))
+          lignes = ["## pip-audit", f"{len(d['dependencies'])} paquets audités, {len(vulnerables)} avec une faille connue.", ""]
+          for n, x in sorted(vulnerables.items()):
+              corr = sorted({f for v in x["vulns"] for f in v.get("fix_versions", [])})
+              lignes.append(f"- {n} {x['version']} : {len({v['id'] for v in x['vulns']})} avis, corrigé dans {', '.join(corr[-2:]) or 'aucune version'}")
+          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(lignes) + "\n")
+          if resolus:
+              print(f"::notice::Plus de faille pour {', '.join(resolus)} : retirer de .github/ci/audit-python-base.txt")
+          if nouveaux:
+              print(f"::error::Nouveau(x) paquet(s) avec une faille connue : {', '.join(nouveaux)}")
+              sys.exit(1)
+          PY
+
+  frontend:
+    name: yarn audit (frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Critiques + élevées au 06/10/2026 (shell-quote, braces... : chaîne de build de
+      # react-scripts). À baisser à chaque mise à jour, jamais à relever sans raison.
+      FRONT_MAX: "12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: yarn audit (dépendances de production)
+        working-directory: frontend
+        run: |
+          npx --yes yarn@1.22.22 audit --groups dependencies --json > ../yarn-audit.json || true
+          python3 - <<'PY'
+          import json, os, sys, collections
+          n = collections.Counter(); modules = collections.defaultdict(set)
+          for ligne in open("../yarn-audit.json"):
+              try: o = json.loads(ligne)
+              except ValueError: continue
+              if o.get("type") == "auditAdvisory":
+                  a = o["data"]["advisory"]; n[a["severity"]] += 1; modules[a["severity"]].add(a["module_name"])
+          graves = n["critical"] + n["high"]
+          maxi = int(os.environ["FRONT_MAX"])
+          res = [f"## yarn audit", f"critiques : {n['critical']}, élevées : {n['high']}, modérées : {n['moderate']} (plafond critiques + élevées : {maxi})", ""]
+          for s in ("critical", "high"):
+              if modules[s]: res.append(f"- {s} : {', '.join(sorted(modules[s]))}")
+          open(os.environ["GITHUB_STEP_SUMMARY"], "a").write("\n".join(res) + "\n")
+          if graves > maxi:
+              print(f"::error::{graves} failles critiques ou élevées, plafond {maxi}")
+              sys.exit(1)
+          PY
