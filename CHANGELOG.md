@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-07 — Lecture des photos : résultat partiel conservé, attentes bornées, étape visible
+
+Cause du 06/10 (photo « Test zeh », plus de 25 min puis échec « ReadTimeout (qwen2.5vl:7b) ») : PaddleOCR et la structuration avaient réussi en 6 min, mais le résultat avait été jugé incomplet et écarté ; les quatre étages suivants ont échoué (deux en erreur 500 immédiate, deux en dépassement de délai, dont un de 704 s) ; le secours « vision directe » relançait le même modèle que l'étage qui venait d'échouer.
+- **Résultat partiel conservé :** un résultat sans erreur, avec des lignes ou une description, est gardé comme dernier recours. Il passe toujours en « à revoir » (confiance plafonnée à 0,55) avec un avertissement.
+- **Pas de doublon :** le secours « vision directe » n'est plus relancé avec un modèle déjà essayé.
+- **Attentes bornées :** l'attente supplémentaire due à l'étage suivant est plafonnée à 420 s (`OCR_STAGE_TIMEOUT_MAX`), et la cascade s'arrête après 25 min (`OCR_CASCADE_BUDGET_S`).
+- **Journaux :** chaque rejet d'étage indique sa raison (`ocr_etape_rejetee`).
+- **Étape visible :** la page de la demande affiche « Lecture par GLM-OCR — étape 2 sur 6, depuis 3 min » (migration `20261007010000_requests_progression.sql`, colonne `requests.progression`).
+
 ## 2026-10-06 — Cache des extractions IA par empreinte du contenu
 
 - **Un document déjà extrait n'est plus recalculé.** `backend/cache_ia.py` garde le résultat structuré (jamais le fichier) par entreprise, avec une clé SHA-256 qui mélange le contenu (texte, image, pages rendues) et la configuration (fournisseur, modèle, OCR préféré, consigne, schéma, code d'extraction). Changer l'un de ces éléments produit une autre clé.

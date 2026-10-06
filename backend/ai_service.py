@@ -17,6 +17,8 @@ import facturation_stripe
 import quote_scenarios
 import matching as match_engine
 import asyncio
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -425,6 +427,11 @@ HERMES_OCR_PADDLE_MODEL = os.environ.get("HERMES_OCR_PADDLE_MODEL", "AuditAid/Pa
 # longtemps que ce qu'il faudrait de toute facon pour que l'etape
 # suivante fasse le travail, avec une marge reduite a 20%.
 _OCR_STAGE_TIMEOUT_MULTIPLIER = 1.2
+# 07/10/2026 : plafond d'attente par etage et budget total de la cascade. Le 06/10, un etage
+# (Qwen2.5-VL) a attendu 704 s (1,2 x la duree d'olmOCR, l'etage suivant) avant d'echouer, et
+# la cascade entiere a tourne plus de 25 min sans rien afficher.
+_OCR_STAGE_TIMEOUT_MAX = float(os.environ.get("OCR_STAGE_TIMEOUT_MAX", "420"))
+_OCR_CASCADE_BUDGET = float(os.environ.get("OCR_CASCADE_BUDGET_S", "1500"))
 # Timeout du DERNIER recours (vision directe via HERMES_VISION_MODEL) :
 # contrairement aux etapes OCR ci-dessus, il n'y a pas d'"etape suivante" a
 # mesurer pour lui appliquer la regle 1.2x -- plafond fixe. 2026-08-23 :
@@ -530,7 +537,11 @@ def _ocr_cascade_stages(preferred: str | None = None) -> list[tuple[str, str, fl
         # malgre ses ~587s mesures -- desormais 1.2x sa propre duree.
         base = max(_OCR_STAGE_MEASURED_SECONDS.get(label, 300),
                    _OCR_STAGE_MEASURED_SECONDS.get(next_label, 300))
-        timeout = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * base)
+        propre = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * _OCR_STAGE_MEASURED_SECONDS.get(label, 300))
+        suivant = round(_OCR_STAGE_TIMEOUT_MULTIPLIER * base)
+        # Jamais coupe avant 1,2 x SA propre duree mesuree ; l'attente supplementaire due a
+        # l'etage suivant est plafonnee (06/10/2026 : Qwen2.5-VL attendait 704 s = 1,2 x olmOCR).
+        timeout = max(propre, min(suivant, round(_OCR_STAGE_TIMEOUT_MAX)))
         stages.append((label, model, timeout))
     return stages
 # Modele d'escalade manuelle uniquement (jamais automatique), reserve a un
@@ -1956,7 +1967,17 @@ def _extraction_seems_incomplete(extracted: dict, source_text: str) -> bool:
     return False
 
 
-async def _try_ocr_stage(image_bytes: bytes, model: str, tenant_settings: dict, timeout: float = 240.0) -> tuple[dict | None, str | None, str | None]:
+def _raison_rejet(extracted: dict, source_text: str) -> str:
+    """Pourquoi _extraction_seems_incomplete a rejete un resultat (pour les journaux)."""
+    if extracted.get("_error"):
+        return f"erreur de structuration : {str(extracted.get('_error'))[:150]}"
+    if (extracted.get("confidence") or 0) < 0.3:
+        return f"confiance {extracted.get('confidence')!r} < 0,3"
+    return "texte lu sans ligne ni description"
+
+
+async def _try_ocr_stage(image_bytes: bytes, model: str, tenant_settings: dict, timeout: float = 240.0,
+                         candidats: list | None = None) -> tuple[dict | None, str | None, str | None]:
     """Tente une etape OCR+structuration complete avec un modele donne.
     Renvoie (resultat, texte_ocr, erreur) : resultat est None si l'etape
     doit etre consideree en echec (erreur OCR, texte inutilisable, ou
@@ -1970,14 +1991,25 @@ async def _try_ocr_stage(image_bytes: bytes, model: str, tenant_settings: dict, 
     except Exception as e:
         return None, None, f"{type(e).__name__}: {e or repr(e)}"
     if not _ocr_result_acceptable(ocr_text):
+        logger.warning("ocr_etape_rejetee modele=%s raison=texte OCR trop court ou illisible (%d car.)",
+                       model, len((ocr_text or "").strip()))
         return None, ocr_text, None
     result = await extract_request_data(ocr_text, tenant_settings, from_file=True)
     if _extraction_seems_incomplete(result, ocr_text):
+        logger.warning("ocr_etape_rejetee modele=%s raison=%s texte=%d car. lignes=%d", model,
+                       _raison_rejet(result, ocr_text), len((ocr_text or "").strip()),
+                       len(result.get("line_items") or []))
+        # Un resultat sans erreur qui contient des lignes ou une description reste utilisable
+        # en dernier recours (« a revoir ») : il ne doit pas etre perdu si les etages suivants echouent.
+        if candidats is not None and not result.get("_error") and (
+                result.get("line_items") or (result.get("description") or "").strip()):
+            candidats.append((result, ocr_text))
         return None, ocr_text, None
     return result, ocr_text, None
 
 
-async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_id: str | None = None) -> dict:
+async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_id: str | None = None,
+                             on_progress=None) -> dict:
     """Adapter used by server.process_request for photos and rendered PDF
     pages. Cascade IA-uniquement, decision du 2026-08-18 (comparaison de 8
     modeles — voir 0quater du skill intake-demande-devis pour le detail) :
@@ -2018,8 +2050,31 @@ async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_
 
     last_ocr_text = None
     errors = []
-    for label, model, timeout in _ocr_cascade_stages(preferred=(tenant_settings or {}).get("ocr_model_preference")):
-        result, ocr_text, error = await _try_ocr_stage(image_bytes, model, tenant_settings, timeout=timeout)
+    candidats: list = []
+    etapes = _ocr_cascade_stages(preferred=(tenant_settings or {}).get("ocr_model_preference"))
+    debut = time.monotonic()
+
+    async def _progres(**infos):
+        """Etape en cours, affichee sur la page de la demande. Ne leve jamais."""
+        if on_progress is None:
+            return
+        try:
+            await on_progress({"debut": datetime.now(timezone.utc).isoformat(), "total": len(etapes) + 1, **infos})
+        except Exception:  # noqa: BLE001
+            logger.debug("progression non enregistree", exc_info=True)
+
+    deja_essayes = set()
+    budget_depasse = False
+    for rang, (label, model, timeout) in enumerate(etapes, 1):
+        if rang > 1 and time.monotonic() - debut > _OCR_CASCADE_BUDGET:
+            budget_depasse = True
+            errors.append(f"budget de {int(_OCR_CASCADE_BUDGET)} s depasse avant {label}")
+            logger.warning("ocr_cascade_budget_depasse apres %d s, etage %s non essaye", int(time.monotonic() - debut), label)
+            break
+        await _progres(etape=rang, libelle=label)
+        deja_essayes.add((model or "").strip())
+        result, ocr_text, error = await _try_ocr_stage(image_bytes, model, tenant_settings, timeout=timeout,
+                                                       candidats=candidats)
         if ocr_text is not None:
             last_ocr_text = ocr_text
         if error:
@@ -2029,10 +2084,44 @@ async def extract_from_image(image_bytes: bytes, tenant_settings: dict, session_
             result["_ocr_text"] = ocr_text
             return result
 
+    def _meilleur_partiel() -> dict | None:
+        if not candidats:
+            return None
+        resultat, texte = max(candidats, key=lambda c: (len(c[0].get("line_items") or []), len(c[1] or "")))
+        resultat = dict(resultat)
+        resultat["_warning"] = ((resultat.get("_warning") + " ") if resultat.get("_warning") else "") + (
+            "Résultat partiel : la lecture a été jugée incomplète et les essais suivants ont échoué. "
+            "Vérifiez les lignes avant de générer le devis.")
+        resultat["confidence"] = min(float(resultat.get("confidence") or 0.5), 0.55)  # toujours « à revoir »
+        resultat["_ocr_text"] = texte
+        resultat["_ocr_engine"] = "résultat partiel"
+        return resultat
+
+    if budget_depasse or (HERMES_VISION_MODEL or "").strip() in deja_essayes:
+        # Budget epuise, ou secours « vision directe » avec le meme modele qu'un etage deja essaye :
+        # le refaire ne ferait que doubler l'attente (06/10/2026 : 704 s puis encore 300 s, meme
+        # ReadTimeout).
+        partiel = _meilleur_partiel()
+        if partiel is not None:
+            return partiel
+        raise RuntimeError("Lecture de l'image impossible : " + ("; ".join(errors) or "résultats jugés incomplets"))
+
     # Secours final : vision directe de Gemma. Atteint si aucune etape OCR
     # n'a produit un resultat exploitable (erreurs listees dans errors, ou
     # structuration jugee incomplete malgre un texte OCR correct).
-    fallback = await extract_request_data("", tenant_settings, image_bytes=image_bytes)
+    await _progres(etape=len(etapes) + 1, libelle="lecture directe de l'image")
+    try:
+        fallback = await extract_request_data("", tenant_settings, image_bytes=image_bytes)
+    except Exception:  # noqa: BLE001
+        partiel = _meilleur_partiel()
+        if partiel is None:
+            raise
+        logger.warning("secours vision directe en echec, resultat partiel conserve")
+        return partiel
+    if fallback.get("_error"):
+        partiel = _meilleur_partiel()
+        if partiel is not None:
+            return partiel
     if errors:
         # 2026-08-23 : "Gemma" retire (modele supprime du VPS) -- ce champ
         # est affiche tel quel dans le panneau "Extraction IA" du frontend
