@@ -279,6 +279,10 @@ def build_router(get_current, require_role) -> APIRouter:
             await _audit(s, cu.tenant_id, cu.email, "rgpd.anonymisation", pseudo(email),
                          {"motif": b.motif, "contacts": len(ids), "clients": len(clients), "relances_annulees": len(annulees)})
             await s.commit()
+        # Le cache des extractions contient les données personnelles extraites des documents :
+        # il est vidé pour l'entreprise (se reconstitue au prochain import). Ne lève jamais.
+        import cache_ia
+        await cache_ia.purger_entreprise(cu.tenant_id)
         return {"ok": True, "contacts_anonymises": len(ids), "fiches_client_modifiees": len(clients),
                 "relances_annulees": len(annulees)}
 

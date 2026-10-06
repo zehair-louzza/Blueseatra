@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-06 — Cache des extractions IA par empreinte du contenu
+
+- **Un document déjà extrait n'est plus recalculé.** `backend/cache_ia.py` garde le résultat structuré (jamais le fichier) par entreprise, avec une clé SHA-256 qui mélange le contenu (texte, image, pages rendues) et la configuration (fournisseur, modèle, OCR préféré, consigne, schéma, code d'extraction). Changer l'un de ces éléments produit une autre clé.
+- **Règles :** seuls les résultats sans erreur et de confiance d'au moins 0,6 sont gardés ; conservation 30 jours ; « Retraiter » ignore le cache ; l'anonymisation RGPD vide le cache de l'entreprise ; la facturation des quotas est inchangée.
+- **Migration `20261006220000_cache_ia.sql`** (table `cache_ia`, RLS par entreprise). Tant qu'elle n'est pas appliquée, le cache est ignoré sans erreur.
+
 ## 2026-10-06 — Dépendances allégées, lectures de fichiers hors de la boucle, audit des dépendances
 
 - **requirements.txt : 139 -> 62 lignes.** 91 paquets jamais importés par l'API sont retirés (litellm, openai, google-*, boto3, stripe, jq, tiktoken, alembic, passlib, python-jose, aiohttp...). Les outils de test et de développement passent dans `backend/requirements-dev.txt` (pytest, black, flake8, isort, mypy, requests, jsonschema, motor, pymongo). Le nombre de paquets avec une faille connue passe de 15 à 5.
