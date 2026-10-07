@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import { toast } from 'sonner';
-import { ArrowLeft, RefreshCw, FileText, Loader2, Trash2, Save, Eye, Sparkles } from 'lucide-react';
+import { ArrowLeft, RefreshCw, FileText, Loader2, Trash2, Save, Eye, Sparkles, Square } from 'lucide-react';
 import { hasFilePreview, openFilePreview } from '@/lib/filePreviewCache';
 import { SuggestionsPanel } from '@/components/clients/Suggestions';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -63,6 +63,11 @@ export default function RequestDetail() {
     finally { setDeepVisionBusy(false); }
   };
 
+  const enCours = ['received', 'queued', 'processing'].includes(req?.status);
+  const arreter = async () => {
+    try { await api.post(`/requests/${id}/stop`); toast.success(t('req.stopped')); load(); }
+    catch (err) { toast.error(apiError(err, t('req.stop_failed'))); }
+  };
   const reprocess = async () => { await api.post(`/requests/${id}/process`); toast.success(t('req.processing')); load(); };
   // Les PDF ne sont jamais stockes cote serveur : l'apercu "Voir le fichier"
   // n'est disponible que via le cache local du navigateur (memoire de
@@ -128,6 +133,7 @@ export default function RequestDetail() {
         </div>
         <div className="flex gap-2">
           {hasViewableFile && <Button variant="outline" size="sm" className="gap-1" onClick={viewFile} data-testid="view-file-button"><Eye className="h-4 w-4" />{t('req.view_file')}</Button>}
+          {enCours && <Button variant="destructive" size="sm" className="gap-1" onClick={arreter} data-testid="stop-button"><Square className="h-4 w-4" />{t('req.stop')}</Button>}
           <Button variant="secondary" size="sm" className="gap-1" onClick={reprocess} data-testid="reprocess-button"><RefreshCw className="h-4 w-4" />{t('req.reprocess')}</Button>
           <Button variant="secondary" size="sm" className="gap-1" onClick={async () => {
             try {
@@ -160,13 +166,14 @@ export default function RequestDetail() {
         </div>
       </div>
 
+      {req.status === 'cancelled' && <Card className="mt-4 border-0 bg-slate-50 p-4 text-sm text-slate-700" data-testid="cancelled-note">{t('req.cancelled_note')}</Card>}
       {req.status === 'failed' && <Card className="mt-4 border-0 bg-rose-50 p-4 text-sm text-rose-800">{req.error}</Card>}
       {['done', 'needs_review'].includes(req.status) && <SuggestionsPanel demandeId={id} />}
 
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="card-shadow border-0 p-5">
           <h2 className="mb-3 font-display text-base font-semibold">{t('req.extracted')}</h2>
-          {!ex && req.status === 'failed' ? <p className="py-6 text-center text-sm text-muted-foreground">{t('req.no_extraction')}</p> : !ex ? <Spinner label={req.status === 'queued' ? t('status.queued_position', { n: req.queue_position || 1 }) : (req.progression ? t('req.progress', { libelle: req.progression.libelle, etape: req.progression.etape, total: req.progression.total, min: Math.max(0, Math.floor((Date.now() - new Date(req.progression.debut).getTime()) / 60000)) }) : t('req.processing'))} /> : (
+          {!ex && ['failed', 'cancelled'].includes(req.status) ? <p className="py-6 text-center text-sm text-muted-foreground">{t('req.no_extraction')}</p> : !ex ? <Spinner label={req.status === 'queued' ? t('status.queued_position', { n: req.queue_position || 1 }) : (req.progression?.libelle ? t('req.progress', { libelle: req.progression.libelle, etape: req.progression.etape, total: req.progression.total, min: Math.max(0, Math.floor((Date.now() - new Date(req.progression.debut).getTime()) / 60000)) }) : t('req.processing'))} /> : (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-3">
                 <Field label={t('req.donneur')} value={ex.donneur_d_ordre || ex.client_name} />

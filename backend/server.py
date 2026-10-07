@@ -24,6 +24,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 import ai_service
 import cache_ia
+import ia_runs
 import tce_v4
 import matching as match_engine
 import quote_scenarios
@@ -709,14 +710,29 @@ _extraction_queue: "asyncio.Queue" = asyncio.Queue()
 _extraction_worker_task = None
 
 
+_TACHES: dict[str, "asyncio.Task"] = {}   # demande -> tâche de traitement en cours (pour l'arrêter)
+
+
 async def _extraction_worker_loop():
     while True:
         request_id, tenant_id, vision_pages = await _extraction_queue.get()
+        tache = None
         try:
-            await process_request(request_id, tenant_id, vision_pages)
+            if ia_runs.est_arretee(request_id):
+                continue   # arrêtée avant son tour : la file ne la ressuscite pas
+            tache = asyncio.create_task(process_request(request_id, tenant_id, vision_pages))
+            _TACHES[request_id] = tache
+            await tache
+        except asyncio.CancelledError:
+            # Arrêt d'UNE demande (tache.cancel()) : la boucle continue. Arrêt du serveur : on relaie.
+            courante = asyncio.current_task()
+            if courante is not None and courante.cancelling() > 0:
+                raise
+            logger.info("traitement de la demande %s arrêté", request_id)
         except Exception:
             logger.exception("_extraction_worker_loop: process_request a leve une exception non interceptee")
         finally:
+            _TACHES.pop(request_id, None)
             _extraction_queue.task_done()
 
 
@@ -759,7 +775,26 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
     req = await db.requests.find_one({"id": request_id, "tenant_id": tenant_id}, {"_id": 0})
     if not req:
         return
-    await db.requests.update_one({"id": request_id}, {"$set": {"status": "processing", "progression": None}})
+    if req.get("status") == "cancelled" or ia_runs.est_arretee(request_id):
+        return   # arrêtée par l'utilisateur : ne jamais la relancer
+    # Tentative courante : identifiant conservé en base (même valeur après un redémarrage du site, donc
+    # les tâches déjà lancées sur le VPS sont reprises au lieu d'être refaites ; nouvelle valeur à chaque
+    # « Retraiter »). `etat_prog` est la valeur complète de la colonne progression.
+    etat_prog: dict = {"nonce": (req.get("progression") or {}).get("nonce") or new_id()}
+    if (req.get("progression") or {}).get("runs"):
+        etat_prog["runs"] = dict(req["progression"]["runs"])
+
+    async def _maj(infos: dict):
+        """Étape de lecture et tâches IA en cours (page de la demande, point de contrôle)."""
+        if "run_id" in infos:
+            etat_prog.setdefault("runs", {})[infos["run_id"]] = {
+                "role": infos.get("role"), "statut": infos.get("statut")}
+        else:
+            etat_prog.update(infos)
+        await db.requests.update_one({"id": request_id, "tenant_id": tenant_id}, {"$set": {"progression": etat_prog}})
+
+    await db.requests.update_one({"id": request_id}, {"$set": {"status": "processing", "progression": etat_prog}})
+    jeton_ia = ia_runs.ouvrir(request_id, etat_prog["nonce"], _maj)
     try:
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
@@ -786,10 +821,8 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         elif stype == "image" and req.get("file_b64"):
             import base64
 
-            async def _progres(infos: dict):
-                await db.requests.update_one({"id": request_id, "tenant_id": tenant_id}, {"$set": {"progression": infos}})
             extracted = await ai_service.extract_from_image(
-                base64.b64decode(req["file_b64"]), settings, session_id=request_id, on_progress=_progres)
+                base64.b64decode(req["file_b64"]), settings, session_id=request_id, on_progress=_maj)
         elif text.strip():
             # Gemma (role="file", raisonnement actif) est le moteur d'extraction
             # par defaut pour tout fichier importe (PDF, DOCX, XLSX, CSV, TXT),
@@ -801,6 +834,8 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
             raise ValueError("No content to process")
         if extracted.get("_error"):
             raise RuntimeError(extracted["_error"])
+        if ia_runs.est_arretee(request_id):
+            return   # arrêtée pendant le calcul : ne rien écrire
         if cle_cache and not extracted.get("_cache_ia"):
             await cache_ia.ecrire(tenant_id, cle_cache[1], cle_cache[0], extracted)
         status = "needs_review" if (extracted.get("confidence") or 0) < 0.6 else "done"
@@ -815,11 +850,16 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         await clients_module.suggerer_depuis_extraction(request_id, extracted, req.get("raw_text") or "")
         await _auto_generate_quote_if_needed(request_id, tenant_id, req.get("created_by"))
     except Exception as e:
+        if ia_runs.est_arretee(request_id):
+            logger.info("process_request : demande %s arrêtée par l'utilisateur (%s)", request_id, type(e).__name__)
+            return
         logger.exception("process_request failed")
         await db.requests.update_one({"id": request_id}, {"$set": {"status": "failed", "error": str(e), "progression": None}})
         # Extraction échouée : le devis assisté et les pages sont rendus
         # (ligne inverse dans le registre, jamais de modification).
         await quotas.annuler(request_id, f"Extraction échouée : {type(e).__name__}")
+    finally:
+        ia_runs.fermer(jeton_ia)
 
 
 @api.post("/requests")
@@ -906,6 +946,7 @@ async def create_request(
         "id": req_id, "tenant_id": cu.tenant_id, "title": title, "source_type": source_type,
         "status": "received", "raw_text": raw_text, "filename": filename, "file_b64": file_b64,
         "extracted": None, "language": None, "confidence": None,
+        "progression": {"nonce": new_id()},
         "created_by": cu.email, "created_at": now_iso(),
     }
     try:
@@ -1087,6 +1128,10 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     cle_cache = cache_ia.cle_demande(r, await get_tenant_ai_settings(cu.tenant_id))
     if cle_cache:
         await cache_ia.invalider(cu.tenant_id, cle_cache[1])
+    # Nouvelle tentative : nouvel identifiant (les tâches IA de la précédente ne sont pas reprises).
+    ia_runs.reinitialiser(request_id)
+    await db.requests.update_one({"id": request_id, "tenant_id": cu.tenant_id},
+                                 {"$set": {"progression": {"nonce": new_id()}}})
     if _redis_sync() is not None:
         _enqueue_extraction(request_id, cu.tenant_id)
         background.add_task(_watchdog_reprocess_if_stuck, request_id, cu.tenant_id)
@@ -2399,11 +2444,64 @@ async def update_request(request_id: str, body: dict, cu: CurrentUser = Depends(
     return r
 
 
+async def _arreter_demande(request_id: str, tenant_id: str, motif: str) -> int:
+    """Arrête une demande en cours : tâches IA du VPS, tâche de traitement, statut, quota rendu."""
+    arretees = await ia_runs.arreter_demande(request_id)          # marque l'arrêt + /stop sur le VPS
+    tache = _TACHES.get(request_id)
+    if tache is not None and not tache.done():
+        tache.cancel()
+    await db.requests.update_one({"id": request_id, "tenant_id": tenant_id},
+                                 {"$set": {"status": "cancelled", "error": motif, "progression": None}})
+    await quotas.annuler(request_id, motif)
+    return arretees
+
+
+@api.post("/requests/{request_id}/stop")
+async def stop_request(request_id: str, cu: CurrentUser = Depends(get_current)):
+    """Bouton « Arrêter » : interrompt la lecture et libère le VPS (tâches IA arrêtées)."""
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    if r.get("status") not in ("received", "queued", "processing"):
+        return {"ok": True, "status": r.get("status"), "deja_termine": True}
+    arretees = await _arreter_demande(request_id, cu.tenant_id, "Arrêtée par l'utilisateur.")
+    await audit(cu.tenant_id, cu.email, "request.stop", request_id, {"runs_arretes": arretees})
+    return {"ok": True, "status": "cancelled", "runs_arretes": arretees}
+
+
+@api.get("/requests/{request_id}/etat-ia")
+async def etat_ia_demande(request_id: str, cu: CurrentUser = Depends(get_current)):
+    """POINT DE CONTRÔLE : où en sont, sur le VPS, les tâches IA de cette demande."""
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "progression": 1, "status": 1})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    prog = r.get("progression") or {}
+    runs = []
+    for run_id, info in list((prog.get("runs") or {}).items())[-8:]:
+        statut, source = info.get("statut"), "enregistre"
+        if statut not in ia_runs.TERMINAUX and HERMES_GATEWAY_URL_CONFIGUREE():
+            try:
+                e = await ia_runs.etat(ai_service.HERMES_GATEWAY_URL, ai_service.entetes_hermes_runs(), run_id)
+                statut, source = e.get("status"), "vps"
+            except Exception:  # noqa: BLE001
+                source = "enregistre (VPS injoignable)"
+        runs.append({"run_id": run_id, "role": info.get("role"), "statut": statut, "source": source})
+    return {"demande": r.get("status"), "etape": prog.get("etape"), "total": prog.get("total"),
+            "libelle": prog.get("libelle"), "debut": prog.get("debut"), "runs": runs}
+
+
+def HERMES_GATEWAY_URL_CONFIGUREE() -> bool:
+    return bool(ai_service.HERMES_GATEWAY_URL)
+
+
 @api.delete("/requests/{request_id}")
 async def delete_request(request_id: str, cu: CurrentUser = Depends(require_role("owner", "admin"))):
     r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0})
     if not r:
         raise HTTPException(404, "Request not found")
+    if r.get("status") in ("received", "queued", "processing"):
+        # Supprimer une demande en cours l'arrête d'abord : sinon le calcul continue sur le VPS.
+        await _arreter_demande(request_id, cu.tenant_id, "Demande supprimée pendant le traitement.")
     try:
         await db.requests.delete_one({"id": request_id, "tenant_id": cu.tenant_id})
     except Exception as e:
