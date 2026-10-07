@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-07 — Bouton Arrêter, tâches IA asynchrones avec point de contrôle
+
+Problème : supprimer une demande en cours ne l'arrêtait pas, et le site attendait le VPS par une connexion ouverte pendant des minutes ; un délai dépassé laissait le calcul tourner sur OVH.
+- **Bouton « Arrêter »** sur la demande en cours (`POST /api/requests/{id}/stop`). La demande passe en « Arrêtée », le quota est rendu, la file ne la relance pas. Supprimer une demande en cours l'arrête d'abord.
+- **Tâches asynchrones Hermès** (`backend/ia_runs.py`, interface `/v1/runs`) pour tous les appels IA faits pendant le traitement d'une demande, photos comprises : lancement immédiat, interrogation régulière (2 s puis 4 s puis 8 s) de l'état côté VPS, résultat lu dès qu'il est prêt.
+- **Libération du VPS :** arrêt de la demande, délai dépassé ou suppression appellent `/v1/runs/{id}/stop`.
+- **Point de contrôle :** `GET /api/requests/{id}/etat-ia` donne l'état réel des tâches sur le VPS ; les tâches sont aussi enregistrées dans `requests.progression`.
+- **Reprise :** `Idempotency-Key` dérivée de la demande, de la tentative et du contenu ; après un redémarrage du site, la tâche d'origine est reprise au lieu d'être refaite. « Retraiter » ouvre une nouvelle tentative.
+- **Repli automatique** vers `/v1/chat/completions` si l'interface de tâches est absente ; `BLUESEATRA_IA_RUNS=0` désactive tout.
+- Limite connue : la sortie JSON imposée (`response_format`) n'existe pas sur `/v1/runs` ; la consigne porte seule le format.
+
 ## 2026-10-07 — Lecture des photos : résultat partiel conservé, attentes bornées, étape visible
 
 Cause du 06/10 (photo « Test zeh », plus de 25 min puis échec « ReadTimeout (qwen2.5vl:7b) ») : PaddleOCR et la structuration avaient réussi en 6 min, mais le résultat avait été jugé incomplet et écarté ; les quatre étages suivants ont échoué (deux en erreur 500 immédiate, deux en dépassement de délai, dont un de 704 s) ; le secours « vision directe » relançait le même modèle que l'étage qui venait d'échouer.

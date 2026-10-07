@@ -9,6 +9,7 @@ const MAP = {
   needs_review: 'bg-amber-50 text-amber-800 ring-amber-200',
   done: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
   failed: 'bg-rose-50 text-rose-800 ring-rose-200',
+  cancelled: 'bg-slate-100 text-slate-600 ring-slate-200',
   draft: 'bg-slate-100 text-slate-700 ring-slate-200',
   validated: 'bg-emerald-50 text-emerald-800 ring-emerald-200',
   sent: 'bg-sky-50 text-sky-800 ring-sky-200',

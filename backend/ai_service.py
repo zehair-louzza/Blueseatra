@@ -3,6 +3,7 @@ Default engine: Hermes AI (Ollama) running locally on OVH VPS.
 A tenant can override provider/model/key via Settings (Integrations).
 """
 import ia_garde_fous
+import ia_runs
 import os
 import tce_v4
 import io
@@ -988,6 +989,10 @@ IA_VIA_HERMES = os.environ.get("BLUESEATRA_IA_VIA_HERMES", "1") != "0"
 # Sortie contrainte par les schémas JSON (extraction et descriptif). 0 = consigne seule.
 IA_SCHEMA_STRICT = os.environ.get("BLUESEATRA_IA_SCHEMA_STRICT", "1") != "0"
 # Attentes (s) avant nouvel essai quand Hermès répond 429 (occupé) : ~3 min au total.
+# Tâches asynchrones Hermès (/v1/runs) pour les appels faits pendant le traitement d'une demande :
+# point de contrôle interrogeable, arrêt réel sur le VPS, reprise après redémarrage (ia_runs.py).
+# 0 = ancien comportement (/v1/chat/completions) partout.
+IA_RUNS = os.environ.get("BLUESEATRA_IA_RUNS", "1") != "0"
 HERMES_ATTENTES_429 = tuple(int(x) for x in os.environ.get("HERMES_ATTENTES_429", "10,30,60,90").split(",") if x.strip())
 HERMES_OLLAMA_PROVIDER = os.environ.get("HERMES_OLLAMA_PROVIDER", "custom:ollama")
 
@@ -1031,6 +1036,20 @@ async def _hermes_chat(
         headers["Authorization"] = f"Bearer {HERMES_GATEWAY_KEY}"
     if HERMES_API_KEY:
         headers["X-Api-Key"] = HERMES_API_KEY
+    # Pendant le traitement d'une demande : tâche asynchrone (point de contrôle, arrêt, reprise).
+    # La sortie JSON imposée (response_format) n'existe pas sur /v1/runs : la consigne la porte seule.
+    if IA_RUNS and ia_runs.contexte():
+        entetes_runs = {k: v for k, v in headers.items() if k != "X-Hermes-Session-Id"}
+        corps_run = ia_runs.construire_corps(payload["model"], payload["provider"], system_prompt, user_message,
+                                             image_b64=image_b64)
+        try:
+            async with _OLLAMA_SEMAPHORE:
+                sortie = await ia_runs.executer(HERMES_GATEWAY_URL, entetes_runs, corps_run, role=role, delai=timeout)
+            logger.info("ai_call_success via=hermes_runs role=%s provider=%s model=%s",
+                        role, payload["provider"], payload["model"])
+            return sortie
+        except ia_runs.RunsIndisponible as exc:
+            logger.warning("hermes_runs indisponible (%s) : repli sur /v1/chat/completions", exc)
     url = f"{HERMES_GATEWAY_URL}/v1/chat/completions"
     async with _OLLAMA_SEMAPHORE:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -1062,6 +1081,16 @@ async def _hermes_chat(
         raise RuntimeError(f"Hermès : réponse vide ({payload['provider']}/{payload['model']})")
     logger.info("ai_call_success via=hermes role=%s provider=%s model=%s", role, payload["provider"], payload["model"])
     return content
+
+
+def entetes_hermes_runs() -> dict:
+    """En-têtes d'authentification pour interroger ou arrêter une tâche Hermès (ia_runs.py)."""
+    h = {"Content-Type": "application/json"}
+    if HERMES_GATEWAY_KEY:
+        h["Authorization"] = f"Bearer {HERMES_GATEWAY_KEY}"
+    if HERMES_API_KEY:
+        h["X-Api-Key"] = HERMES_API_KEY
+    return h
 
 
 async def _call_hermes_gateway(
