@@ -60,19 +60,24 @@ class DelaiDepasse(RuntimeError):
 
 # ---------- contexte d'une demande ----------
 
+def cle_demande(tenant_id: str, request_id: str) -> str:
+    """Toutes les tables de suivi sont cloisonnées par entreprise : un arrêt ou un état ne traverse jamais un tenant."""
+    return f"{tenant_id}:{request_id}"
+
+
 @contextlib.contextmanager
-def demande(request_id: str, nonce: str, suivi=None):
+def demande(request_id: str, nonce: str, suivi=None, tenant_id: str = ""):
     """Déclare la demande en cours de traitement. `suivi(infos)` reçoit les changements d'état."""
-    jeton = _DEMANDE.set({"id": request_id, "nonce": nonce, "suivi": suivi})
+    jeton = _DEMANDE.set({"id": cle_demande(tenant_id, request_id), "nonce": nonce, "suivi": suivi})
     try:
         yield
     finally:
         _DEMANDE.reset(jeton)
 
 
-def ouvrir(request_id: str, nonce: str, suivi=None):
+def ouvrir(request_id: str, nonce: str, suivi=None, tenant_id: str = ""):
     """Variante sans `with` de demande() : renvoie le jeton à passer à fermer()."""
-    return _DEMANDE.set({"id": request_id, "nonce": nonce, "suivi": suivi})
+    return _DEMANDE.set({"id": cle_demande(tenant_id, request_id), "nonce": nonce, "suivi": suivi})
 
 
 def fermer(jeton) -> None:

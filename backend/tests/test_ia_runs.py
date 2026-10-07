@@ -76,7 +76,7 @@ async def test_termine_et_signale_les_etapes(vps):
     assert sortie == '{"a":1}'
     assert [v["statut"] for v in vus] == ["started", "running", "completed"]
     assert f.cles[0] and len(f.cles[0]) == 64
-    assert ia_runs.runs_actifs("r1") == {}
+    assert ia_runs.runs_actifs(ia_runs.cle_demande("", "r1")) == {}
 
 
 @pytest.mark.asyncio
@@ -102,14 +102,14 @@ async def test_arret_utilisateur_pendant_l_attente(vps):
     f = vps([{"status": "running"}])
 
     async def dormir(_):
-        await ia_runs.arreter_demande("r4")
+        await ia_runs.arreter_demande(ia_runs.cle_demande("", "r4"))
 
     with ia_runs.demande("r4", "n"):
         with pytest.raises(ia_runs.RunAnnule):
             await ia_runs.executer(URL, H, _corps(), role="x", delai=60, dormir=dormir)
     assert f.stops
-    ia_runs.reinitialiser("r4")
-    assert not ia_runs.est_arretee("r4")
+    ia_runs.reinitialiser(ia_runs.cle_demande("", "r4"))
+    assert not ia_runs.est_arretee(ia_runs.cle_demande("", "r4"))
 
 
 @pytest.mark.asyncio
@@ -125,8 +125,8 @@ async def test_arret_via_arreter_demande_stoppe_les_runs_actifs(vps):
 
     t = asyncio.create_task(lecture())
     await asyncio.sleep(0.05)
-    assert "run_1" in ia_runs.runs_actifs("r5")
-    assert await ia_runs.arreter_demande("r5") == 1
+    assert "run_1" in ia_runs.runs_actifs(ia_runs.cle_demande("", "r5"))
+    assert await ia_runs.arreter_demande(ia_runs.cle_demande("", "r5")) == 1
     with pytest.raises(ia_runs.RunAnnule):
         await t
     assert f.stops
@@ -149,7 +149,7 @@ async def test_annulation_asyncio_arrete_la_tache(vps):
     with pytest.raises(asyncio.CancelledError):
         await t
     assert f.stops
-    assert ia_runs.runs_actifs("r6") == {}
+    assert ia_runs.runs_actifs(ia_runs.cle_demande("", "r6")) == {}
 
 
 @pytest.mark.asyncio
@@ -221,3 +221,32 @@ async def test_hermes_chat_hors_demande_reste_sur_chat_completions(monkeypatch):
     monkeypatch.setattr(ia_runs.httpx, "AsyncClient", lambda **kw: vrai(transport=httpx.MockTransport(handler), **kw))
     assert await ai_service._hermes_chat("gpt-oss:20b", "sys", "q", role="t") == "ok"
     assert appels == ["/v1/chat/completions"]
+
+
+@pytest.mark.asyncio
+async def test_arret_cloisonne_par_entreprise(vps):
+    """Même identifiant de demande chez deux entreprises : arrêter l'une ne touche pas l'autre."""
+    vps([{"status": "running"}])
+
+    async def dormir(_):
+        await asyncio.sleep(0.01)
+
+    async def lecture(tenant):
+        with ia_runs.demande("meme-id", f"n-{tenant}", tenant_id=tenant):
+            return await ia_runs.executer(URL, H, _corps(), role="x", delai=0.3, dormir=dormir)
+
+    a = asyncio.create_task(lecture("A"))
+    b = asyncio.create_task(lecture("B"))
+    await asyncio.sleep(0.05)
+    assert await ia_runs.arreter_demande(ia_runs.cle_demande("A", "meme-id")) == 1
+    with pytest.raises(ia_runs.RunAnnule):
+        await a
+    assert not ia_runs.est_arretee(ia_runs.cle_demande("B", "meme-id"))
+    with pytest.raises(ia_runs.DelaiDepasse):   # B continue jusqu'à son propre délai
+        await b
+
+
+def test_cle_idempotence_distincte_par_entreprise():
+    c = _corps()
+    assert ia_runs.cle_idempotence(ia_runs.cle_demande("A", "x"), "n", "r", c) != \
+        ia_runs.cle_idempotence(ia_runs.cle_demande("B", "x"), "n", "r", c)

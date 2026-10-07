@@ -710,7 +710,7 @@ _extraction_queue: "asyncio.Queue" = asyncio.Queue()
 _extraction_worker_task = None
 
 
-_TACHES: dict[str, "asyncio.Task"] = {}   # demande -> tâche de traitement en cours (pour l'arrêter)
+_TACHES: dict[str, "asyncio.Task"] = {}   # tenant:demande -> tâche de traitement en cours (pour l'arrêter)
 
 
 async def _extraction_worker_loop():
@@ -718,10 +718,10 @@ async def _extraction_worker_loop():
         request_id, tenant_id, vision_pages = await _extraction_queue.get()
         tache = None
         try:
-            if ia_runs.est_arretee(request_id):
+            if ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
                 continue   # arrêtée avant son tour : la file ne la ressuscite pas
             tache = asyncio.create_task(process_request(request_id, tenant_id, vision_pages))
-            _TACHES[request_id] = tache
+            _TACHES[ia_runs.cle_demande(tenant_id, request_id)] = tache
             await tache
         except asyncio.CancelledError:
             # Arrêt d'UNE demande (tache.cancel()) : la boucle continue. Arrêt du serveur : on relaie.
@@ -732,7 +732,7 @@ async def _extraction_worker_loop():
         except Exception:
             logger.exception("_extraction_worker_loop: process_request a leve une exception non interceptee")
         finally:
-            _TACHES.pop(request_id, None)
+            _TACHES.pop(ia_runs.cle_demande(tenant_id, request_id), None)
             _extraction_queue.task_done()
 
 
@@ -775,7 +775,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
     req = await db.requests.find_one({"id": request_id, "tenant_id": tenant_id}, {"_id": 0})
     if not req:
         return
-    if req.get("status") == "cancelled" or ia_runs.est_arretee(request_id):
+    if req.get("status") == "cancelled" or ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
         return   # arrêtée par l'utilisateur : ne jamais la relancer
     # Tentative courante : identifiant conservé en base (même valeur après un redémarrage du site, donc
     # les tâches déjà lancées sur le VPS sont reprises au lieu d'être refaites ; nouvelle valeur à chaque
@@ -794,7 +794,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         await db.requests.update_one({"id": request_id, "tenant_id": tenant_id}, {"$set": {"progression": etat_prog}})
 
     await db.requests.update_one({"id": request_id}, {"$set": {"status": "processing", "progression": etat_prog}})
-    jeton_ia = ia_runs.ouvrir(request_id, etat_prog["nonce"], _maj)
+    jeton_ia = ia_runs.ouvrir(request_id, etat_prog["nonce"], _maj, tenant_id=tenant_id)
     try:
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
@@ -834,7 +834,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
             raise ValueError("No content to process")
         if extracted.get("_error"):
             raise RuntimeError(extracted["_error"])
-        if ia_runs.est_arretee(request_id):
+        if ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
             return   # arrêtée pendant le calcul : ne rien écrire
         if cle_cache and not extracted.get("_cache_ia"):
             await cache_ia.ecrire(tenant_id, cle_cache[1], cle_cache[0], extracted)
@@ -850,7 +850,7 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         await clients_module.suggerer_depuis_extraction(request_id, extracted, req.get("raw_text") or "")
         await _auto_generate_quote_if_needed(request_id, tenant_id, req.get("created_by"))
     except Exception as e:
-        if ia_runs.est_arretee(request_id):
+        if ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
             logger.info("process_request : demande %s arrêtée par l'utilisateur (%s)", request_id, type(e).__name__)
             return
         logger.exception("process_request failed")
@@ -1129,7 +1129,7 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     if cle_cache:
         await cache_ia.invalider(cu.tenant_id, cle_cache[1])
     # Nouvelle tentative : nouvel identifiant (les tâches IA de la précédente ne sont pas reprises).
-    ia_runs.reinitialiser(request_id)
+    ia_runs.reinitialiser(ia_runs.cle_demande(cu.tenant_id, request_id))
     await db.requests.update_one({"id": request_id, "tenant_id": cu.tenant_id},
                                  {"$set": {"progression": {"nonce": new_id()}}})
     if _redis_sync() is not None:
@@ -2446,8 +2446,8 @@ async def update_request(request_id: str, body: dict, cu: CurrentUser = Depends(
 
 async def _arreter_demande(request_id: str, tenant_id: str, motif: str) -> int:
     """Arrête une demande en cours : tâches IA du VPS, tâche de traitement, statut, quota rendu."""
-    arretees = await ia_runs.arreter_demande(request_id)          # marque l'arrêt + /stop sur le VPS
-    tache = _TACHES.get(request_id)
+    arretees = await ia_runs.arreter_demande(ia_runs.cle_demande(tenant_id, request_id))          # marque l'arrêt + /stop sur le VPS
+    tache = _TACHES.get(ia_runs.cle_demande(tenant_id, request_id))
     if tache is not None and not tache.done():
         tache.cancel()
     await db.requests.update_one({"id": request_id, "tenant_id": tenant_id},
