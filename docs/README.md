@@ -66,6 +66,7 @@ Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/
 | [Runbook incident](./runbook-incident.md) | SLO, corrélation par `request_id`, déroulé, RACI, post-mortem |
 | [Vocabulaire Rexel — passe de nuit](./vocabulaire-rexel-passe-nuit.md) | Remplissage par tranches des gros catalogues (747 771 offres) : procédure, seuils, constats `pg_stat_activity` |
 | [Conformité RGPD](./conformite-rgpd.md) | Registre des traitements, droits des personnes, sous-traitants |
+| [Masquage RGPD, OpenCode Free et G3](./rgpd-masquage-ia-externe.md) | Ce qui est masqué avant chaque appel IA, mesures sur données réelles, limites, OpenCode Free, chaîne G3, état en production |
 | [SECURITY.md](../SECURITY.md) | Politique de sécurité et signalement |
 
 ## Historique

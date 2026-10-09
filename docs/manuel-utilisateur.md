@@ -366,6 +366,10 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
 ![Paramètres](assets/manuel/12-parametres.jpg)
 
 - **Moteur IA :** Blueseatra utilise par défaut son propre moteur, hébergé sur un serveur OVH. Vous pouvez choisir un autre fournisseur et ajouter votre clé ; elle est chiffrée avant d'être enregistrée.
+- **OpenCode Free :** 13 modèles gratuits, sans clé à saisir.
+  - Ils sont hébergés aux États-Unis, et certains réutilisent les données pour s'améliorer : à réserver aux essais.
+  - Cliquez sur **Tester la connexion** après avoir enregistré.
+- **Confidentialité :** avant chaque appel IA, quel que soit le fournisseur, Blueseatra masque les adresses, noms, téléphones, e-mails et identifiants. La lecture des PDF et des photos reste sur le serveur OVH.
 - **Modèle OCR préféré :** le mode « Automatique » est conseillé.
 - **Webhook n8n :** une adresse appelée après les étapes clés, pour automatiser la suite (e-mail, tableur, CRM).
 ![Données personnelles](assets/manuel/13-donnees-personnelles.jpg)
