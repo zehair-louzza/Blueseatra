@@ -1,6 +1,6 @@
 # Masquage RGPD, fournisseurs IA externes et chaîne G3
 
-Dernière mise à jour : 9 octobre 2026.
+Dernière mise à jour : 10 octobre 2026.
 
 ## Principe
 
@@ -59,16 +59,18 @@ Le fournisseur se choisit dans Réglages, Intégrations, Fournisseur IA : « Ope
 - **Clé** : aucune clé n'est demandée dans le SaaS.
 - **Routage interne** : `opencode:<modèle>`, envoyé à la passerelle avec `provider: opencode-free` (variable `HERMES_OPENCODE_PROVIDER`).
 
-Prérequis sur le VPS : le SaaS appelle la passerelle (`hermes-passerelle`), pas l'agent du tableau de bord. L'extension doit donc être installée dans la passerelle elle-même ([extension oc-free-provider](https://hermes-agent.nousresearch.com/docs/plugins/oc-free-provider)) :
+Prérequis sur le VPS : le SaaS appelle la passerelle (`hermes-passerelle`), pas l'agent du tableau de bord. L'[extension oc-free-provider](https://hermes-agent.nousresearch.com/docs/plugins/oc-free-provider) doit donc être installée et activée dans la passerelle elle-même.
 
-```bash
-cd ~/ovh-ai-stack
-docker compose exec hermes-passerelle hermes plugins list
-docker compose exec hermes-passerelle hermes plugins install oc-free-provider --enable
-docker compose restart hermes-passerelle
-```
+1. Installation, une seule fois. Les fichiers vont dans le volume `hermes_passerelle_data`, qui survit aux redémarrages et aux recréations :
 
-Ensuite, dans Réglages : choisir OpenCode Free, enregistrer, puis cliquer sur « Tester la connexion ».
+   ```bash
+   cd ~/ovh-ai-stack
+   docker compose exec hermes-passerelle hermes plugins install oc-free-provider
+   ```
+
+2. Activation : elle se déclare dans le dépôt `ovh-ai-stack`, avec `plugins.enabled: [oc-free-provider]` dans `hermes/passerelle/config.yaml` (PR ovh-ai-stack #44). L'option `--enable` de la commande échoue en effet sur `Read-only file system`, car la configuration de la passerelle est montée en lecture seule pour protéger la production. La fusion de la PR déclenche le déploiement automatique, qui recrée la passerelle.
+
+3. Contrôle : dans Réglages, choisir OpenCode Free, enregistrer, puis cliquer sur « Tester la connexion ».
 
 ## Chaîne G3
 
@@ -90,3 +92,22 @@ Code : `backend/recherche_g3.py`. Point d'accès : `POST /api/requests/{id}/sugg
 | G3 sans le repli | 29 | 0,549 |
 | Plafond : bon article parmi les 20 candidats | 37 | — |
 | G3 avec gpt-oss:20b sur le VPS | 21 | 0,26 |
+
+## État au 10 octobre 2026
+
+| Élément | État |
+|---|---|
+| Masquage de tous les appels IA | En production depuis le 9 octobre 2026 à 22 h 03 : PR #194, commit `85eecd6`, déploiement Render en ligne, `/api/health` répond 200 |
+| OpenCode Free dans les réglages | En production ; l'extension est installée dans la passerelle, son activation attend la fusion de la PR ovh-ai-stack #44 |
+| Chaîne G3 | Code en production, désactivé (`BLUESEATRA_G3` absent) ; aucun bouton dans l'interface pour l'instant |
+| Recherche par mots du module Fournisseur | En production : Fournisseur-Blueseatra PR #4, commit `78e7e8b` |
+
+## Clé Mistral : où elle se trouve et comment la vérifier
+
+Blueseatra n'envoie aucune clé Mistral : c'est la passerelle Hermès qui la lit, dans le fichier `.env` du VPS (`MISTRAL_API_KEY`). La procédure complète se trouve dans le guide d'exploitation Hermès du dépôt `ovh-ai-stack` (`docs/EXPLOITATION-HERMES.md`).
+
+| Réponse de l'API Mistral à `GET /v1/models` | Signification |
+|---|---|
+| `200` | La clé est valide |
+| `401 Invalid API Key` | La clé est incorrecte, révoquée ou d'un autre service ; en créer une nouvelle sur console.mistral.ai |
+| `402` | La clé est bonne, mais le compte n'a pas de moyen de paiement |

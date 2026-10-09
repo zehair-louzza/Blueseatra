@@ -56,6 +56,22 @@ sequenceDiagram
 
 ![Routage IA par la passerelle Hermès](./assets/schema-routage.png)
 
+Depuis le 9 octobre 2026, **chaque appel IA est masqué**, qu'il vise un modèle local du VPS (`custom:ollama`), Mistral (`custom:mistral`) ou OpenCode Free (`opencode-free`) :
+
+- **Avant l'envoi** : `masquage_rgpd.py` remplace les adresses, noms de sites, clients, donneurs d'ordre, personnes et identifiants par des marqueurs.
+- **Après la réponse** : `ai_service` remet les vraies valeurs, sur le serveur.
+- **Images** : elles ne quittent jamais le VPS.
+
+Le fournisseur choisi dans les réglages devient un paramètre `provider` envoyé à la passerelle :
+
+| Réglage | Envoyé à la passerelle |
+|---|---|
+| Moteur intégré | `custom:ollama` |
+| Mistral | `custom:mistral` (préfixe interne `mistral:`) |
+| OpenCode Free | `opencode-free` (préfixe interne `opencode:`) |
+
+Détails : [rgpd-masquage-ia-externe.md](./rgpd-masquage-ia-externe.md).
+
 ## Chiffrage sur sources activables
 
 ![Chiffrage sur sources activables](./assets/schema-chiffrage.png)
