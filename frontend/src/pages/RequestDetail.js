@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { ArrowLeft, RefreshCw, FileText, Loader2, Trash2, Save, Eye, Sparkles, Square } from 'lucide-react';
 import { hasFilePreview, openFilePreview } from '@/lib/filePreviewCache';
 import { SuggestionsPanel } from '@/components/clients/Suggestions';
+import SuggestionsG3 from '@/components/SuggestionsG3';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 
 export default function RequestDetail() {
@@ -169,6 +170,7 @@ export default function RequestDetail() {
       {req.status === 'cancelled' && <Card className="mt-4 border-0 bg-slate-50 p-4 text-sm text-slate-700" data-testid="cancelled-note">{t('req.cancelled_note')}</Card>}
       {req.status === 'failed' && <Card className="mt-4 border-0 bg-rose-50 p-4 text-sm text-rose-800">{req.error}</Card>}
       {['done', 'needs_review'].includes(req.status) && <SuggestionsPanel demandeId={id} />}
+      {req.g3_actif && !enCours && <SuggestionsG3 demandeId={id} />}
 
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card className="card-shadow border-0 p-5">

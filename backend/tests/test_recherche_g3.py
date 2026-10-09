@@ -86,3 +86,14 @@ def test_catalogue_vide_ou_demande_vide():
     appel, vus = _ia_simulee([{"produits": []}])
     assert asyncio.run(g3.suggerer("", CATALOGUE, appel))["lignes"] == []
     assert asyncio.run(g3.suggerer(DEMANDE, [], appel))["statut"] == "erreur"
+
+
+def test_ordre_des_lignes_conserve_avec_les_choix_en_parallele():
+    async def appel(consigne, texte, schema):
+        if "produits" in json.dumps(schema):
+            return {"produits": [{"designation": d} for d in ("peinture blanche 10 L", "cylindre 30x30", "spot LED 7 W")]}
+        produit = json.loads(texte)["produit"]
+        await asyncio.sleep(0.03 if "peinture" in produit else 0)   # la 1re réponse arrive en dernier
+        return {"codes": [json.loads(texte)["candidats"][0]["code"]]}
+    res = asyncio.run(g3.suggerer(DEMANDE, CATALOGUE, appel))
+    assert [l["produit"] for l in res["lignes"]] == ["peinture blanche 10 L", "cylindre 30x30", "spot LED 7 W"]
