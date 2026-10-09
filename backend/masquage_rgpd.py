@@ -214,6 +214,12 @@ devise contrat article articles taux applicable modalite paiement seuil rappel t
 document demonstration fictives valeur contractuelle accord entreprise portable fixe fax bonjour madame monsieur
 la le les de des du et en sur pour par au aux un une ou
 """.split())
+# Mots de travaux fréquents : un client ne peut pas « posséder » ces mots.
+_MOTS_METIER = set("""
+peinture enduit plaque platre cloison plafond sol mur porte fenetre serrure cylindre verrou spot luminaire prise
+interrupteur cable disjoncteur tableau chauffe eau ballon robinet wc lavabo evier douche carrelage parquet moquette
+vitrine faux bureau bureaux boutique magasin cuisine chantier maintenance electricite plomberie menuiserie
+""".split())
 _SIGLES_TECHNIQUES = {"led", "pvc", "wc", "vmc", "cvc", "ba13", "inox", "cuivre", "per", "multicouche", "rj45",
                       "ip44", "ip65", "epi", "bi", "pmr", "nf", "ce", "erp", "ssi", "baes", "baeh", "cta", "pac", "ecs", "tgbt", "tableau"}
 _ORPHELIN_ADRESSE = re.compile(
@@ -237,7 +243,11 @@ def _masquer_connus(ms: _Masqueur, texte: str, valeurs: Iterable[tuple]) -> str:
         v = (v or "").strip()
         if len(v) >= 3 and not _MARQUEUR.search(v):
             uniques.setdefault(_aplatir(v), (cat, v))
-    for _, (cat, v) in sorted(uniques.items(), key=lambda kv: -len(kv[0])):
+    for plat_v, (cat, v) in sorted(uniques.items(), key=lambda kv: -len(kv[0])):
+        # Un nom fait d'un seul mot courant ou technique (« Peinture », « LED ») ne masque pas les travaux.
+        if " " not in plat_v.strip() and (plat_v.strip() in _MOTS_COURANTS or plat_v.strip() in _SIGLES_TECHNIQUES
+                                          or plat_v.strip() in _MOTS_METIER):
+            continue
         motif = _flexible(v)
         if motif is None:
             continue

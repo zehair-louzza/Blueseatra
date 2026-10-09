@@ -129,3 +129,9 @@ def test_champ_dont_la_valeur_contient_deja_un_marqueur():
     r = _masque("Contact : Mme Ducros 06 12 34 56 78\nRappeler Mme Ducros demain.")
     assert "Ducros" not in r.texte and "]]" not in r.texte
     m.verifier_avant_envoi(r.texte, ENTITES)
+
+
+def test_un_client_nomme_par_un_mot_courant_ne_masque_pas_les_travaux():
+    entites = m.Entites(clients=["Peinture", "LED"])
+    r = m.masquer("Peinture acrylique blanche 10 L et 4 spots LED.", entites)
+    assert r.texte == "Peinture acrylique blanche 10 L et 4 spots LED."
