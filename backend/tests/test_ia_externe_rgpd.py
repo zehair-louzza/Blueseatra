@@ -100,3 +100,11 @@ def test_opencode_free_reglages_et_routage(monkeypatch):
     asyncio.run(ai._call_externe_via_hermes(model="opencode:big-pickle", system_prompt="s", user_message=DEMANDE))
     assert vu["corps"]["provider"] == "opencode-free" and vu["corps"]["model"] == "big-pickle"
     assert "LUMIA" not in _texte_envoye(vu)
+
+
+def test_appel_json_g3_avec_opencode_masque_et_restaure(monkeypatch):
+    vu = _passerelle(monkeypatch, reponse='{"produits": [{"designation": "spot LED pour [client_1]"}]}')
+    res = asyncio.run(ai.appel_json_ia({"ai_provider": "opencode", "ai_model": "big-pickle"}, "consigne", DEMANDE,
+                                       {"type": "object"}))
+    assert vu["corps"]["provider"] == "opencode-free" and "LUMIA" not in _texte_envoye(vu)
+    assert res == {"produits": [{"designation": "spot LED pour LUMIA"}]}

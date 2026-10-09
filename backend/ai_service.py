@@ -1489,6 +1489,27 @@ async def tester_mistral_via_hermes(model: str | None) -> dict:
     return {"ok": '"ok"' in sortie or "ok" in sortie.lower(), "message": f"Mistral répond par {via}."}
 
 
+async def appel_json_ia(tenant_settings: dict, consigne: str, texte: str, schema: dict | None = None,
+                       role: str = "g3") -> dict:
+    """Appel JSON avec le fournisseur IA de l'entreprise (chaîne G3, recherche_g3.py).
+
+    Modèle externe (Mistral, OpenCode) : texte masqué par _hermes_chat. Modèle
+    du VPS : texte intact. Renvoie l'objet JSON de la réponse."""
+    provider, model, api_key = await resolve_ai_config(tenant_settings or {}, role="reason")
+    provider, model, api_key = ia_garde_fous.appliquer_coupure(provider, model, api_key)
+    contrainte = schema if IA_SCHEMA_STRICT else None
+    if est_externe_via_hermes(provider, model):
+        brut = await _call_externe_via_hermes(model=model, system_prompt=consigne, user_message=texte, role=role,
+                                              json_schema=contrainte)
+    elif provider == "mistral":
+        brut = await _call_mistral(api_key=api_key, model=model, system_prompt=consigne, user_message=texte,
+                                   role=role, json_schema=contrainte)
+    else:
+        brut = await _call_hermes_ollama(model=model, system_prompt=consigne, user_message=texte, role=role,
+                                         json_schema=contrainte)
+    return _parse_json_object(_strip_think(brut))
+
+
 async def tester_opencode_via_hermes(model: str | None) -> dict:
     """Petit appel réel à OpenCode Free par Hermès (quelques jetons, aucune donnée client)."""
     modele = model if (model or "").startswith(OPENCODE_PREFIXE_HERMES) else OPENCODE_PREFIXE_HERMES + (model or "")
