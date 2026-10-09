@@ -27,7 +27,7 @@ Ce n'est pas un outil de prospection : pas de lecture des boîtes mail, pas d'en
 2. **Rien n'est supprimé.** Un client, un contact ou un chantier est archivé. Seule exception légale : un contact peut être anonymisé (droit à l'effacement RGPD), sans casser l'historique des devis.
 3. **L'IA propose, l'humain valide.** Aucune fiche n'est créée ni modifiée par l'IA seule. Chaque proposition cite la phrase du document qui la justifie. Seule une correspondance exacte (même SIRET, ou même e-mail) rattache automatiquement une demande à un client existant, avec cette preuve affichée.
 4. **Aucun prix touché.** Le module ne calcule rien : les montants affichés viennent des devis.
-5. **Relances jamais envoyées seules.** Une relance est une tâche avec un texte proposé ; l'utilisateur envoie, appelle ou marque « faite ».
+5. **Relances envoyées seules uniquement sur décision de l'entreprise.** Une relance est une tâche avec un texte proposé et modifiable ; l'utilisateur envoie, appelle ou marque « faite ». L'envoi automatique des relances par e-mail à l'échéance est désactivé par défaut et s'active dans les réglages (section 4.7, demande du 10/10/2026).
 6. **Journal en ajout seul.** Les échanges ne sont jamais modifiés : une erreur se corrige par une ligne de correction.
 7. **Hors quotas.** Le module ne consomme ni devis assistés ni pages lues. Seule l'extraction de la demande, déjà comptée, alimente les suggestions.
 
@@ -149,7 +149,7 @@ Tous les écrans sont en français et en anglais, avec le thème actuel (Geist, 
   - « Accepté » ou « refusé » met à jour l'issue du devis et annule les relances restantes.
   - « À rappeler » crée une tâche le jour ouvré suivant.
 - **Reporter :** demain, dans 3 jours ouvrés ou date choisie.
-- **Envoyer** ouvre le logiciel de messagerie de l'utilisateur (`mailto:`) avec le texte. Aucun e-mail n'est envoyé par le serveur en v1.
+- **Envoyer maintenant** envoie l'e-mail depuis la boîte de l'entreprise, après confirmation, avec l'objet et le texte relus (section 4.7). Sans messagerie d'envoi configurée, **Ouvrir l'e-mail** ouvre le logiciel de messagerie de l'utilisateur (`mailto:`).
 - Un badge dans le menu affiche le nombre de relances en retard ou du jour.
 
 ### 4.4 Suggestions à valider
@@ -184,6 +184,44 @@ Une suggestion ne remplace jamais une valeur déjà saisie par un humain : elle 
 ### 4.6 Réglages des relances (bouton « Réglages des relances » de l'écran À relancer, owner/admin)
 
 Relances activées ; délais en jours ouvrés (3, 7, 14) ; délais en cas d'urgence (1, 2, 4) ; nombre maximal (3) ; validité des devis (30 jours) ; rappel avant expiration (3 jours ouvrés) ; seuil d'appel (10 000 € HT) ; heure (9 h) ; fuseau. Un aperçu montre le calendrier calculé pour un devis envoyé aujourd'hui.
+
+### 4.7 Envoi des relances par e-mail
+
+Ajouté le 10/10/2026. Code : `backend/envoi_relances.py` (SMTP, sans base) et `backend/relances_email.py` (API et tâche de fond). Migration : `20261010020000_relances_envoi_email.sql`.
+
+**Messagerie d'envoi.** Chaque entreprise renseigne sa propre boîte dans **À relancer → Réglages des relances → Messagerie d'envoi (SMTP)**. Réservé au propriétaire et aux administrateurs.
+
+- **Champs :** serveur, port, identifiant, mot de passe, adresse d'expédition, nom affiché, signature, copie cachée.
+- **Ports :** 465 (SSL) ou 587 (STARTTLS) uniquement, certificat vérifié. Render bloque le port 25.
+- **Serveur :** nom d'hôte public uniquement. Une adresse privée, locale ou réservée est refusée.
+- **Mot de passe :** chiffré (Fernet, `APP_ENCRYPTION_KEY`), jamais renvoyé au site. Champ vide = inchangé.
+- **E-mail de test :** envoyé à l'adresse d'expédition. Il est obligatoire avant l'envoi automatique. Changer le serveur, le port, l'identifiant, l'adresse ou le mot de passe annule la vérification.
+- **Préréglages :** Zoho Mail (Europe), OVHcloud, Hostinger, Gmail et Microsoft 365. Gmail et Microsoft 365 demandent un mot de passe d'application.
+
+**Envoi par clic.**
+
+1. L'utilisateur relit l'objet et le texte de la relance et peut les modifier. **Enregistrer le texte** garde la version modifiée.
+2. **Envoyer maintenant** demande une confirmation qui affiche l'adresse du destinataire.
+3. Le serveur envoie l'e-mail et marque la relance « faite ». L'envoi est noté au journal des échanges du client et au journal d'audit.
+
+**Envoi automatique** (case **Envoyer automatiquement les relances par e-mail à leur échéance**, désactivée par défaut).
+
+- **Balayage :** toutes les 5 minutes. Il envoie les relances par e-mail arrivées à échéance.
+- **Relances concernées :** seulement celles dont l'échéance tombe après l'activation. Un retard plus ancien reste à envoyer à la main.
+- **Texte :** modifiable jusqu'à l'envoi. La carte indique « Envoi automatique le … ».
+- **Limites :** 20 e-mails par entreprise et par balayage, et 3 tentatives par relance, espacées d'au moins une heure.
+- **Panne de la boîte :** si le mot de passe est refusé ou si le serveur est injoignable, le balayage s'arrête pour cette entreprise et l'erreur s'affiche dans la messagerie d'envoi.
+- **Effets de la messagerie :** désactiver la messagerie désactive aussi l'envoi automatique.
+
+**Règles communes.**
+
+| # | Règle |
+|---|---|
+| E1 | **Jamais deux fois :** la relance est réservée par une mise à jour conditionnelle avant l'envoi. Un second clic ou un second balayage reçoit « déjà envoyée ». |
+| E2 | **Opposition RGPD :** un contact opposé aux relances ne reçoit jamais d'e-mail, même si l'opposition arrive après la planification. |
+| E3 | **Contenu :** texte brut, sans pièce jointe ni lien de suivi. La signature est ajoutée sous le texte. Les réponses vont à l'adresse d'expédition (Reply-To). |
+| E4 | **Échec visible :** le message d'erreur s'affiche sur la carte. Il ne contient aucun secret. La relance reste « prévue » et peut être renvoyée. |
+| E5 | **Coupure d'urgence :** `BLUESEATRA_ENVOI_AUTO=0` sur Render arrête la tâche de fond. L'envoi par clic reste possible. |
 
 ## 5. Règles de relance
 
@@ -235,6 +273,10 @@ Toutes les routes sont sous `/api`, avec le tenant du jeton ; les listes sont pa
 | POST | `/suggestions-clients/{id}/accepter`, `/rejeter` | Validation (avec cible pour un rattachement) |
 | GET | `/relances?periode=retard\|aujourdhui\|semaine` | Écran À relancer |
 | POST | `/relances/{id}/faite`, `/reporter`, `/annuler` | Actions (résultat, nouvelle date, motif) |
+| PATCH | `/relances/{id}/texte` | Objet et texte d'une relance par e-mail, tant qu'elle n'est pas partie |
+| POST | `/relances/{id}/envoyer` | Envoi immédiat depuis la messagerie d'envoi (409 si déjà envoyée) |
+| GET, PUT | `/messagerie` | Messagerie d'envoi (owner/admin) ; le mot de passe n'est jamais renvoyé |
+| POST | `/messagerie/test` | E-mail de test à l'adresse d'expédition (owner/admin) |
 | POST | `/quotes/{id}/issue` | Accepté / refusé / sans suite |
 | GET / PUT | `/regles-relance` | Réglages (owner/admin) |
 | POST | `/clients/import/preview`, `/clients/import` ; GET `/clients/export` | Import et export CSV |
@@ -281,4 +323,4 @@ Chaque lot fait l'objet d'une PR distincte, avec ses tests et des captures, puis
 
 ## 11. Hors périmètre de la v1
 
-Envoi d'e-mails par le serveur, synchronisation de la boîte mail ou de l'agenda, enrichissement externe, facturation et relances d'impayés (module Facturation), application mobile.
+Synchronisation de la boîte mail ou de l'agenda (lecture des réponses), enrichissement externe, facturation et relances d'impayés (module Facturation), application mobile.

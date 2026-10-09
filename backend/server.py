@@ -38,6 +38,7 @@ import catalogue_navigation
 import catalogue_chiffrage
 import quotas
 import clients_module
+import relances_email
 import quote_versions_diff
 import observabilite
 import catalogue_comparaison
@@ -720,6 +721,7 @@ async def company_profile_put(body: CompanyProfile,
 # mecanisme que le watchdog Redis : voir _requeue_stuck_on_startup).
 _extraction_queue: "asyncio.Queue" = asyncio.Queue()
 _extraction_worker_task = None
+_envoi_auto_task = None   # envoi automatique des relances (relances_email.boucle_envoi_auto)
 
 
 _TACHES: dict[str, "asyncio.Task"] = {}   # tenant:demande -> tâche de traitement en cours (pour l'arrêter)
@@ -2944,6 +2946,7 @@ async def catalogue_commun_afficher_tous(cu: CurrentUser = Depends(require_role(
 
 
 api.include_router(clients_module.build_router(get_current, require_role))
+api.include_router(relances_email.build_router(require_role, chiffrer=encrypt_secret, dechiffrer=decrypt_secret))
 app.include_router(observabilite.build_router(get_current, require_role))
 app.include_router(facturation_stripe.build_router(get_current, require_role))
 app.middleware("http")(observabilite.intergiciel)
@@ -2973,9 +2976,11 @@ async def startup():
             await db[col].create_index("tenant_id")
     except Exception as e:
         logger.warning(f"index creation: {e}")
-    global _extraction_worker_task
+    global _extraction_worker_task, _envoi_auto_task
     if _extraction_worker_task is None:
         _extraction_worker_task = asyncio.create_task(_extraction_worker_loop())
+    if _envoi_auto_task is None and os.environ.get("DATABASE_URL"):
+        _envoi_auto_task = asyncio.create_task(relances_email.boucle_envoi_auto())
     await _requeue_stuck_on_startup()
     logger.info("Blueseatra API started")
 
@@ -2984,4 +2989,6 @@ async def startup():
 async def shutdown():
     if _extraction_worker_task is not None:
         _extraction_worker_task.cancel()
+    if _envoi_auto_task is not None:
+        _envoi_auto_task.cancel()
     await db.dispose()
