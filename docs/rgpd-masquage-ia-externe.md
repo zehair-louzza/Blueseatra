@@ -4,14 +4,20 @@ Dernière mise à jour : 9 octobre 2026.
 
 ## Principe
 
-Tout appel IA vers un fournisseur qui n'est pas un modèle du VPS est masqué. Cela concerne Mistral (`custom:mistral`) et OpenCode Free (`opencode-free`).
+Depuis le 9 octobre 2026, à la demande de l'exploitant, **tous les appels IA sont masqués**. Cela vaut pour les modèles du VPS (`custom:ollama`) comme pour les fournisseurs externes : Mistral (`custom:mistral`), OpenCode Free (`opencode-free`) et OpenAI (chemin hérité).
 
 - **Avant l'envoi** : les informations personnelles sont remplacées par des marqueurs (`[adresse_1]`, `[personne_2]`…).
 - **Après la réponse** : les vraies valeurs sont remises dans la réponse du modèle, sur le serveur Blueseatra. La table de correspondance ne quitte jamais le serveur.
-- **Images** : aucune image n'est envoyée hors du VPS. La lecture des PDF et des photos reste locale.
+- **Images** :
+  - aucune image n'est envoyée à un fournisseur externe ;
+  - les images restent lues par les modèles OCR du VPS, car une image ne peut pas être masquée ;
+  - le texte qui en est tiré est masqué avant l'étape suivante.
 - **Contrôle avant envoi** : si un détecteur trouve encore une information après le masquage, l'appel est refusé (`FuitePossible`).
 
-Code : `backend/masquage_rgpd.py`. Branchement : `ai_service._hermes_chat`, ainsi que le chemin Mistral direct utilisé en cas de retour arrière.
+Code : `backend/masquage_rgpd.py`. Branchement dans `ai_service` :
+- `_hermes_chat`, point d'entrée de tous les appels en production ;
+- le décorateur `avec_masquage`, qui couvre les chemins directs de retour arrière (Ollama direct, cascade, passerelle, Mistral direct, OpenAI) ;
+- une variable de contexte qui empêche de masquer deux fois le même appel.
 
 ## Ce qui est masqué
 

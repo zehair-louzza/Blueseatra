@@ -2,6 +2,9 @@
 Default engine: Hermes AI (Ollama) running locally on OVH VPS.
 A tenant can override provider/model/key via Settings (Integrations).
 """
+import contextvars
+import functools
+import inspect
 import ia_garde_fous
 import masquage_rgpd
 import ia_runs
@@ -1078,6 +1081,60 @@ async def _entites_rgpd() -> "masquage_rgpd.Entites":
     return e
 
 
+# Vrai pendant un appel dont le texte est déjà masqué (évite un double masquage).
+_DEJA_MASQUE: contextvars.ContextVar = contextvars.ContextVar("blueseatra_deja_masque", default=False)
+
+
+async def _masquer_textes(textes: list, contexte: str) -> tuple:
+    """Masque les textes d'un appel, contrôle avant envoi, journalise les seules catégories."""
+    entites = await _entites_rgpd()
+    masques, correspondances = masquage_rgpd.masquer_plusieurs(textes, entites)
+    for t in masques:
+        masquage_rgpd.verifier_avant_envoi(t, entites)
+    compte: dict = {}
+    for marqueur in correspondances:
+        cat = marqueur[1:].rsplit("_", 1)[0]
+        compte[cat] = compte.get(cat, 0) + 1
+    logger.info("rgpd_masquage %s marqueurs=%s", contexte, compte)
+    return masques, correspondances
+
+
+def _restaurer_sortie(sortie, correspondances: dict):
+    if isinstance(sortie, str):
+        return masquage_rgpd.restaurer(sortie, correspondances)
+    if isinstance(sortie, tuple) and sortie and isinstance(sortie[0], str):
+        return (masquage_rgpd.restaurer(sortie[0], correspondances),) + sortie[1:]
+    return sortie
+
+
+def avec_masquage(externe: bool = False):
+    """Masque user_message (et user_message_compact) de tout appel IA, local ou externe.
+
+    externe=True : en plus, aucune image n'est envoyée."""
+    def deco(fn):
+        signature = inspect.signature(fn)
+
+        @functools.wraps(fn)
+        async def enveloppe(*args, **kwargs):
+            if not MASQUAGE_RGPD or _DEJA_MASQUE.get():
+                return await fn(*args, **kwargs)
+            lies = signature.bind_partial(*args, **kwargs)
+            if externe and lies.arguments.get("image_b64"):
+                raise masquage_rgpd.FuitePossible(f"Image refusée ({fn.__name__}) : la lecture des images reste sur le VPS.")
+            cles = [k for k in ("user_message", "user_message_compact") if isinstance(lies.arguments.get(k), str)]
+            masques, correspondances = await _masquer_textes([lies.arguments[k] for k in cles], fn.__name__)
+            for k, v in zip(cles, masques):
+                lies.arguments[k] = v
+            jeton = _DEJA_MASQUE.set(True)
+            try:
+                sortie = await fn(*lies.args, **lies.kwargs)
+            finally:
+                _DEJA_MASQUE.reset(jeton)
+            return _restaurer_sortie(sortie, correspondances)
+        return enveloppe
+    return deco
+
+
 async def _hermes_chat(
     model: str,
     system_prompt: str | None,
@@ -1089,21 +1146,20 @@ async def _hermes_chat(
     role: str = "-",
     json_schema: dict | None = None,
 ) -> str:
-    """Point d'entrée IA unique : masquage RGPD si le fournisseur n'est pas sur le VPS."""
-    if not (MASQUAGE_RGPD and est_fournisseur_externe(provider)):
+    """Point d'entrée IA unique : texte toujours masqué (VPS ou externe) ; images refusées hors VPS."""
+    externe = est_fournisseur_externe(provider)
+    if MASQUAGE_RGPD and externe and image_b64:
+        raise masquage_rgpd.FuitePossible(
+            f"Image refusée vers {provider} : la lecture des images reste sur le VPS.")
+    if not MASQUAGE_RGPD or _DEJA_MASQUE.get():
         return await _hermes_chat_brut(model, system_prompt, user_message, image_b64=image_b64, provider=provider,
                                        timeout=timeout, reasoning_effort=reasoning_effort, role=role,
                                        json_schema=json_schema)
-    if image_b64:
-        raise masquage_rgpd.FuitePossible(
-            f"Image refusée vers {provider} : la lecture des images reste sur le VPS.")
-    entites = await _entites_rgpd()
-    masque = masquage_rgpd.masquer(user_message, entites)
-    masquage_rgpd.verifier_avant_envoi(masque.texte, entites)
-    logger.info("rgpd_masquage provider=%s role=%s marqueurs=%s", provider, role, masque.categories())
-    sortie = await _hermes_chat_brut(model, system_prompt, masque.texte, provider=provider, timeout=timeout,
-                                     reasoning_effort=reasoning_effort, role=role, json_schema=json_schema)
-    return masquage_rgpd.restaurer(sortie, masque.correspondances)
+    (texte,), correspondances = await _masquer_textes([user_message], f"provider={provider} role={role}")
+    sortie = await _hermes_chat_brut(model, system_prompt, texte, image_b64=image_b64, provider=provider,
+                                     timeout=timeout, reasoning_effort=reasoning_effort, role=role,
+                                     json_schema=json_schema)
+    return masquage_rgpd.restaurer(sortie, correspondances)
 
 
 async def _hermes_chat_brut(
@@ -1419,15 +1475,6 @@ async def _call_mistral(
                                   provider=HERMES_MISTRAL_PROVIDER, timeout=180.0, role=role, json_schema=json_schema)
     if not api_key:
         raise RuntimeError("Mistral : aucune clé API (page Paramètres ou MISTRAL_API_KEY).")
-    correspondances: dict = {}
-    if MASQUAGE_RGPD:
-        # Chemin direct (retour arrière d'urgence) : mêmes règles RGPD que par Hermès.
-        if image_b64:
-            raise masquage_rgpd.FuitePossible("Image refusée vers Mistral : la lecture des images reste sur le VPS.")
-        entites = await _entites_rgpd()
-        masque = masquage_rgpd.masquer(user_message, entites)
-        masquage_rgpd.verifier_avant_envoi(masque.texte, entites)
-        user_message, correspondances = masque.texte, masque.correspondances
     content: list | str = user_message
     if image_b64:
         content = [
@@ -1472,7 +1519,7 @@ async def _call_mistral(
             texte = data["choices"][0]["message"]["content"]
             if isinstance(texte, list):   # modèles de raisonnement : blocs typés
                 texte = "".join(b.get("text", "") for b in texte if isinstance(b, dict) and b.get("type") == "text")
-            return masquage_rgpd.restaurer(texte, correspondances)
+            return texte
     raise RuntimeError("Mistral : limite de débit atteinte (429)")
 
 
@@ -2759,6 +2806,15 @@ def extract_plain_text(content: bytes) -> str:
             continue
     return content.decode("utf-8", errors="replace").strip()
 
+
+# --- RGPD (09/10/2026) : masquage de TOUS les appels IA, VPS compris -----------
+# Chemins directs (retour arrière BLUESEATRA_IA_VIA_HERMES=0) et appels qui
+# n'entrent pas par _hermes_chat. Un appel déjà masqué n'est pas remasqué.
+_call_structuring_cascade = avec_masquage()(_call_structuring_cascade)
+_call_hermes_ollama = avec_masquage()(_call_hermes_ollama)
+_call_hermes_gateway = avec_masquage()(_call_hermes_gateway)
+_call_openai = avec_masquage(externe=True)(_call_openai)
+_call_mistral = avec_masquage(externe=True)(_call_mistral)
 
 # --- Journal par appel IA (#88) : durée, modèle, succès, coût estimé ----------
 # Réaffectation en fin de module : les appels internes résolvent ces noms au

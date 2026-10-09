@@ -282,12 +282,12 @@ def _connus(entites: Entites | None) -> List[tuple]:
     return valeurs
 
 
-def masquer(texte: str | None, entites: Entites | None = None) -> Resultat:
+def masquer(texte: str | None, entites: Entites | None = None, _ms: "_Masqueur | None" = None) -> Resultat:
     """Remplace les informations personnelles par des marqueurs réversibles."""
     t = (texte or "")[:MAX_TEXTE]
+    ms = _ms or _Masqueur()
     if not t.strip():
-        return Resultat(t, {})
-    ms = _Masqueur()
+        return Resultat(t, ms.correspondances)
     connus = _connus(entites)
 
     # 1. Identifiants techniques.
@@ -406,6 +406,13 @@ def _masquer_majuscules(ms: _Masqueur, t: str) -> tuple:
         sortie.append(ligne)
         pos += len(lignes[i])
     return "".join(sortie), noms
+
+
+def masquer_plusieurs(textes: List[str | None], entites: Entites | None = None) -> tuple:
+    """Plusieurs textes d'un même appel (document complet et version courte) :
+    numérotation commune, donc une seule table pour restaurer la réponse."""
+    ms = _Masqueur()
+    return [masquer(t, entites, _ms=ms).texte for t in textes], ms.correspondances
 
 
 def restaurer(texte: str | None, correspondances: Dict[str, str]) -> str:

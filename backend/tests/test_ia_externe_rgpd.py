@@ -62,10 +62,34 @@ def test_fournisseur_externe_recoit_le_texte_masque_et_la_reponse_est_restauree(
     assert '"client": "LUMIA"' in sortie
 
 
-def test_modele_local_du_vps_recoit_le_texte_intact(monkeypatch):
-    vu = _passerelle(monkeypatch, reponse="ok")
-    asyncio.run(ai._hermes_chat("gpt-oss:20b", "consigne", DEMANDE, provider="custom:ollama"))
-    assert _texte_envoye(vu).endswith(DEMANDE)
+def test_modele_local_du_vps_recoit_aussi_le_texte_masque(monkeypatch):
+    # Demande du 09/10/2026 : le masquage s'applique à TOUS les appels, VPS compris.
+    vu = _passerelle(monkeypatch, reponse='{"client": "[client_1]"}')
+    sortie = asyncio.run(ai._hermes_chat("gpt-oss:20b", "consigne", DEMANDE, provider="custom:ollama"))
+    envoye = _texte_envoye(vu)
+    for fuite in ("LUMIA", "Peupliers", "Ducros", "06 12"):
+        assert fuite not in envoye, fuite
+    assert "3 spots LED" in envoye and '"client": "LUMIA"' in sortie
+
+
+def test_image_acceptee_pour_la_lecture_sur_le_vps(monkeypatch):
+    vu = _passerelle(monkeypatch, reponse="texte lu")
+    asyncio.run(ai._hermes_chat("glm-ocr:latest", None, "Transcris.", image_b64="QUJD", provider="custom:ollama"))
+    assert vu["appels"] == 1
+
+
+def test_appel_ollama_direct_masque_sans_double_masquage(monkeypatch):
+    vu = _passerelle(monkeypatch, reponse='{"site": "[adresse_1]"}')
+    sortie = asyncio.run(ai._call_hermes_ollama(model="gpt-oss:20b", system_prompt="s", user_message=DEMANDE))
+    envoye = _texte_envoye(vu)
+    assert "Peupliers" not in envoye and "[[" not in envoye
+    assert "Peupliers" in sortie
+
+
+def test_cascade_texte_complet_et_version_courte_numerotation_commune():
+    (complet, court), corr = __import__("masquage_rgpd").masquer_plusieurs(
+        [DEMANDE, "Contact : Mme Ducros"], m.Entites(clients=["LUMIA"]))
+    assert "Ducros" not in court and m.restaurer(court, corr) == "Contact : Mme Ducros"
 
 
 def test_image_jamais_envoyee_a_un_fournisseur_externe(monkeypatch):
@@ -77,13 +101,8 @@ def test_image_jamais_envoyee_a_un_fournisseur_externe(monkeypatch):
 
 def test_envoi_refuse_si_le_controle_trouve_une_fuite(monkeypatch):
     vu = _passerelle(monkeypatch)
-    vrai_masquer = m.masquer
-    appels = []
-
-    def _masquage_defaillant(texte, entites=None):   # 1er passage raté, le contrôle utilise le vrai détecteur
-        appels.append(1)
-        return m.Resultat(texte, {}) if len(appels) == 1 else vrai_masquer(texte, entites)
-    monkeypatch.setattr(ai.masquage_rgpd, "masquer", _masquage_defaillant)
+    # Masquage défaillant (texte rendu tel quel) : le contrôle avant envoi doit bloquer.
+    monkeypatch.setattr(ai.masquage_rgpd, "masquer_plusieurs", lambda textes, entites=None: (list(textes), {}))
     with pytest.raises(m.FuitePossible):
         asyncio.run(ai._hermes_chat("modele", "consigne", DEMANDE, provider="custom:mistral"))
     assert vu["appels"] == 0
