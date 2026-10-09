@@ -3,6 +3,7 @@ Default engine: Hermes AI (Ollama) running locally on OVH VPS.
 A tenant can override provider/model/key via Settings (Integrations).
 """
 import ia_garde_fous
+import masquage_rgpd
 import ia_runs
 import os
 import tce_v4
@@ -732,11 +733,16 @@ async def resolve_ai_config(
         model = model if model and not model.lower().startswith(("hermes", "qwen")) else MISTRAL_DEFAULT_MODEL
         api_key = api_key or MISTRAL_API_KEY
 
+    if provider == "opencode":
+        # Réglages : fournisseur « OpenCode Free », modèle nu ; routage interne par Hermès.
+        nu = (model or "").removeprefix(OPENCODE_PREFIXE_HERMES)
+        provider, model = "hermes", OPENCODE_PREFIXE_HERMES + (nu if nu in OPENCODE_FREE_MODELES else OPENCODE_FREE_MODELES[0])
+
     # Hermes/Ollama: tenant key unused; gateway auth is HERMES_API_KEY.
     if provider == "hermes":
         model = model or HERMES_DEFAULT_MODEL
-        if est_mistral_via_hermes(provider, model):
-            pass  # modèle Mistral choisi dans Paramètres : routé par l'agent Hermès
+        if est_externe_via_hermes(provider, model):
+            pass  # modèle Mistral ou OpenCode choisi dans Paramètres : routé par l'agent Hermès
         elif role in ("vision", "file") and (model or "").lower().startswith("gpt-oss"):
             # GPT-OSS sélectionné pour le texte n'est pas envoyé à des images.
             # OCR/vision conservent leur modèle spécialisé.
@@ -1001,7 +1007,106 @@ class HermesIndisponible(RuntimeError):
     pass
 
 
+# ---------------------------------------------------------------------------
+# RGPD (09/10/2026) : tout fournisseur qui n'est pas un modèle du VPS reçoit un
+# texte MASQUÉ (masquage_rgpd) : adresses, noms de clients, de sites, de
+# donneurs d'ordre et de personnes, téléphones, e-mails, SIRET, IBAN, numéros
+# de dossier. La réponse est restaurée ici, sur le serveur. Une image n'est
+# jamais envoyée hors du VPS. Si le contrôle avant envoi détecte encore une
+# information, l'appel est refusé (FuitePossible).
+# ---------------------------------------------------------------------------
+MASQUAGE_RGPD = os.environ.get("BLUESEATRA_MASQUAGE_RGPD", "1") != "0"
+FOURNISSEURS_HERMES_LOCAUX = {p.strip() for p in os.environ.get(
+    "HERMES_FOURNISSEURS_LOCAUX", os.environ.get("HERMES_OLLAMA_PROVIDER", "custom:ollama")).split(",") if p.strip()}
+_ENTITES_CACHE: dict = {}
+_ENTITES_TTL_S = 300
+
+
+def est_fournisseur_externe(provider: str | None) -> bool:
+    return (provider or HERMES_OLLAMA_PROVIDER) not in FOURNISSEURS_HERMES_LOCAUX
+
+
+async def _entites_rgpd() -> "masquage_rgpd.Entites":
+    """Clients, contacts, chantiers, société et utilisateurs du tenant courant (cache 5 min)."""
+    try:
+        from database import get_current_tenant, tenant_session, auth_session
+        from sqlalchemy import text as _sql
+    except Exception:   # pragma: no cover - tests sans base
+        return masquage_rgpd.Entites()
+    tid = get_current_tenant()
+    if not tid:
+        return masquage_rgpd.Entites()
+    tid = str(tid)
+    vu = _ENTITES_CACHE.get(tid)
+    if vu and time.time() - vu[0] < _ENTITES_TTL_S:
+        return vu[1]
+    e = masquage_rgpd.Entites()
+    try:
+        async with tenant_session() as s:
+            for r in (await s.execute(_sql(
+                    "SELECT raison_sociale, nom_commercial, adresse::text AS adresse, email, telephone, siret "
+                    "FROM blueseatra.clients WHERE tenant_id = :t"), {"t": tid})).mappings():
+                e.clients += [v for v in (r["raison_sociale"], r["nom_commercial"]) if v]
+                e.adresses += [r["adresse"]] if r["adresse"] else []
+                e.identifiants += [v for v in (r["email"], r["telephone"], r["siret"]) if v]
+            for r in (await s.execute(_sql(
+                    "SELECT prenom, nom, email, telephone, mobile FROM blueseatra.contacts WHERE tenant_id = :t"),
+                    {"t": tid})).mappings():
+                e.personnes.append(" ".join(v for v in (r["prenom"], r["nom"]) if v))
+                e.identifiants += [v for v in (r["email"], r["telephone"], r["mobile"]) if v]
+            for r in (await s.execute(_sql(
+                    "SELECT nom, code_site, adresse::text AS adresse FROM blueseatra.chantiers WHERE tenant_id = :t"),
+                    {"t": tid})).mappings():
+                e.sites += [v for v in (r["nom"], r["code_site"]) if v]
+                e.adresses += [r["adresse"]] if r["adresse"] else []
+            for r in (await s.execute(_sql(
+                    "SELECT company_name, address_line1, address_line2, email, phone, siret, iban "
+                    "FROM blueseatra.company_profiles WHERE tenant_id = :t"), {"t": tid})).mappings():
+                e.donneurs_ordre += [r["company_name"]] if r["company_name"] else []
+                e.adresses += [v for v in (r["address_line1"], r["address_line2"]) if v]
+                e.identifiants += [v for v in (r["email"], r["phone"], r["siret"], r["iban"]) if v]
+        async with auth_session() as s:
+            for r in (await s.execute(_sql(
+                    "SELECT u.name, u.email FROM blueseatra.users u JOIN blueseatra.tenant_users tu "
+                    "ON tu.user_id = u.id WHERE tu.tenant_id = :t"), {"t": tid})).mappings():
+                e.personnes += [r["name"]] if r["name"] else []
+                e.identifiants += [r["email"]] if r["email"] else []
+    except Exception as exc:
+        # Sans la liste des noms connus, les détecteurs génériques restent actifs.
+        logger.warning("rgpd: noms connus du tenant indisponibles (%s)", type(exc).__name__)
+    _ENTITES_CACHE[tid] = (time.time(), e)
+    return e
+
+
 async def _hermes_chat(
+    model: str,
+    system_prompt: str | None,
+    user_message: str,
+    image_b64: str | None = None,
+    provider: str | None = None,
+    timeout: float = 360.0,
+    reasoning_effort: str | None = None,
+    role: str = "-",
+    json_schema: dict | None = None,
+) -> str:
+    """Point d'entrée IA unique : masquage RGPD si le fournisseur n'est pas sur le VPS."""
+    if not (MASQUAGE_RGPD and est_fournisseur_externe(provider)):
+        return await _hermes_chat_brut(model, system_prompt, user_message, image_b64=image_b64, provider=provider,
+                                       timeout=timeout, reasoning_effort=reasoning_effort, role=role,
+                                       json_schema=json_schema)
+    if image_b64:
+        raise masquage_rgpd.FuitePossible(
+            f"Image refusée vers {provider} : la lecture des images reste sur le VPS.")
+    entites = await _entites_rgpd()
+    masque = masquage_rgpd.masquer(user_message, entites)
+    masquage_rgpd.verifier_avant_envoi(masque.texte, entites)
+    logger.info("rgpd_masquage provider=%s role=%s marqueurs=%s", provider, role, masque.categories())
+    sortie = await _hermes_chat_brut(model, system_prompt, masque.texte, provider=provider, timeout=timeout,
+                                     reasoning_effort=reasoning_effort, role=role, json_schema=json_schema)
+    return masquage_rgpd.restaurer(sortie, masque.correspondances)
+
+
+async def _hermes_chat_brut(
     model: str,
     system_prompt: str | None,
     user_message: str,
@@ -1226,6 +1331,46 @@ async def _call_openai(
 MISTRAL_PREFIXE_HERMES = "mistral:"
 HERMES_MISTRAL_PROVIDER = os.environ.get("HERMES_MISTRAL_PROVIDER", "custom:mistral")
 
+# OpenCode Free (09/10/2026) : 13 modèles gratuits d'OpenCode Zen, interrogés par
+# l'agent Hermès (extension oc-free-provider, fournisseur « opencode-free »).
+# Hébergés aux États-Unis ; plusieurs peuvent réutiliser les données
+# (https://opencode.ai/docs/zen/) : le texte est TOUJOURS masqué (_hermes_chat).
+# Liste et ordre : https://opencode.ai/zen/v1/models, relevé du 09/10/2026.
+OPENCODE_PREFIXE_HERMES = "opencode:"
+HERMES_OPENCODE_PROVIDER = os.environ.get("HERMES_OPENCODE_PROVIDER", "opencode-free")
+OPENCODE_FREE_MODELES = [
+    "big-pickle", "jev-1.13-free", "exo-free", "muse-spark-1.3-contributor-free",
+    "muse-spark-1.2-contributor-free", "mimo-v2.6-flash-free", "space-bunny-free", "longcat-2.5-preview-free",
+    "step-5-preview-free", "ling-3.0-flash-fin-free", "nemotron-3-ultra-free", "nemotron-3.5-lightning-free",
+    "ling-3.1-flash-free",
+]
+PREFIXES_EXTERNES_HERMES = {MISTRAL_PREFIXE_HERMES: HERMES_MISTRAL_PROVIDER,
+                            OPENCODE_PREFIXE_HERMES: HERMES_OPENCODE_PROVIDER}
+
+
+def est_externe_via_hermes(provider: str, model: str | None) -> bool:
+    """Modèle hors VPS (« mistral:<id> », « opencode:<id> ») routé par l'agent Hermès."""
+    return (provider or "").lower() == "hermes" and (model or "").lower().startswith(tuple(PREFIXES_EXTERNES_HERMES))
+
+
+async def _call_externe_via_hermes(
+    model: str,
+    system_prompt: str,
+    user_message: str,
+    image_b64: str | None = None,
+    role: str = "-",
+    json_schema: dict | None = None,
+) -> str:
+    """Modèle externe interrogé par Hermès ; le texte est masqué par _hermes_chat."""
+    if (model or "").lower().startswith(MISTRAL_PREFIXE_HERMES):
+        return await _call_mistral_via_hermes(model=model, system_prompt=system_prompt, user_message=user_message,
+                                              image_b64=image_b64, role=role, json_schema=json_schema)
+    modele = (model or "")[len(OPENCODE_PREFIXE_HERMES):] or OPENCODE_FREE_MODELES[0]
+    if not HERMES_GATEWAY_URL:
+        raise HermesIndisponible("OpenCode Free passe par Hermès : HERMES_GATEWAY_URL est vide sur Render.")
+    return await _hermes_chat(modele, system_prompt, user_message, image_b64=image_b64,
+                              provider=HERMES_OPENCODE_PROVIDER, timeout=180.0, role=role, json_schema=json_schema)
+
 
 def est_mistral_via_hermes(provider: str, model: str | None) -> bool:
     """Modèle « mistral:<id> » choisi sous le moteur intégré (Hermès)."""
@@ -1274,6 +1419,15 @@ async def _call_mistral(
                                   provider=HERMES_MISTRAL_PROVIDER, timeout=180.0, role=role, json_schema=json_schema)
     if not api_key:
         raise RuntimeError("Mistral : aucune clé API (page Paramètres ou MISTRAL_API_KEY).")
+    correspondances: dict = {}
+    if MASQUAGE_RGPD:
+        # Chemin direct (retour arrière d'urgence) : mêmes règles RGPD que par Hermès.
+        if image_b64:
+            raise masquage_rgpd.FuitePossible("Image refusée vers Mistral : la lecture des images reste sur le VPS.")
+        entites = await _entites_rgpd()
+        masque = masquage_rgpd.masquer(user_message, entites)
+        masquage_rgpd.verifier_avant_envoi(masque.texte, entites)
+        user_message, correspondances = masque.texte, masque.correspondances
     content: list | str = user_message
     if image_b64:
         content = [
@@ -1318,7 +1472,7 @@ async def _call_mistral(
             texte = data["choices"][0]["message"]["content"]
             if isinstance(texte, list):   # modèles de raisonnement : blocs typés
                 texte = "".join(b.get("text", "") for b in texte if isinstance(b, dict) and b.get("type") == "text")
-            return texte
+            return masquage_rgpd.restaurer(texte, correspondances)
     raise RuntimeError("Mistral : limite de débit atteinte (429)")
 
 
@@ -1333,6 +1487,17 @@ async def tester_mistral_via_hermes(model: str | None) -> dict:
         return {"ok": False, "message": f"Échec par Hermès : {str(e)[:160]}"}
     via = "l'agent Hermès" if HERMES_GATEWAY_URL else "l'API Mistral directe (Hermès non configuré)"
     return {"ok": '"ok"' in sortie or "ok" in sortie.lower(), "message": f"Mistral répond par {via}."}
+
+
+async def tester_opencode_via_hermes(model: str | None) -> dict:
+    """Petit appel réel à OpenCode Free par Hermès (quelques jetons, aucune donnée client)."""
+    modele = model if (model or "").startswith(OPENCODE_PREFIXE_HERMES) else OPENCODE_PREFIXE_HERMES + (model or "")
+    try:
+        sortie = await _call_externe_via_hermes(model=modele, system_prompt="Réponds uniquement par le JSON demandé.",
+                                                user_message='Renvoie exactement {"ok": true}', role="test")
+    except Exception as e:
+        return {"ok": False, "message": f"Échec par Hermès : {str(e)[:160]}"}
+    return {"ok": "ok" in sortie.lower(), "message": f"OpenCode Free ({modele[len(OPENCODE_PREFIXE_HERMES):]}) répond par l'agent Hermès."}
 
 
 def tester_mistral(api_key: str) -> dict:
@@ -1448,7 +1613,7 @@ async def extract_request_data(
     image_b64 = None
     if image_bytes:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        if OCR_LOCAL_UNIQUEMENT and (provider not in FOURNISSEURS_LOCAUX or est_mistral_via_hermes(provider, model)):
+        if OCR_LOCAL_UNIQUEMENT and (provider not in FOURNISSEURS_LOCAUX or est_externe_via_hermes(provider, model)):
             # Lecture d'image = toujours sur le VPS (modèle vision local).
             logger.info("ocr_local image routee vers %s au lieu de %s/%s", HERMES_VISION_MODEL, provider, model)
             provider, model, role = "hermes", HERMES_VISION_MODEL, "vision"
@@ -1487,7 +1652,7 @@ async def extract_request_data(
     # sont des modeles TEXTE SEUL, sans capacite multimodale.
     use_structuring_cascade = (
         from_file and image_b64 is None and provider in ("hermes", "ollama")
-        and not est_mistral_via_hermes(provider, model)
+        and not est_externe_via_hermes(provider, model)
     )
 
     structuring_engine = None
@@ -1499,8 +1664,8 @@ async def extract_request_data(
                 json_schema=SCHEMA_EXTRACTION if IA_SCHEMA_STRICT else None,
                 user_message_compact=user_message_compact,
             )
-        elif est_mistral_via_hermes(provider, model):
-            raw_response = await _call_mistral_via_hermes(
+        elif est_externe_via_hermes(provider, model):
+            raw_response = await _call_externe_via_hermes(
                 model=model, system_prompt=EXTRACTION_SYSTEM, user_message=user_message,
                 image_b64=image_b64, role=role, json_schema=SCHEMA_EXTRACTION if IA_SCHEMA_STRICT else None,
             )
@@ -1768,8 +1933,8 @@ async def generate_ai_works_narrative(extracted: dict, tenant_settings: dict) ->
     try:
         provider, model, api_key = await resolve_ai_config(tenant_settings, role="describe")
         schema_desc = SCHEMA_DESCRIPTIF if IA_SCHEMA_STRICT else None
-        if est_mistral_via_hermes(provider, model):
-            raw = await _call_mistral_via_hermes(model=model, system_prompt=DESCRIPTION_SYSTEM, user_message=user,
+        if est_externe_via_hermes(provider, model):
+            raw = await _call_externe_via_hermes(model=model, system_prompt=DESCRIPTION_SYSTEM, user_message=user,
                                                  role="describe", json_schema=schema_desc)
         elif provider == "mistral":
             raw = await _call_mistral(api_key=api_key, model=model, system_prompt=DESCRIPTION_SYSTEM, user_message=user,
@@ -2583,4 +2748,5 @@ _hermes_chat = ia_garde_fous.journaliser("hermes_agent")(_hermes_chat)
 _call_openai = ia_garde_fous.journaliser("openai")(_call_openai)
 _call_mistral = ia_garde_fous.journaliser("mistral")(_call_mistral)
 _call_mistral_via_hermes = ia_garde_fous.journaliser("mistral_hermes")(_call_mistral_via_hermes)
+_call_externe_via_hermes = ia_garde_fous.journaliser("externe_hermes")(_call_externe_via_hermes)
 _call_ocr_model = ia_garde_fous.journaliser("hermes_ocr")(_call_ocr_model)

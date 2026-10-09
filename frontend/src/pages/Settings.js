@@ -78,6 +78,7 @@ function AiSettings({ canManage }) {
   const mistralHermes = (form.ai_provider === 'hermes' && (form.ai_model || '').startsWith('mistral:'))
     || (form.ai_provider === 'mistral' && viaHermes);
   const mistral = form.ai_provider === 'mistral';
+  const opencode = form.ai_provider === 'opencode';
   const models = providerModels[form.ai_provider] || [];
   return (
     <Card className="card-shadow border-0 p-6">
@@ -98,8 +99,9 @@ function AiSettings({ canManage }) {
         </div>
         <div className="space-y-1.5">
           <Label className="flex items-center gap-1.5"><KeyRound className="h-3.5 w-3.5" />{t('settings.ai_key')}</Label>
-          {!mistralHermes && <Input type="password" autoComplete="off" placeholder={keySet ? (apercu || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') : (mistral ? t('settings.mistral_placeholder') : '')} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />}
-          {!mistralHermes && <p className="text-xs text-muted-foreground">{mistral ? t('settings.mistral_hint') : t('settings.ai_key_hint')}</p>}
+          {!mistralHermes && !opencode && <Input type="password" autoComplete="off" placeholder={keySet ? (apercu || '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022') : (mistral ? t('settings.mistral_placeholder') : '')} value={form.ai_key} onChange={(e) => setForm({ ...form, ai_key: e.target.value })} disabled={!canManage} data-testid="ai-key-input" />}
+          {!mistralHermes && !opencode && <p className="text-xs text-muted-foreground">{mistral ? t('settings.mistral_hint') : t('settings.ai_key_hint')}</p>}
+          {opencode && <p className="text-xs text-amber-700" data-testid="opencode-hint">{t('settings.opencode_hint')}</p>}
           {keySet && (
             <div className="flex flex-wrap items-center gap-3 text-xs">
               <span className="flex items-center gap-1 text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" />{t('settings.key_set')}{apercu ? ` (${apercu})` : ''}</span>
@@ -109,7 +111,7 @@ function AiSettings({ canManage }) {
           )}
           {mistral && !mistralHermes && !keySet && clePlateforme && <p className="text-xs text-muted-foreground">{t('settings.mistral_platform')}</p>}
           {mistralHermes && <p className="text-xs text-muted-foreground">{t('settings.mistral_hermes_hint')}</p>}
-          {(mistral || mistralHermes) && canManage && (
+          {(mistral || mistralHermes || opencode) && canManage && (
             <div className="flex flex-wrap items-center gap-3 pt-1">
               <Button type="button" variant="outline" size="sm" onClick={tester} disabled={test?.enCours} data-testid="ai-test-button">
                 {test?.enCours ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-1 h-4 w-4" />}{t('settings.test_connection')}

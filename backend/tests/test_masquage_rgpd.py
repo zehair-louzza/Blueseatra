@@ -123,3 +123,9 @@ def test_les_produits_d_une_ligne_qui_porte_une_adresse_restent_lisibles():
 def test_attention_n_est_pas_un_nom_de_personne():
     r = _masque("ATTENTION : toute intervention non validée ne sera pas payée.")
     assert "toute intervention non validée" in r.texte
+
+
+def test_champ_dont_la_valeur_contient_deja_un_marqueur():
+    r = _masque("Contact : Mme Ducros 06 12 34 56 78\nRappeler Mme Ducros demain.")
+    assert "Ducros" not in r.texte and "]]" not in r.texte
+    m.verifier_avant_envoi(r.texte, ENTITES)

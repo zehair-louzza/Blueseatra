@@ -235,7 +235,7 @@ def _masquer_connus(ms: _Masqueur, texte: str, valeurs: Iterable[tuple]) -> str:
     uniques = {}
     for cat, v in valeurs:
         v = (v or "").strip()
-        if len(v) >= 3 and not _MARQUEUR.fullmatch(v):
+        if len(v) >= 3 and not _MARQUEUR.search(v):
             uniques.setdefault(_aplatir(v), (cat, v))
     for _, (cat, v) in sorted(uniques.items(), key=lambda kv: -len(kv[0])):
         motif = _flexible(v)
@@ -306,8 +306,11 @@ def masquer(texte: str | None, entites: Entites | None = None) -> Resultat:
         cat = next(c for motif, c in _CHAMPS if re.fullmatch(motif, etiquette, re.I))
         # La valeur s'arrête à la fin de la phrase (« Site : X. Devis à Y »).
         valeur = re.split(r"\.\s|\s[-–]\s|;|\s{3,}|\t", mt.group(2))[0].strip(" .")
-        if valeur and not _MARQUEUR.fullmatch(valeur) and re.search(r"[A-Za-zÀ-ÿ]{2}", valeur):
-            lus.append((cat, valeur))
+        # Une valeur peut déjà contenir un marqueur (« Mme X [tel_1] ») : seuls les morceaux en clair comptent.
+        for morceau in _MARQUEUR.split(valeur):
+            morceau = morceau.strip(" ,;/-–")
+            if re.search(r"[A-Za-zÀ-ÿ]{2}", morceau):
+                lus.append((cat, morceau))
     # 4. Noms connus du SaaS et noms lus dans les champs, du plus long au plus court.
     t = _masquer_connus(ms, t, connus + lus)
 

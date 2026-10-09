@@ -68,9 +68,18 @@ class TestProviderModelsMatchVps:
             for m in modeles:
                 # « mistral:<id> » (fournisseur hermes) et le fournisseur
                 # mistral : API Mistral via Hermès, conservée à la demande.
-                if m.startswith("mistral:") or provider == "mistral":
-                    continue
+                if m.startswith("mistral:") or provider in ("mistral", "opencode"):
+                    continue   # opencode : 13 modèles OpenCode Free via Hermès (09/10/2026, demande utilisateur)
                 assert m in autorises, f"{m} absent du VPS"
+
+    def test_opencode_free_13_modeles_exacts(self):
+        # https://opencode.ai/zen/v1/models, modèles gratuits, relevé du 09/10/2026.
+        assert server.PROVIDER_MODELS["opencode"] == [
+            "big-pickle", "jev-1.13-free", "exo-free", "muse-spark-1.3-contributor-free",
+            "muse-spark-1.2-contributor-free", "mimo-v2.6-flash-free", "space-bunny-free",
+            "longcat-2.5-preview-free", "step-5-preview-free", "ling-3.0-flash-fin-free",
+            "nemotron-3-ultra-free", "nemotron-3.5-lightning-free", "ling-3.1-flash-free"]
+        assert "opencode" in server.PROVIDER_LABELS
 
     def test_ocr_choices_follow_ollama_list_order(self):
         # Ordre du sélecteur « Modèle OCR préféré » = ordre `ollama list`

@@ -483,7 +483,10 @@ class IntegrationSettings(BaseModel):
 # 02/10/2026 : OpenAI / Gemini / Anthropic retirés des réglages (demande
 # utilisateur) : leurs modèles n'existent pas sur le VPS. Seuls restent le
 # moteur intégré (modèles locaux du VPS) et Mistral (API UE via Hermès).
-PROVIDER_LABELS = {"mistral": "Mistral AI (via Hermès)", "hermes": "Moteur intégré (Hermès)"}
+# 09/10/2026 : OpenCode Free (13 modèles gratuits, hébergés aux États-Unis) par
+# l'agent Hermès ; le texte envoyé est toujours masqué (masquage_rgpd).
+PROVIDER_LABELS = {"mistral": "Mistral AI (via Hermès)", "hermes": "Moteur intégré (Hermès)",
+                   "opencode": "OpenCode Free (via Hermès, États-Unis, texte masqué)"}
 
 
 def _apercu_cle(chiffree: Optional[str]) -> Optional[str]:
@@ -537,6 +540,8 @@ PROVIDER_MODELS = {
     "hermes": ["glm-4.7-flash:Q3_K_M", "gpt-oss:20b", "qwen2.5:7b",
                "hermes-3:latest", "hermes3:latest",
                "mistral:mistral-medium-latest", "mistral:mistral-large-latest", "mistral:mistral-small-latest"],
+    # 09/10/2026 : liste exacte https://opencode.ai/zen/v1/models (modèles gratuits).
+    "opencode": list(ai_service.OPENCODE_FREE_MODELES),
 }
 
 
@@ -584,6 +589,8 @@ async def update_settings(body: IntegrationSettings,
            "ocr_model_preference": ocr_pref, "updated_at": now_iso()}
     if body.ai_provider not in PROVIDER_MODELS:
         raise HTTPException(400, "Fournisseur IA inconnu.")
+    if body.ai_provider == "opencode" and body.ai_model not in PROVIDER_MODELS["opencode"]:
+        raise HTTPException(400, "Modèle OpenCode Free inconnu.")
     if body.ai_key:
         doc["ai_key"] = encrypt_secret(body.ai_key.strip())
     elif body.effacer_cle:
@@ -602,6 +609,10 @@ async def tester_integration(cu: CurrentUser = Depends(require_role("owner", "ad
     if ai_service.est_mistral_via_hermes(fournisseur, s.get("ai_model")) or (fournisseur == "mistral" and ai_service.IA_VIA_HERMES):
         res = await ai_service.tester_mistral_via_hermes(s.get("ai_model"))
         await audit(cu.tenant_id, cu.email, "settings.test_ia", None, {"fournisseur": "mistral_hermes", "ok": res["ok"]})
+        return res
+    if fournisseur == "opencode":
+        res = await ai_service.tester_opencode_via_hermes(s.get("ai_model"))
+        await audit(cu.tenant_id, cu.email, "settings.test_ia", None, {"fournisseur": "opencode_hermes", "ok": res["ok"]})
         return res
     if fournisseur != "mistral":
         return {"ok": True, "message": "Moteur intégré : aucune clé à vérifier."} if fournisseur == "hermes" else \
