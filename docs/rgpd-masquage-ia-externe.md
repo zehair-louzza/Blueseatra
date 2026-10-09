@@ -74,15 +74,21 @@ Prérequis sur le VPS : le SaaS appelle la passerelle (`hermes-passerelle`), pas
 
 ## Chaîne G3
 
-Code : `backend/recherche_g3.py`. Point d'accès : `POST /api/requests/{id}/suggestions-g3`. Il est désactivé tant que `BLUESEATRA_G3=1` n'est pas défini sur Render.
+Code : `backend/recherche_g3.py`. Point d'accès : `POST /api/requests/{id}/suggestions-g3`. Interface : carte « Suggestions d'articles du catalogue (G3) » de la page d'une demande (`frontend/src/components/SuggestionsG3.js`, PR #196).
+
+Activation : variable `BLUESEATRA_G3=1` du service Render `blueseatra-api`, définie le 10 octobre 2026. Sans elle, le point d'accès répond 404 et la carte est cachée (`g3_actif` renvoyé par `GET /api/requests/{id}`). Retirer la variable désactive G3 sans nouveau déploiement de code.
 
 Étapes de la chaîne :
 
 1. **Minimisation** : seule la description des travaux est gardée ; l'en-tête, les coordonnées et la signature sont retirés.
-2. **Extraction** : le fournisseur IA de l'entreprise liste les fournitures. Le texte est masqué si le fournisseur est externe.
+2. **Extraction** : le fournisseur IA de l'entreprise liste les fournitures. Le texte est masqué, comme pour tout appel IA. Pour un PDF ou une photo, c'est le texte lu par l'OCR du VPS qui est utilisé.
 3. **Candidats** : 20 candidats par fourniture, issus de la recherche par mots (IDF, début de mot, synonymes BTP) et de BM25 sur le catalogue actif.
-4. **Choix** : le modèle choisit au plus 3 codes parmi ces candidats ; tout code inventé est ignoré. Si l'appel échoue ou si le modèle ne choisit rien, une suggestion de repli est proposée.
+4. **Choix** : le modèle choisit au plus 3 codes parmi ces candidats ; tout code inventé est ignoré. Les choix sont demandés 4 à la fois, et l'ordre des lignes est conservé. Si l'appel échoue ou si le modèle ne choisit rien, une suggestion de repli est proposée.
 5. **Validation** : le résultat est toujours « à valider » ; rien n'entre dans un devis sans validation du chiffreur.
+
+Durée : en général 1 à 3 minutes ; la carte attend jusqu'à 10 minutes. Les appels externes (Mistral, OpenCode) n'attendent pas la file du VPS (`OLLAMA_MAX_CONCURRENCY`), qui ne concerne plus que les modèles locaux.
+
+Ce que la carte ne fait pas encore : ajouter un article proposé au devis. Le chiffreur reporte ses choix dans l'éditeur de devis.
 
 | Mesure, 17 demandes réelles, 40 besoins | Besoins retrouvés | Précision |
 |---|---:|---:|
@@ -93,13 +99,13 @@ Code : `backend/recherche_g3.py`. Point d'accès : `POST /api/requests/{id}/sugg
 | Plafond : bon article parmi les 20 candidats | 37 | — |
 | G3 avec gpt-oss:20b sur le VPS | 21 | 0,26 |
 
-## État au 10 octobre 2026
+## État au 10 octobre 2026 (1 h 30)
 
 | Élément | État |
 |---|---|
 | Masquage de tous les appels IA | En production depuis le 9 octobre 2026 à 22 h 03 : PR #194, commit `85eecd6`, déploiement Render en ligne, `/api/health` répond 200 |
 | OpenCode Free dans les réglages | En production ; l'extension est installée dans la passerelle, son activation attend la fusion de la PR ovh-ai-stack #44 |
-| Chaîne G3 | Code en production, désactivé (`BLUESEATRA_G3` absent) ; aucun bouton dans l'interface pour l'instant |
+| Chaîne G3 | En production et activée : bouton « Suggérer des articles » de la page d'une demande (PR #196, commit `edb3f8a`) et `BLUESEATRA_G3=1` sur Render |
 | Recherche par mots du module Fournisseur | En production : Fournisseur-Blueseatra PR #4, commit `78e7e8b` |
 
 ## Clé Mistral : où elle se trouve et comment la vérifier

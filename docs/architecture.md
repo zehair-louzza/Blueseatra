@@ -70,6 +70,15 @@ Le fournisseur choisi dans les réglages devient un paramètre `provider` envoy�
 | Mistral | `custom:mistral` (préfixe interne `mistral:`) |
 | OpenCode Free | `opencode-free` (préfixe interne `opencode:`) |
 
+La file d'attente du VPS (`OLLAMA_MAX_CONCURRENCY`, une place par défaut) ne concerne que les modèles locaux. Un appel externe ne l'occupe pas et ne l'attend pas.
+
+**Suggestions G3** : depuis la page d'une demande, `POST /api/requests/{id}/suggestions-g3` (`recherche_g3.py`) enchaîne les étapes suivantes. Elles sont activées par `BLUESEATRA_G3=1`.
+
+1. Extraction des fournitures par l'IA.
+2. Recherche de 20 candidats dans le catalogue actif (recherche par mots et BM25).
+3. Choix de l'IA parmi ces candidats.
+4. Résultat toujours « à valider ».
+
 Détails : [rgpd-masquage-ia-externe.md](./rgpd-masquage-ia-externe.md).
 
 ## Chiffrage sur sources activables

@@ -113,6 +113,11 @@ Les demandes sont lues l'une après l'autre. Quand plusieurs sont en cours, la l
 - **Clients détectés dans cette demande :** voir la section [9.4](#94-suggestions-de-lia).
 - **Retraiter :** relance la lecture, par exemple après avoir corrigé le texte.
 - **Générer un autre devis :** crée une variante, par exemple une option A ou une option B.
+- **Suggestions d'articles du catalogue (G3) :** cliquez sur **Suggérer des articles**.
+  - L'IA liste les fournitures nécessaires à la demande, puis choisit pour chacune jusqu'à 3 articles de votre catalogue actif (code, libellé, unité, prix HT).
+  - Chaque ligne indique son origine : « Choix de l'IA », « Suggestion de repli » (meilleur article trouvé par la recherche par mots, quand l'IA n'a rien retenu) ou « Aucun article ».
+  - L'analyse prend en général 1 à 3 minutes. Les données personnelles sont masquées avant l'envoi.
+  - Ce sont des suggestions à vérifier : reportez vous-même les articles retenus dans le devis.
 
 ![Lignes de travaux extraites](assets/manuel/03b-demande-lignes.jpg)
 
