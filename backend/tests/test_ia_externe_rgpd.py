@@ -127,3 +127,13 @@ def test_appel_json_g3_avec_opencode_masque_et_restaure(monkeypatch):
                                        {"type": "object"}))
     assert vu["corps"]["provider"] == "opencode-free" and "LUMIA" not in _texte_envoye(vu)
     assert res == {"produits": [{"designation": "spot LED pour LUMIA"}]}
+
+
+def test_appel_externe_n_attend_pas_la_file_du_vps(monkeypatch):
+    vu = _passerelle(monkeypatch, reponse="ok")
+
+    async def scenario():
+        async with ai._OLLAMA_SEMAPHORE:   # une lecture OCR occupe le VPS
+            await asyncio.wait_for(ai._hermes_chat("big-pickle", "s", "texte", provider="opencode-free"), 2)
+    asyncio.run(scenario())
+    assert vu["appels"] == 1

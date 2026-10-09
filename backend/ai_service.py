@@ -2,6 +2,7 @@
 Default engine: Hermes AI (Ollama) running locally on OVH VPS.
 A tenant can override provider/model/key via Settings (Integrations).
 """
+import contextlib
 import contextvars
 import functools
 import inspect
@@ -1162,6 +1163,13 @@ async def _hermes_chat(
     return masquage_rgpd.restaurer(sortie, correspondances)
 
 
+def _file_vps(provider: str | None):
+    """File d'attente du VPS (OLLAMA_MAX_CONCURRENCY) réservée aux modèles du VPS :
+    un appel externe (Mistral, OpenCode) n'occupe pas le processeur du VPS et
+    n'attend donc pas derrière une lecture OCR de plusieurs minutes."""
+    return contextlib.nullcontext() if est_fournisseur_externe(provider) else _OLLAMA_SEMAPHORE
+
+
 async def _hermes_chat_brut(
     model: str,
     system_prompt: str | None,
@@ -1204,7 +1212,7 @@ async def _hermes_chat_brut(
         corps_run = ia_runs.construire_corps(payload["model"], payload["provider"], system_prompt, user_message,
                                              image_b64=image_b64)
         try:
-            async with _OLLAMA_SEMAPHORE:
+            async with _file_vps(payload["provider"]):
                 sortie = await ia_runs.executer(HERMES_GATEWAY_URL, entetes_runs, corps_run, role=role, delai=timeout)
             logger.info("ai_call_success via=hermes_runs role=%s provider=%s model=%s",
                         role, payload["provider"], payload["model"])
@@ -1212,7 +1220,7 @@ async def _hermes_chat_brut(
         except ia_runs.RunsIndisponible as exc:
             logger.warning("hermes_runs indisponible (%s) : repli sur /v1/chat/completions", exc)
     url = f"{HERMES_GATEWAY_URL}/v1/chat/completions"
-    async with _OLLAMA_SEMAPHORE:
+    async with _file_vps(payload["provider"]):
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code in (400, 422) and "response_format" in payload:

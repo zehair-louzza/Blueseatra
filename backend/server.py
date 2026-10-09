@@ -1096,6 +1096,7 @@ async def get_request(request_id: str, cu: CurrentUser = Depends(get_current)):
         {"_id": 0, "id": 1, "number": 1, "status": 1},
     ).to_list(50)
     r["quotes"] = qs
+    r["g3_actif"] = G3_ACTIF   # bouton « Suggérer des articles (G3) » de la page de la demande
     return r
 
 
@@ -1187,16 +1188,18 @@ G3_ACTIF = os.environ.get("BLUESEATRA_G3", "0") == "1"
 async def suggestions_g3(request_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
     if not G3_ACTIF:
         raise HTTPException(404, "Suggestions G3 non activées (BLUESEATRA_G3).")
-    req = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "raw_text": 1})
+    req = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "raw_text": 1, "extracted": 1})
     if not req:
         raise HTTPException(404, "Request not found")
+    # PDF ou photo : le texte lu par l'OCR sur le VPS remplace le texte brut absent.
+    texte = req.get("raw_text") or ((req.get("extracted") or {}).get("_ocr_text") or "")
     _, items = await get_active_catalog(cu.tenant_id)
     reglages = await get_tenant_ai_settings(cu.tenant_id)
 
     async def appel(consigne, texte, schema):
         return await ai_service.appel_json_ia(reglages, consigne, texte, schema, role="g3")
 
-    res = await recherche_g3.suggerer(req.get("raw_text") or "", items, appel)
+    res = await recherche_g3.suggerer(texte, items, appel)
     await audit(cu.tenant_id, cu.email, "requests.suggestions_g3", request_id,
                 {"statut": res["statut"], "lignes": len(res["lignes"]), "fournisseur": reglages.get("ai_provider")})
     return res

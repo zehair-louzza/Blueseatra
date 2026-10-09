@@ -34,6 +34,7 @@ aucune saisie n'est transmise à la base.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import re
@@ -43,6 +44,7 @@ from typing import Awaitable, Callable, Dict, Iterable, List
 MAX_DEMANDE = 20_000
 MAX_PRODUITS = 30
 N_CANDIDATS = 20
+CHOIX_EN_PARALLELE = 4   # choix des articles demandés en même temps (ordre des lignes conservé)
 CHAMPS = ("item_label", "family", "category", "brand", "reference")
 
 CONSIGNE_EXTRACTION = (
@@ -235,8 +237,9 @@ async def suggerer(demande: str, catalogue: List[Dict], appel_ia: AppelIA) -> Di
     except Exception as exc:
         return {"statut": "erreur", "erreur": f"Extraction impossible : {str(exc)[:160]}", "lignes": []}
 
-    lignes = []
-    for p in produits:
+    limite = asyncio.Semaphore(CHOIX_EN_PARALLELE)
+
+    async def _ligne(p: Dict) -> Dict:
         designation = str(p["designation"]).strip()[:200]
         cands = index.candidats(designation)
         ligne = {"produit": designation, "quantite": str(p.get("quantite") or "").strip()[:40] or None,
@@ -244,8 +247,9 @@ async def suggerer(demande: str, catalogue: List[Dict], appel_ia: AppelIA) -> Di
         if cands:
             liste = [{"code": a["item_code"], "article": a["item_label"]} for a in cands]
             try:
-                rep = await appel_ia(CONSIGNE_CHOIX, json.dumps({"produit": designation, "candidats": liste},
-                                                                ensure_ascii=False), SCHEMA_CHOIX)
+                async with limite:
+                    rep = await appel_ia(CONSIGNE_CHOIX, json.dumps({"produit": designation, "candidats": liste},
+                                                                    ensure_ascii=False), SCHEMA_CHOIX)
                 valides = {a["item_code"]: a for a in cands}
                 codes = [c for c in dict.fromkeys(str(c) for c in (rep or {}).get("codes", [])) if c in valides][:3]
                 ligne["articles"] = [_article(valides[c]) for c in codes]
@@ -257,5 +261,7 @@ async def suggerer(demande: str, catalogue: List[Dict], appel_ia: AppelIA) -> Di
                 if meilleur:
                     ligne["articles"] = [_article(index.articles[meilleur[0]])]
                     ligne["source"] = "repli"
-        lignes.append(ligne)
+        return ligne
+
+    lignes = list(await asyncio.gather(*(_ligne(p) for p in produits)))
     return {"statut": "a_valider", "lignes": lignes}
