@@ -8,6 +8,7 @@ rôle membre de blueseatra_app, base PostgreSQL JETABLE.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 import uuid
@@ -46,6 +47,19 @@ def ctx():
     with TestClient(server.app) as c:
         yield c, etat, server
     server.app.dependency_overrides.clear()
+
+
+def _ligne_chiffree(total_ht):
+    """Une ligne complète, sinon le contrôle TCE v4 refuse l'envoi (409)."""
+    return json.dumps([{"line_type": "generic", "description": "Prestation", "qty": 1, "unit": "u",
+                        "unit_price_ht": total_ht, "line_ht": total_ht, "vat_rate": 20}])
+
+
+def _valider(c, qid):
+    """Parcours réel : revue (empreinte lue sur le devis) puis validation."""
+    empreinte = c.get(f"/api/quotes/{qid}").json()["review_digest"]
+    r = c.post(f"/api/quotes/{qid}/validate", json={"expected_digest": empreinte, "review_tce": True})
+    assert r.status_code == 200, r.text
 
 
 def _sql(sql, params=()):
@@ -139,9 +153,12 @@ def test_relances_du_devis_envoye_a_l_issue(ctx):
     c, etat, server = ctx
     cid = c.get("/api/clients", params={"q": "foncia"}).json()["clients"][0]["id"]
     qid = str(uuid.uuid4())
-    _sql("""INSERT INTO blueseatra.quotes (id, tenant_id, number, status, total_ht, created_at, client)
-            VALUES (%s,%s,'D-2026-041','validated',2400,'2026-09-24T10:00:00Z','Foncia')""", (qid, T1))
+    _sql("""INSERT INTO blueseatra.quotes (id, tenant_id, number, status, total_ht, total_vat, total_ttc,
+                                           lines, created_at, client)
+            VALUES (%s,%s,'D-2026-041','draft',2400,480,2880,%s::jsonb,'2026-09-24T10:00:00Z','Foncia')""",
+         (qid, T1, _ligne_chiffree(2400)))
     assert c.post(f"/api/quotes/{qid}/client", json={"client_id": cid}).json()["client_nom"] == "Foncia Versailles"
+    _valider(c, qid)
     assert c.post(f"/api/quotes/{qid}/issue", json={"issue": "accepte"}).status_code == 400   # pas encore envoyé
     assert c.post(f"/api/quotes/{qid}/send").status_code == 200
     suivi = c.get(f"/api/quotes/{qid}/suivi").json()
@@ -175,9 +192,12 @@ def test_relances_du_devis_envoye_a_l_issue(ctx):
 def test_reouverture_annule_et_regles_desactivees(ctx):
     c, etat, _ = ctx
     qid = str(uuid.uuid4())
-    _sql("""INSERT INTO blueseatra.quotes (id, tenant_id, number, status, total_ht, created_at)
-            VALUES (%s,%s,'D-2026-050','validated',25000,'2026-09-24T10:00:00Z')""", (qid, T1))
-    c.post(f"/api/quotes/{qid}/send")
+    _sql("""INSERT INTO blueseatra.quotes (id, tenant_id, number, status, total_ht, total_vat, total_ttc,
+                                           lines, created_at)
+            VALUES (%s,%s,'D-2026-050','draft',25000,5000,30000,%s::jsonb,'2026-09-24T10:00:00Z')""",
+         (qid, T1, _ligne_chiffree(25000)))
+    _valider(c, qid)
+    assert c.post(f"/api/quotes/{qid}/send").status_code == 200
     s = c.get(f"/api/quotes/{qid}/suivi").json()["relances"]
     assert s and {x["canal"] for x in s} == {"appel"}          # gros montant, pas de contact
     c.post(f"/api/quotes/{qid}/reopen")
