@@ -116,7 +116,8 @@ Les demandes sont lues l'une après l'autre. Quand plusieurs sont en cours, la l
 - **Retraiter :** relance la lecture, par exemple après avoir corrigé le texte.
 - **Générer un autre devis :** crée une variante, par exemple une option A ou une option B.
 - **Suggestions d'articles du catalogue (G3) :** cliquez sur **Suggérer des articles**.
-  - L'IA liste les fournitures nécessaires à la demande, puis choisit pour chacune jusqu'à 3 articles de votre catalogue actif (code, libellé, unité, prix HT).
+  - L'IA liste les fournitures nécessaires à la demande, puis choisit pour chacune jusqu'à 3 articles (code, libellé, unité, prix HT). Ils viennent de votre catalogue interne, s'il est utilisé pour le chiffrage, et des catalogues fournisseurs activés sur la page **Catalogues**. Chaque article indique son origine : « Mon catalogue » ou le nom du fournisseur.
+  - Si aucun catalogue n'est activé, la carte l'indique : activez votre catalogue ou au moins un catalogue fournisseur.
   - Chaque ligne indique son origine : « Choix de l'IA », « Suggestion de repli » (meilleur article trouvé par la recherche par mots, quand l'IA n'a rien retenu) ou « Aucun article ».
   - L'analyse prend en général 1 à 3 minutes. Les données personnelles sont masquées avant l'envoi.
   - Ce sont des suggestions à vérifier : reportez vous-même les articles retenus dans le devis.

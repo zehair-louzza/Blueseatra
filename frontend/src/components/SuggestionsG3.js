@@ -65,10 +65,11 @@ export default function SuggestionsG3({ demandeId }) {
                 </div>
                 {l.articles.length > 0 ? (
                   <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                    {l.articles.map((a) => (
-                      <li key={a.item_code} className="flex flex-wrap gap-x-2">
+                    {l.articles.map((a, j) => (
+                      <li key={`${a.item_code}-${j}`} className="flex flex-wrap gap-x-2">
                         <span className="font-mono">{a.item_code}</span>
                         <span className="text-foreground">{a.item_label}</span>
+                        <span className="rounded bg-muted px-1.5">{a.origine === 'fournisseur' ? (a.fournisseur || t('req.g3_fournisseur')) : t('req.g3_catalogue_interne')}</span>
                         {a.unit && <span>· {a.unit}</span>}
                         {prix(a.unit_price_ht) && <span>· {prix(a.unit_price_ht)}</span>}
                       </li>

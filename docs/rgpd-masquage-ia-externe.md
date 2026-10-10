@@ -82,11 +82,13 @@ Activation : variable `BLUESEATRA_G3=1` du service Render `blueseatra-api`, déf
 
 1. **Minimisation** : seule la description des travaux est gardée ; l'en-tête, les coordonnées et la signature sont retirés.
 2. **Extraction** : le fournisseur IA de l'entreprise liste les fournitures. Le texte est masqué, comme pour tout appel IA. Pour un PDF ou une photo, c'est le texte lu par l'OCR du VPS qui est utilisé.
-3. **Candidats** : 20 candidats par fourniture, issus de la recherche par mots (IDF, début de mot, synonymes BTP) et de BM25 sur le catalogue actif.
+3. **Candidats** : 20 candidats par fourniture. Ils viennent du catalogue interne actif (recherche par mots IDF, début de mot, synonymes BTP, et BM25), complété par les catalogues fournisseurs activés pour le chiffrage (même recherche SQL que les devis, `catalogue_chiffrage.rechercher`). Avec les deux, 10 candidats internes au plus, puis les offres fournisseurs. Chaque candidat porte un identifiant unique (`frn:…` pour une offre), car une même référence peut exister chez deux fournisseurs. Depuis le 10/10/2026 ; avant, G3 ignorait les catalogues fournisseurs et répondait « Aucun catalogue actif ».
 4. **Choix** : le modèle choisit au plus 3 codes parmi ces candidats ; tout code inventé est ignoré. Les choix sont demandés 4 à la fois, et l'ordre des lignes est conservé. Si l'appel échoue ou si le modèle ne choisit rien, une suggestion de repli est proposée.
 5. **Validation** : le résultat est toujours « à valider » ; rien n'entre dans un devis sans validation du chiffreur.
 
 Durée : en général 1 à 3 minutes ; la carte attend jusqu'à 10 minutes. Les appels externes (Mistral, OpenCode) n'attendent pas la file du VPS (`OLLAMA_MAX_CONCURRENCY`), qui ne concerne plus que les modèles locaux.
+
+Mesure : les 33 besoins sur 40 ont été mesurés sur des catalogues internes. La qualité avec les seuls catalogues fournisseurs n'est pas encore mesurée.
 
 Ce que la carte ne fait pas encore : ajouter un article proposé au devis. Le chiffreur reporte ses choix dans l'éditeur de devis.
 
