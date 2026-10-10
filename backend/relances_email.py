@@ -229,26 +229,38 @@ async def envoyer_relance(rid: str, auteur: str, *, auto: bool = False, texte: T
 
 # --- Envoi automatique à l'échéance -----------------------------------------------
 
-_A_ENVOYER = text(f"""
-    SELECT x.tenant_id, x.id
+# Requête PAR entreprise, filtrée sur tenant_id (exigé même sous RLS : en mode repli sans
+# DATABASE_URL_APP, le moteur métier a BYPASSRLS ; voir tests_security/test_tenant_isolation_static.py).
+_A_ENVOYER = f"""
+    SELECT x.id
       FROM blueseatra.relances x
       JOIN blueseatra.regles_relance g ON g.tenant_id = x.tenant_id AND g.actif AND g.envoi_auto
       JOIN blueseatra.messagerie_smtp m ON m.tenant_id = x.tenant_id AND m.actif AND m.verifie_le IS NOT NULL
-     WHERE x.canal = 'email' AND x.statut IN ('prevue', 'reportee')
+     WHERE x.tenant_id = :tenant_id
+       AND x.canal = 'email' AND x.statut IN ('prevue', 'reportee')
        AND x.echeance <= now() AND x.echeance >= g.envoi_auto_depuis
        AND x.envoi_tentatives < {MAX_TENTATIVES_AUTO}
        AND (x.envoi_statut IS NULL
             OR (x.envoi_statut = 'echec' AND x.envoi_tente_le < now() - interval '1 hour')
             OR (x.envoi_statut = 'envoi' AND x.envoi_tente_le < now() - interval '15 minutes'))
      ORDER BY x.echeance
-     LIMIT 200""")
+     LIMIT {MAX_PAR_CYCLE}"""
+
+
+async def _entreprises() -> list[str]:
+    """Liste des entreprises : table d'authentification (moteur AUTH), aucune donnée métier."""
+    async with system_context():
+        async with auth_session() as s:
+            return [str(t) for (t,) in (await s.execute(text("SELECT id FROM blueseatra.tenants"))).all()]
 
 
 async def relances_a_envoyer() -> list[tuple[str, str]]:
-    """Balayage transverse assumé (toutes entreprises) : moteur AUTH, voir database.system_context."""
-    async with system_context():
-        async with auth_session() as s:
-            return [(str(t), str(i)) for t, i in (await s.execute(_A_ENVOYER)).all()]
+    """Relances échues à envoyer seules, entreprise par entreprise, chacune dans son contexte."""
+    a_envoyer = []
+    for tid in await _entreprises():
+        async with tenant_context(tid):
+            a_envoyer += [(tid, x["id"]) for x in await cm._q(_A_ENVOYER, {})]
+    return a_envoyer
 
 
 async def envoyer_echeances() -> int:

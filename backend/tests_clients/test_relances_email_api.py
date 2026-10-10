@@ -76,6 +76,8 @@ def _sql(sql, params=()):
 def relances(ctx):
     """Un devis de 2 400 € HT envoyé à un contact joignable par e-mail : relances prévues par e-mail."""
     c, *_ = ctx
+    for t, nom in ((T1, "Entreprise fictive 1"), (T2, "Entreprise fictive 2")):
+        _sql("INSERT INTO blueseatra.tenants (id, name) VALUES (%s, %s) ON CONFLICT DO NOTHING", (t, nom))
     cid = c.post("/api/clients", json={"raison_sociale": "Syndic Fictif", "type": "syndic",
                                        "email": "accueil@syndic-fictif.fr"}).json()["id"]
     kid = c.post(f"/api/clients/{cid}/contacts", json={"nom": "Durand", "prenom": "Alice",
