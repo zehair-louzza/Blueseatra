@@ -184,6 +184,7 @@ class ReglesIn(BaseModel):
     rappel_avant_expiration_j: int = Field(default=3, ge=0, le=15)
     seuil_appel_ht: float = Field(default=10000, ge=0)
     heure_relance: str = "09:00"
+    envoi_auto: bool = False     # e-mails envoyés seuls à l'échéance (relances_email.py)
 
 
 class LierIn(BaseModel):
@@ -605,7 +606,9 @@ def build_router(get_current, require_role) -> APIRouter:
                                     count(*) FILTER (WHERE echeance < (date_trunc('day', now() AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'Europe/Paris') + interval '7 days') AS semaine
                                FROM blueseatra.relances WHERE tenant_id = :tenant_id AND statut IN ('prevue', 'reportee')""",
                              {}, un=True)
-        return {"relances": rows, "compte": compte}
+        envoi = await _etat_envoi()
+        return {"relances": rows, "compte": compte, "messagerie_active": envoi["messagerie_active"],
+                "envoi_auto": envoi["envoi_auto"], "envoi_auto_depuis": envoi["envoi_auto_depuis"]}
 
     async def _relance(rid: str) -> dict:
         x = await _q("SELECT * FROM blueseatra.relances WHERE tenant_id = :tenant_id AND id = :id", {"id": rid}, un=True)
@@ -677,6 +680,7 @@ def build_router(get_current, require_role) -> APIRouter:
                 "delais_urgent": list(g.delais_urgent), "max_relances": g.max_relances,
                 "validite_devis_jours": g.validite_devis_jours, "rappel_avant_expiration_j": g.rappel_avant_expiration_j,
                 "seuil_appel_ht": g.seuil_appel_ht, "heure_relance": g.heure_relance.strftime("%H:%M"), "fuseau": g.fuseau,
+                **(await _etat_envoi()),
                 "apercu": [{"rang": p.rang, "echeance": p.echeance.isoformat(), "canal": p.canal, "raison": p.raison}
                            for p in rr.planifier(rr.Devis("apercu", "D-EXEMPLE", _maintenant(), 2400,
                                                           contact_email="contact@exemple.fr",
@@ -690,21 +694,32 @@ def build_router(get_current, require_role) -> APIRouter:
         for liste in (b.delais_jours_ouvres, b.delais_urgent):
             if not liste or any(not 1 <= d <= 60 for d in liste):
                 raise HTTPException(400, "Délais entre 1 et 60 jours ouvrés.")
+        if b.envoi_auto:
+            envoi = await _etat_envoi()
+            if not (envoi["messagerie_active"] and envoi["messagerie_verifiee"]):
+                raise HTTPException(400, "Envoi automatique : configurez la messagerie d'envoi et réussissez "
+                                         "l'e-mail de test d'abord.")
         await _q("""INSERT INTO blueseatra.regles_relance (tenant_id, actif, delais_jours_ouvres, delais_urgent, max_relances,
-                        validite_devis_jours, rappel_avant_expiration_j, seuil_appel_ht, heure_relance, maj_par, maj_le)
+                        validite_devis_jours, rappel_avant_expiration_j, seuil_appel_ht, heure_relance, maj_par, maj_le,
+                        envoi_auto, envoi_auto_depuis)
                     VALUES (:tenant_id, :actif, :d, :u, :max_relances, :validite_devis_jours, :rappel_avant_expiration_j,
-                            :seuil_appel_ht, :heure, :p, now())
+                            :seuil_appel_ht, :heure, :p, now(), :envoi_auto, CASE WHEN :envoi_auto THEN now() END)
                     ON CONFLICT (tenant_id) DO UPDATE SET actif = EXCLUDED.actif, delais_jours_ouvres = EXCLUDED.delais_jours_ouvres,
                         delais_urgent = EXCLUDED.delais_urgent, max_relances = EXCLUDED.max_relances,
                         validite_devis_jours = EXCLUDED.validite_devis_jours,
                         rappel_avant_expiration_j = EXCLUDED.rappel_avant_expiration_j,
                         seuil_appel_ht = EXCLUDED.seuil_appel_ht, heure_relance = EXCLUDED.heure_relance,
-                        maj_par = EXCLUDED.maj_par, maj_le = now()""",
+                        maj_par = EXCLUDED.maj_par, maj_le = now(),
+                        -- date d'activation conservée tant que l'envoi automatique reste actif
+                        envoi_auto_depuis = CASE WHEN NOT EXCLUDED.envoi_auto THEN NULL
+                                                 WHEN regles_relance.envoi_auto THEN regles_relance.envoi_auto_depuis
+                                                 ELSE now() END,
+                        envoi_auto = EXCLUDED.envoi_auto""",
                  b.model_dump() | {"d": b.delais_jours_ouvres[:6], "u": b.delais_urgent[:6], "p": cu.email,
                                    "heure": datetime.strptime(b.heure_relance, "%H:%M").time()}, ecrit=True)
         if not b.actif:
             await annuler_relances(evenement="regles_desactivees")
-        await _audit_log(cu.email, "relances.rules_update", "")
+        await _audit_log(cu.email, "relances.rules_update", "", {"envoi_auto": b.envoi_auto})
         return await lire_regles(cu)
 
     # --- Import / export ---------------------------------------------------
@@ -813,6 +828,17 @@ async def charger_regles() -> rr.Regles:
                      seuil_appel_ht=float(g["seuil_appel_ht"]), heure_relance=heure, fuseau=g["fuseau"])
 
 
+async def _etat_envoi() -> dict:
+    """Messagerie d'envoi et envoi automatique de l'entreprise (relances_email.py)."""
+    e = await _q("""SELECT (SELECT actif FROM blueseatra.messagerie_smtp WHERE tenant_id = :tenant_id) AS actif,
+                           (SELECT verifie_le FROM blueseatra.messagerie_smtp WHERE tenant_id = :tenant_id) AS verifie_le,
+                           (SELECT envoi_auto FROM blueseatra.regles_relance WHERE tenant_id = :tenant_id) AS auto,
+                           (SELECT envoi_auto_depuis FROM blueseatra.regles_relance WHERE tenant_id = :tenant_id) AS depuis""",
+                 {}, un=True) or {}
+    return {"messagerie_active": bool(e.get("actif")), "messagerie_verifiee": bool(e.get("verifie_le")),
+            "envoi_auto": bool(e.get("auto")), "envoi_auto_depuis": e.get("depuis")}
+
+
 async def devis_suivi(quote_id: str) -> dict:
     q = await _q("""SELECT q.id, q.client_id, q.client_final_id, q.chantier_id, q.contact_id, q.issue, q.issue_le,
                            q.motif_issue, q.valable_jusqu_au, c.raison_sociale AS client_nom,
@@ -823,7 +849,8 @@ async def devis_suivi(quote_id: str) -> dict:
                      WHERE q.tenant_id = :tenant_id AND q.id = :id""", {"id": quote_id}, un=True)
     if not q:
         raise HTTPException(404, "Devis introuvable.")
-    q["relances"] = await _q("""SELECT id, rang, echeance, canal, raison, statut, resultat, motif_annulation
+    q["relances"] = await _q("""SELECT id, rang, echeance, canal, raison, statut, resultat, motif_annulation,
+                                       envoi_statut, envoye_le, envoye_par, envoi_destinataire
                                   FROM blueseatra.relances WHERE tenant_id = :tenant_id AND devis_id = :id ORDER BY rang""",
                              {"id": quote_id})
     return q

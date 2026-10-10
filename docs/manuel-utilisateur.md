@@ -321,7 +321,10 @@ Les **jours ouvrés** excluent les samedis, les dimanches et les 11 jours féri�
 ### Traiter une relance
 
 - **Regroupement :** l'écran classe les relances en **En retard**, **Aujourd'hui** et **Cette semaine**. Chaque carte affiche la raison, par exemple « Devis D-2026-041 envoyé le 24/09/2026, sans réponse : relance 1 sur 3 ».
-- **Ouvrir l'e-mail :** prépare un message en français ou en anglais, selon la langue du contact. Il cite le numéro et la date du devis, jamais un montant recalculé.
+- **Texte proposé :** un message en français ou en anglais, selon la langue du contact. Il cite le numéro et la date du devis, jamais un montant recalculé. Pour une relance par e-mail, l'objet et le texte sont modifiables ; **Enregistrer le texte** garde vos modifications.
+- **Envoyer maintenant :** envoie l'e-mail depuis la boîte de votre entreprise, après une confirmation qui affiche l'adresse du destinataire. La relance passe à « faite » et l'envoi est noté dans l'historique du client. Ce bouton apparaît une fois la messagerie d'envoi configurée.
+- **Ouvrir l'e-mail :** sans messagerie d'envoi, ouvre votre logiciel de messagerie avec l'objet et le texte.
+- **Envoi en échec :** le motif s'affiche sur la carte, par exemple un mot de passe refusé. La relance reste à envoyer.
 - **Appeler :** affiche le numéro du contact, ou celui du client à défaut.
 - **Marquer faite :** enregistre le résultat de la relance.
   - « À rappeler » crée une tâche le jour ouvré suivant.
@@ -350,7 +353,24 @@ Le bouton **Réglages des relances** est réservé au propriétaire et aux admin
 - la validité par défaut des devis ;
 - le rappel avant expiration ;
 - le seuil au-dessus duquel un appel est proposé ;
-- l'heure des relances.
+- l'heure des relances ;
+- l'envoi automatique des relances par e-mail à leur échéance (voir ci-dessous).
+
+### Envoyer les relances par e-mail depuis Blueseatra
+
+1. Ouvrez **À relancer → Réglages des relances**, puis la carte **Messagerie d'envoi (SMTP)**.
+2. Choisissez un préréglage (Zoho Mail, OVHcloud, Hostinger, Gmail, Microsoft 365) ou saisissez le serveur et le port (465 ou 587).
+3. Renseignez l'identifiant, le mot de passe, l'adresse d'expédition, le nom affiché et la signature. Pour Gmail et Microsoft 365, utilisez un mot de passe d'application.
+4. Cliquez sur **Enregistrer la messagerie**, puis sur **Envoyer un e-mail de test**. Vérifiez qu'il arrive dans votre boîte.
+5. Pour l'envoi automatique, cochez **Envoyer automatiquement les relances par e-mail à leur échéance**, puis **Enregistrer**.
+
+Bon à savoir :
+
+- **Expéditeur et réponses :** les e-mails partent de votre adresse et vos clients vous répondent directement. Avec l'option de copie cachée, chaque relance arrive aussi dans votre boîte.
+- **Mot de passe :** il est chiffré et n'est jamais réaffiché. Laissez le champ vide pour le garder.
+- **Relances concernées par l'envoi automatique :** seules celles dont l'échéance tombe après l'activation. Les retards plus anciens restent à envoyer à la main.
+- **Relances par appel :** elles restent des tâches et ne partent jamais par e-mail.
+- **Contact opposé aux relances :** il ne reçoit jamais d'e-mail.
 
 ## 11. Membres et rôles
 

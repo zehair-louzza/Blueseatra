@@ -42,7 +42,7 @@ export const clFr = {
   rules: 'Réglages des relances', rules_active: 'Relances activées', rules_delays: 'Délais (jours ouvrés)', rules_urgent: 'Délais si urgent',
   rules_max: 'Nombre maximal', rules_validity: 'Validité des devis (jours)', rules_expiry: 'Rappel avant expiration (jours ouvrés)',
   rules_threshold: 'Appel au-delà de (€ HT)', rules_hour: 'Heure', rules_preview: 'Aperçu pour un devis envoyé aujourd’hui',
-  rules_note: 'Jours ouvrés : hors week-ends et jours fériés. Aucun e-mail n’est envoyé automatiquement.',
+  rules_note: 'Jours ouvrés : hors week-ends et jours fériés. Un e-mail ne part seul que si l’envoi automatique est activé ci-dessous.',
   // Suggestions
   sg_title: 'Clients détectés dans cette demande', sg_new: 'Nouveau client', sg_link: 'Rattachement proposé',
   sg_auto: 'Rattaché automatiquement', sg_proof: 'Preuve', sg_create: 'Créer le client', sg_accept: 'Rattacher',
@@ -57,6 +57,9 @@ export const clFr = {
   q_send_first: 'Les relances seront prévues à l’envoi du devis.',
   import_title: 'Importer des clients (CSV)', import_hint: 'Séparateur ; ou ,. Colonnes reconnues : raison sociale, SIRET, e-mail, téléphone, adresse, code postal, ville, type.',
   import_done: '{{n}} client(s) créé(s), {{d}} doublon(s) ignoré(s)', import_file: 'Choisir un fichier',
+  r_send_now: 'Envoyer maintenant', r_send_confirm: 'Envoyer cet e-mail à {{e}} ?', r_send_confirm_aide: 'Il part de la boîte de l’entreprise, avec l’objet et le texte affichés. La relance sera marquée faite.', r_sent: 'E-mail envoyé à {{e}}', r_save_text: 'Enregistrer le texte', r_text_saved: 'Texte enregistré', r_subject: 'Objet', r_auto_le: 'Envoi automatique le {{d}} (texte modifiable jusque-là)', r_envoi_echec: 'Envoi en échec : {{e}}', r_no_mailbox: 'Pour envoyer depuis Blueseatra, configurez la messagerie d’envoi dans les réglages des relances.',
+  rules_auto: 'Envoyer automatiquement les relances par e-mail à leur échéance', rules_auto_aide: 'Seules partent les relances par e-mail dont l’échéance tombe après l’activation ; les retards plus anciens restent à envoyer à la main. Les relances par appel restent des tâches.', rules_auto_bloque: 'Configurez la messagerie d’envoi ci-dessous et réussissez l’e-mail de test pour activer l’envoi automatique.',
+  mb_title: 'Messagerie d’envoi (SMTP)', mb_aide: 'Les relances partent de la boîte de votre entreprise et les réponses de vos clients y arrivent. Le mot de passe est chiffré et n’est jamais réaffiché. Gmail et Microsoft 365 demandent un mot de passe d’application.', mb_presets: 'Préréglages', mb_hote: 'Serveur SMTP', mb_port: 'Port', mb_identifiant: 'Identifiant', mb_mdp: 'Mot de passe', mb_mdp_garde: 'Enregistré : laisser vide pour le garder', mb_exp_email: 'Adresse d’expédition', mb_exp_nom: 'Nom affiché', mb_signature: 'Signature (ajoutée sous le texte)', mb_copie: 'Recevoir une copie cachée de chaque relance', mb_actif: 'Messagerie active', mb_save: 'Enregistrer la messagerie', mb_test: 'Envoyer un e-mail de test', mb_test_ok: 'E-mail de test envoyé à {{e}} : vérifiez sa réception.', mb_verifiee: 'Vérifiée le {{d}}', mb_non_verifiee: 'Non vérifiée : envoyez l’e-mail de test.', mb_erreur: 'Dernière erreur : {{e}}', mb_saved: 'Messagerie enregistrée',
 };
 
 export const clEn = {
@@ -100,7 +103,7 @@ export const clEn = {
   rules: 'Follow-up settings', rules_active: 'Follow-ups enabled', rules_delays: 'Delays (working days)', rules_urgent: 'Delays if urgent',
   rules_max: 'Maximum number', rules_validity: 'Quote validity (days)', rules_expiry: 'Reminder before expiry (working days)',
   rules_threshold: 'Call above (€ excl. VAT)', rules_hour: 'Time', rules_preview: 'Preview for a quote sent today',
-  rules_note: 'Working days exclude weekends and French public holidays. No email is ever sent automatically.',
+  rules_note: 'Working days exclude weekends and French public holidays. An email is only sent on its own if automatic sending is enabled below.',
   sg_title: 'Clients found in this request', sg_new: 'New client', sg_link: 'Suggested match',
   sg_auto: 'Linked automatically', sg_proof: 'Evidence', sg_create: 'Create client', sg_accept: 'Link',
   sg_ignore: 'Ignore', sg_undo: 'Undo', sg_roles: { donneur_ordre: 'Ordering party', client_final: 'End client' },
@@ -113,4 +116,7 @@ export const clEn = {
   q_send_first: 'Follow-ups will be planned when the quote is sent.',
   import_title: 'Import clients (CSV)', import_hint: 'Separator ; or ,. Recognised columns: company name, SIRET, email, phone, address, postcode, city, type.',
   import_done: '{{n}} client(s) created, {{d}} duplicate(s) skipped', import_file: 'Choose a file',
+  r_send_now: 'Send now', r_send_confirm: 'Send this email to {{e}}?', r_send_confirm_aide: 'It is sent from the company mailbox, with the subject and text shown. The follow-up will be marked done.', r_sent: 'Email sent to {{e}}', r_save_text: 'Save text', r_text_saved: 'Text saved', r_subject: 'Subject', r_auto_le: 'Sent automatically on {{d}} (editable until then)', r_envoi_echec: 'Sending failed: {{e}}', r_no_mailbox: 'To send from Blueseatra, set up the sending mailbox in the follow-up settings.',
+  rules_auto: 'Send email follow-ups automatically when due', rules_auto_aide: 'Only email follow-ups due after activation are sent; older overdue ones stay manual. Call follow-ups remain tasks.', rules_auto_bloque: 'Set up the sending mailbox below and pass the test email to enable automatic sending.',
+  mb_title: 'Sending mailbox (SMTP)', mb_aide: 'Follow-ups are sent from your company mailbox and your clients reply to it. The password is encrypted and never shown again. Gmail and Microsoft 365 require an app password.', mb_presets: 'Presets', mb_hote: 'SMTP server', mb_port: 'Port', mb_identifiant: 'Username', mb_mdp: 'Password', mb_mdp_garde: 'Saved: leave empty to keep it', mb_exp_email: 'Sender address', mb_exp_nom: 'Display name', mb_signature: 'Signature (added below the text)', mb_copie: 'Receive a blind copy of each follow-up', mb_actif: 'Mailbox enabled', mb_save: 'Save mailbox', mb_test: 'Send a test email', mb_test_ok: 'Test email sent to {{e}}: check that it arrived.', mb_verifiee: 'Verified on {{d}}', mb_non_verifiee: 'Not verified: send the test email.', mb_erreur: 'Last error: {{e}}', mb_saved: 'Mailbox saved',
 };
