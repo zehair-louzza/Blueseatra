@@ -12,3 +12,7 @@ Fichiers de marque à réutiliser (header, favicon, PDF, slides).
 | `apple-touch.png` | Icône iOS |
 
 Couleurs : navy `#193852`, teal `#2BB3A8` / `#438C88`, papier `#F7F4EE`.
+
+## Licence
+
+Logiciel propriétaire, tous droits réservés. Titulaire : Zehair Louzza, exploitant le nom commercial « Blueseatra ». Voir [LICENSE](../../../LICENSE).
