@@ -29,10 +29,10 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           # Aligné sur render.yaml (PYTHON_VERSION 3.11.0).
           python-version: '3.11'
@@ -101,10 +101,10 @@ jobs:
     # etait deja signale dans nos rapports internes sans avoir ete corrige.
     # Ce controle garantit qu'elle ne peut pas revenir.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
