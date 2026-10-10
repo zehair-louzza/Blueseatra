@@ -26,7 +26,7 @@
 ![Ollama](https://img.shields.io/badge/AI-Ollama%20%C2%B7%20OVH-000E9C?labelColor=2D333B&logo=ollama&logoColor=white)
 
 ![API routes](https://img.shields.io/badge/API%20routes-124-0969DA?labelColor=2D333B&logo=openapiinitiative&logoColor=white)
-![Migrations](https://img.shields.io/badge/migrations-34-8250DF?labelColor=2D333B&logo=postgresql&logoColor=white)
+![Migrations](https://img.shields.io/badge/migrations-35-8250DF?labelColor=2D333B&logo=postgresql&logoColor=white)
 ![Tests](https://img.shields.io/badge/automated%20tests-690-1A7F37?labelColor=2D333B&logo=pytest&logoColor=white)
 ![Isolation](https://img.shields.io/badge/isolation-RLS%20per%20company-BC4C00?labelColor=2D333B&logo=supabase&logoColor=white)
 ![GDPR](https://img.shields.io/badge/GDPR-anonymisation%20%C2%B7%20opt--out-BF3989?labelColor=2D333B)

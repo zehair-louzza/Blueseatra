@@ -64,7 +64,7 @@ flowchart LR
 - **Volume**: 2.55 GB, of which 2.53 GB for the 971,676 supplier catalogue offers (`supplier_offers`).
 - **Isolation**: RLS enabled on all 33 tables; the API connects with the `blueseatra_app` role, which only sees the current company.
 - **Test activity**: 38 requests (23 read, 12 to review, 2 failed, 1 running) and 60 quotes (49 drafts, 10 approved, 1 sent).
-- **Append-only**: usage ledger and client exchanges protected by trigger; audit log protection in progress (pull request [#153](https://github.com/zehair-louzza/Blueseatra/pull/153)).
+- **Append-only**: usage ledger, client exchanges and audit log protected by trigger. For `audit_logs`, migration `20261010030000` ([#153](https://github.com/zehair-louzza/Blueseatra/pull/153)) has been applied in production since 10/10/2026: the application role and `authenticated` only keep `SELECT` and `INSERT`, and any update, delete or truncate is refused.
 
 Tables and relations are detailed in the [database schema](./schema-base-donnees.md) (French).
 
@@ -81,7 +81,7 @@ Tables and relations are detailed in the [database schema](./schema-base-donnees
 
 | Point | Status | Next step |
 |---|---|---|
-| Append-only audit log | Pull request [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) | Merge, then apply migration `20261010030000` on Supabase |
+| Append-only audit log | Done on 10/10/2026: [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) merged, migration `20261010030000` applied on Supabase. Verified: insert accepted; update, delete and truncate refused | None |
 | Supabase advisor: 10 functions without fixed `search_path` | Warning | Add `SET search_path = ''` to these functions |
 | Supabase advisor: `pg_trgm` and `unaccent` in `public` | Warning | Move the extensions to a dedicated schema, after testing the indexes |
 | Free Render instance | Sleep offset by `pg_cron` | Move to a paid instance before going commercial |

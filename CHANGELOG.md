@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-10 — Journal d'audit protégé en production
+
+- Migration `20261010030000_journal_audit_ajout_seul.sql` appliquée sur Supabase le 10/10/2026, après la fusion de #153.
+- Contrôlé avant application : aucune clé étrangère en cascade, aucune fonction SQL et aucune tâche `pg_cron` ne modifient `audit_logs` ; l'anonymisation RGPD n'y fait qu'ajouter une ligne `rgpd.anonymisation`.
+- Contrôlé après application : `blueseatra_app` et `authenticated` n'ont plus que `SELECT` et `INSERT` ; triggers `audit_ajout_seul` et `audit_ajout_seul_truncate` actifs ; dans une transaction annulée, ajout accepté, modification et suppression refusées au rôle applicatif, modification et vidage refusés à l'administrateur sans mode maintenance ; 691 lignes intactes.
+- Documentation : `infrastructure.md` (FR / EN) passe le point en « fait » ; guide développeur et badges des README : 35 migrations.
+- Références à l'ancien numéro `20261002040000` : il n'en reste aucune pour le journal d'audit. Celles qui subsistent désignent `20261002040000_vocabulaire_recherche.sql`, qui porte bien ce numéro.
+
 ## 2026-10-10 — Journal d'audit en ajout seul
 
 - **Écart corrigé** : la documentation présentait `audit_logs` comme un journal en ajout seul, mais la base ne l'imposait pas (le rôle `blueseatra_app` gardait `UPDATE` et `DELETE`, aucun trigger).
