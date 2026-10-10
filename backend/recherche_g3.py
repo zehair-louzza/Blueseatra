@@ -67,6 +67,9 @@ SCHEMA_CHOIX = {"type": "object", "properties": {"codes": {"type": "array", "ite
                 "required": ["codes"]}
 
 AppelIA = Callable[[str, str, dict], Awaitable[dict]]
+# Recherche d'offres dans les catalogues fournisseurs activés pour le chiffrage
+# (catalogue_chiffrage.rechercher) : articles déjà classés, au format pricing_item.
+ChercherFournisseurs = Callable[[str], Awaitable[List[Dict]]]
 
 # --------------------------------------------------------------------------- normalisation
 MOTS_VIDES = set("""
@@ -218,15 +221,32 @@ class Index:
 
 
 # --------------------------------------------------------------------------- chaîne
+def _cle(a: Dict) -> str:
+    """Identifiant unique d'un candidat : une même référence peut exister chez deux
+    fournisseurs et dans le catalogue interne ; l'id des offres (« frn:… ») les distingue."""
+    return str(a.get("id") or a.get("item_code"))
+
+
 def _article(a: Dict) -> Dict:
-    return {k: a.get(k) for k in ("item_code", "item_label", "unit", "unit_price_ht", "family", "brand")}
+    out = {k: a.get(k) for k in ("item_code", "item_label", "unit", "unit_price_ht", "family", "brand")}
+    out["origine"] = "fournisseur" if a.get("source") == "fournisseur" else "catalogue"
+    out["fournisseur"] = a.get("source_fournisseur") or (a.get("supplier_main") if a.get("source") == "fournisseur" else None)
+    return out
 
 
-async def suggerer(demande: str, catalogue: List[Dict], appel_ia: AppelIA) -> Dict:
-    """Suggestions d'articles pour une demande ; toujours à valider par le chiffreur."""
+async def suggerer(demande: str, catalogue: List[Dict], appel_ia: AppelIA,
+                   chercher_fournisseurs: ChercherFournisseurs | None = None) -> Dict:
+    """Suggestions d'articles pour une demande ; toujours à valider par le chiffreur.
+
+    Candidats : catalogue interne actif (recherche par mots et BM25), complété par
+    les catalogues fournisseurs activés pour le chiffrage si `chercher_fournisseurs`
+    est fourni (10/10/2026 : G3 ignorait les catalogues fournisseurs).
+    """
     index = Index(catalogue or [])
-    if not index.articles:
-        return {"statut": "erreur", "erreur": "Aucun catalogue actif.", "lignes": []}
+    if not index.articles and chercher_fournisseurs is None:
+        return {"statut": "erreur", "lignes": [],
+                "erreur": "Aucun catalogue pour chercher les articles : activez votre catalogue interne "
+                          "ou au moins un catalogue fournisseur pour le chiffrage (page Catalogues)."}
     travaux = extraire_travaux(demande)
     if not travaux.strip():
         return {"statut": "a_valider", "lignes": [], "remarque": "Aucune description de travaux repérée."}
@@ -241,25 +261,42 @@ async def suggerer(demande: str, catalogue: List[Dict], appel_ia: AppelIA) -> Di
 
     async def _ligne(p: Dict) -> Dict:
         designation = str(p["designation"]).strip()[:200]
-        cands = index.candidats(designation)
+        internes = index.candidats(designation) if index.articles else []
+        fournisseurs: List[Dict] = []
+        if chercher_fournisseurs is not None:
+            try:
+                fournisseurs = list(await chercher_fournisseurs(designation) or [])
+            except Exception:
+                fournisseurs = []
+        # Catalogue interne d'abord (prix de l'entreprise), puis offres fournisseurs, sans doublon.
+        cands, vus = [], set()
+        for a in internes[: N_CANDIDATS // 2 if fournisseurs else N_CANDIDATS] + fournisseurs:
+            if a.get("item_label") and _cle(a) not in vus:
+                vus.add(_cle(a))
+                cands.append(a)
+        cands = cands[:N_CANDIDATS]
         ligne = {"produit": designation, "quantite": str(p.get("quantite") or "").strip()[:40] or None,
                  "articles": [], "source": "aucun", "a_valider": True}
         if cands:
-            liste = [{"code": a["item_code"], "article": a["item_label"]} for a in cands]
+            liste = [{"code": _cle(a), "article": a["item_label"]} for a in cands]
             try:
                 async with limite:
                     rep = await appel_ia(CONSIGNE_CHOIX, json.dumps({"produit": designation, "candidats": liste},
                                                                     ensure_ascii=False), SCHEMA_CHOIX)
-                valides = {a["item_code"]: a for a in cands}
+                valides = {_cle(a): a for a in cands}
                 codes = [c for c in dict.fromkeys(str(c) for c in (rep or {}).get("codes", [])) if c in valides][:3]
                 ligne["articles"] = [_article(valides[c]) for c in codes]
                 ligne["source"] = "ia" if codes else "aucun"
             except Exception:
                 pass
             if not ligne["articles"]:
-                meilleur = index.par_mots(designation, limite=1)
+                meilleur = index.par_mots(designation, limite=1) if index.articles else []
                 if meilleur:
                     ligne["articles"] = [_article(index.articles[meilleur[0]])]
+                    ligne["source"] = "repli"
+                elif fournisseurs:
+                    # La recherche fournisseurs classe déjà par pertinence puis par prix.
+                    ligne["articles"] = [_article(fournisseurs[0])]
                     ligne["source"] = "repli"
         return ligne
 

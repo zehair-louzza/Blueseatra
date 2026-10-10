@@ -1201,9 +1201,23 @@ async def suggestions_g3(request_id: str, cu: CurrentUser = Depends(require_role
     async def appel(consigne, texte, schema):
         return await ai_service.appel_json_ia(reglages, consigne, texte, schema, role="g3")
 
-    res = await recherche_g3.suggerer(texte, items, appel)
+    # Catalogues fournisseurs activés pour le chiffrage (page Catalogues) : même
+    # recherche que les devis (catalogue_chiffrage.rechercher, sans copie des offres).
+    chercher = None
+    if await catalogue_chiffrage.a_sources_actives(cu.tenant_id):
+        async def chercher(designation: str) -> list:
+            async with tenant_context(cu.tenant_id):
+                for q in (catalogue_chiffrage.requete_materielle(designation), designation):
+                    if q and len(q) >= 3:
+                        offres = await catalogue_chiffrage.rechercher(q, recherche_g3.N_CANDIDATS)
+                        if offres:
+                            return offres
+                return []
+
+    res = await recherche_g3.suggerer(texte, items, appel, chercher_fournisseurs=chercher)
     await audit(cu.tenant_id, cu.email, "requests.suggestions_g3", request_id,
-                {"statut": res["statut"], "lignes": len(res["lignes"]), "fournisseur": reglages.get("ai_provider")})
+                {"statut": res["statut"], "lignes": len(res["lignes"]), "fournisseur": reglages.get("ai_provider"),
+                 "catalogue_interne": len(items or []), "catalogues_fournisseurs": chercher is not None})
     return res
 
 
