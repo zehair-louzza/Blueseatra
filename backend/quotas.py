@@ -37,6 +37,7 @@ import os
 
 from sqlalchemy import text
 
+from contact_blueseatra import CONTACT_EMAIL
 from database import get_current_tenant, tenant_session
 
 log = logging.getLogger("blueseatra.quotas")
@@ -48,7 +49,7 @@ MESSAGES = {
                      "à préparer des devis avec l'IA ; vos données restent consultables.",
     "lecture_seule": "Votre espace est en lecture seule. Réglez votre abonnement pour relancer "
                      "la préparation de devis par l'IA.",
-    "suspendu": "Votre espace est suspendu. Contactez Blueseatra.",
+    "suspendu": f"Votre espace est suspendu. Contactez Blueseatra : {CONTACT_EMAIL}.",
     "quota_atteint_devis_ia": "Vous avez utilisé tous les devis assistés par l'IA de votre offre "
                               "pour cette période. Ajoutez une recharge ou passez à l'offre "
                               "supérieure ; la saisie manuelle reste disponible.",

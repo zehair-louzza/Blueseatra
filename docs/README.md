@@ -28,6 +28,7 @@ Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/
 |---|---|
 | [Manuel d'utilisation](./manuel-utilisateur.md) | Chaque écran, pas à pas, avec captures : demandes, devis, catalogues, clients, relances, membres, paramètres, offre |
 | [Tarification](./tarification-2026-09.md) | Offres, quotas, règles multi-entreprises |
+| [Contact et messagerie](./contact-blueseatra.md) | Adresse publique `contact@blueseatra.com`, motifs, boîtes Hostinger, DNS (SPF, DKIM, DMARC) |
 | [Blueseatra_Documentation_FR.pdf](./Blueseatra_Documentation_FR.pdf) · [EN](./Blueseatra_Documentation_EN.pdf) | Présentation générale (PDF) |
 
 ## Comprendre

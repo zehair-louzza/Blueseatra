@@ -65,6 +65,8 @@ Le menu de gauche regroupe les écrans par usage :
 
 En haut à droite : le choix de la langue (**FR** ou **EN**) et votre menu personnel (profil, déconnexion). Le mot de passe d'un membre se change depuis **Membres**, par le propriétaire.
 
+En bas du menu, **Contacter Blueseatra** ouvre un e-mail à `contact@blueseatra.com`, avec l'objet « [Blueseatra] Aide » prérempli.
+
 ## 4. Tableau de bord
 
 ![Tableau de bord](assets/manuel/01-tableau-de-bord.jpg)
@@ -431,6 +433,8 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
 | Signature | Sur devis | Contrat | Contrat | Contrat |
 
 Détail des offres : [`tarification-2026-09.md`](./tarification-2026-09.md).
+
+**Changer d'offre ou demander l'offre Signature :** tant que le paiement en ligne n'est pas ouvert, l'écran **Facturation** affiche un lien vers `contact@blueseatra.com`, avec l'objet « [Blueseatra] Offres et abonnement » prérempli. Sur la page d'accueil, le bouton **Nous contacter** de l'offre Signature ouvre le même e-mail.
 
 ## 14. Journal d'audit
 

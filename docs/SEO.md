@@ -1,6 +1,6 @@
 # Stratégie SEO et GEO de Blueseatra
 
-Dernière mise à jour : octobre 2026. Contact public affiché : **contact@blueseatra.com**.
+Dernière mise à jour : octobre 2026. Contact public affiché : **contact@blueseatra.com** (adresses, motifs et DNS : [contact-blueseatra.md](./contact-blueseatra.md)).
 Fondateur (identité commune avec journeyinto-ai.com) : **Zehair Louzza**, Paris.
 
 ## 1. Ce qui a été mis en place dans le dépôt
@@ -43,7 +43,7 @@ vivent dans le title, le H1, les H2, le texte et les ancres de liens.
    et demander l'indexation des 6 pages via « Inspection de l'URL ».
 2. **Bing Webmaster Tools** : importer depuis Search Console (Bing alimente aussi ChatGPT et Copilot).
 3. **Google Business Profile** : fiche « Éditeur de logiciels » à Paris avec l'email de contact.
-4. **Email** : vérifier que la boîte `contact@blueseatra.com` existe chez Hostinger (MX déjà sur Hostinger).
+4. **Email** : boîte `contact@blueseatra.com` créée chez Hostinger (vérifié le 10/10/2026) ; MX, SPF et DKIM en place, DMARC à renforcer (voir [contact-blueseatra.md](./contact-blueseatra.md)).
 5. **Liens externes** : depuis journeyinto-ai.com (page À propos et footer : « Autre projet du fondateur : Blueseatra »),
    le profil LinkedIn, le profil GitHub, et la page LinkedIn entreprise Blueseatra.
 6. **Mentions légales** : page `/mentions-legales` en place (éditeur, hébergeurs, RGPD) ; ajouter forme juridique, SIREN/SIRET et adresse du siège

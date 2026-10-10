@@ -173,6 +173,7 @@ Détails : [architecture.md](./docs/architecture.md).
 | Développer | [Guide développeur](./docs/guide-developpeur.md) · [Référence API](./docs/reference-api.md) · [Contribuer](./CONTRIBUTING.md) |
 | Mettre en production | [Exploitation](./docs/exploitation.md) · [DEPLOIEMENT.md](./DEPLOIEMENT.md) · [Vocabulaire des gros catalogues](./docs/vocabulaire-rexel-passe-nuit.md) |
 | Offres et prix | [Tarification](./docs/tarification-2026-09.md) |
+| Nous contacter | `contact@blueseatra.com` · [Adresses, motifs et DNS du domaine](./docs/contact-blueseatra.md) |
 | Module Clients | [Spécification](./docs/specs/module-clients.md) |
 | Sécurité | [SECURITY.md](./SECURITY.md) · [Audit d'isolation](./docs/audit-isolation-tenants-2026-09-12.md) |
 | Tout le reste | [Index de la documentation](./docs/README.md) |

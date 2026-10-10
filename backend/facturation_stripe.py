@@ -30,6 +30,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 
+from contact_blueseatra import CONTACT_EMAIL
 from database import auth_session, tenant_session
 
 log = logging.getLogger("blueseatra.stripe")
@@ -57,7 +58,7 @@ def lookup_offre(offre: str, periodicite: str) -> str:
 def _cle() -> str:
     cle = os.environ.get("STRIPE_SECRET_KEY", "")
     if not cle:
-        raise HTTPException(503, "Paiement en ligne pas encore activé. Contactez Blueseatra pour changer d'offre.")
+        raise HTTPException(503, f"Paiement en ligne pas encore activé. Pour changer d'offre, écrivez à {CONTACT_EMAIL}.")
     if cle.startswith(("sk_live_", "rk_live_")) and os.environ.get("BLUESEATRA_STRIPE_LIVE") != "1":
         raise HTTPException(503, "Clé Stripe live refusée : la bascule en production n'a pas été validée.")
     return cle
