@@ -1,0 +1,50 @@
+{
+  "$defs": {
+    "Wording": {
+      "additionalProperties": false,
+      "properties": {
+        "line_id": {
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Line Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 160,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 1200,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line_id",
+        "title",
+        "description"
+      ],
+      "title": "Wording",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "lines": {
+      "items": {
+        "$ref": "#/$defs/Wording"
+      },
+      "maxItems": 160,
+      "minItems": 1,
+      "title": "Lines",
+      "type": "array"
+    }
+  },
+  "required": [
+    "lines"
+  ],
+  "title": "Redaction",
+  "type": "object"
+}

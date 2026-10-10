@@ -1,4 +1,5 @@
 import React from 'react';
+import { CONTACT_EMAIL, mailtoContact } from '@/lib/contact';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { localeCourante } from '@/lib/locale';
@@ -374,11 +375,20 @@ function Plans({ t }) {
                     </li>
                   ))}
                 </ul>
-                <Link to="/signup" className="mt-8">
-                  <Button className={`h-11 w-full ${p.featured ? '' : 'border border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
-                    {p.key === 'signature' ? t('lp.contact_cta') : t('lp.trial_cta')}
-                  </Button>
-                </Link>
+                {p.key === 'signature' ? (
+                  // Offre sur devis : on écrit à Blueseatra, on ne crée pas d'espace d'essai.
+                  <a href={mailtoContact('offres', { precision: 'Signature' })} className="mt-8" data-testid="pricing-contact">
+                    <Button className={`h-11 w-full ${p.featured ? '' : 'border border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
+                      {t('lp.contact_cta')}
+                    </Button>
+                  </a>
+                ) : (
+                  <Link to="/signup" className="mt-8">
+                    <Button className={`h-11 w-full ${p.featured ? '' : 'border border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
+                      {t('lp.trial_cta')}
+                    </Button>
+                  </Link>
+                )}
               </article>
             );
           })}
@@ -444,8 +454,20 @@ function Footer({ t }) {
         <div className="md:col-span-5">
           <BrandLogo to="/" imgClassName="h-8 max-w-[170px]" />
           <p className="mt-4 max-w-[36ch] text-sm text-muted-foreground">{t('lp.foot_tag')}</p>
+          <a href={mailtoContact('entreprise')} className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary" data-testid="footer-email">
+            <Mail className="h-4 w-4" /> {CONTACT_EMAIL}
+          </a>
         </div>
-        <div className="grid grid-cols-2 gap-8 text-sm md:col-span-7 md:grid-cols-3">
+        <div className="grid grid-cols-2 gap-8 text-sm md:col-span-7 md:grid-cols-4">
+          <div>
+            <p className="font-semibold">{t('lp.foot_solutions')}</p>
+            <ul className="mt-3 space-y-2 text-muted-foreground">
+              <li><a href="/logiciel-devis-ia" className="hover:text-foreground">{t('lp.sol_ia')}</a></li>
+              <li><a href="/automatisation-devis" className="hover:text-foreground">{t('lp.sol_auto')}</a></li>
+              <li><a href="/logiciel-devis-batiment" className="hover:text-foreground">{t('lp.sol_bat')}</a></li>
+              <li><a href="/facturation-ia" className="hover:text-foreground">{t('lp.sol_fact')}</a></li>
+            </ul>
+          </div>
           <div>
             <p className="font-semibold">{t('lp.foot_product')}</p>
             <ul className="mt-3 space-y-2 text-muted-foreground">
@@ -459,6 +481,9 @@ function Footer({ t }) {
             <ul className="mt-3 space-y-2 text-muted-foreground">
               <li><a href="#valeurs" className="hover:text-foreground">{t('lp.nav_values')}</a></li>
               <li><a href="#faq" className="hover:text-foreground">{t('lp.nav_faq')}</a></li>
+              <li><a href="/a-propos" className="hover:text-foreground">{t('lp.foot_about')}</a></li>
+              <li><a href="/contact" className="hover:text-foreground">{t('lp.foot_contact')}</a></li>
+              <li><a href="/mentions-legales" className="hover:text-foreground">{t('lp.foot_legal')}</a></li>
             </ul>
           </div>
           <div>
@@ -470,14 +495,20 @@ function Footer({ t }) {
           </div>
         </div>
       </Container>
-      <Container className="border-t border-border/70 py-6 text-sm text-muted-foreground">© {year} Blueseatra</Container>
+      <Container className="border-t border-border/70 py-6 text-sm text-muted-foreground">© {year} Blueseatra · Paris, France · <a href="/a-propos" className="hover:text-foreground">Zehair Louzza</a></Container>
     </footer>
   );
 }
 
 export default function Landing() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const reduce = useReducedMotion();
+  // SEO : titre et description de l'accueil selon la langue affichee.
+  React.useEffect(() => {
+    document.title = t('lp.seo_title');
+    const meta = document.querySelector('meta[name="description"]');
+    if (meta) meta.setAttribute('content', t('lp.seo_desc'));
+  }, [t, i18n.language]);
   return (
     <div className="min-h-[100dvh] bg-background text-foreground">
       <a href="#contenu" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground">

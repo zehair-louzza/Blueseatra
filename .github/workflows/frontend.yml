@@ -1,0 +1,51 @@
+name: Frontend
+
+# Bloque toute PR dont le frontend planterait au premier affichage.
+# Né de la page blanche du 05/10/2026 (PR #181 → correctif #182) : deux icônes
+# utilisées sans import. Le build de production désactive ESLint
+# (DISABLE_ESLINT_PLUGIN=true) et compile donc sans erreur ; React plante
+# ensuite au rendu, en production. Ce workflow comble ce trou :
+#   1. identifiants non définis (variables, composants JSX non importés) ;
+#   2. build de production complet (imports de modules introuvables, syntaxe).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  controle:
+    name: Identifiants non définis + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22  # @supabase/supabase-js 2.117 exige Node >= 22
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Dépendances
+        run: yarn install --frozen-lockfile --network-timeout 600000
+
+      - name: Identifiants non définis (variables, composants JSX)
+        run: yarn lint:undef
+
+      - name: Build de production
+        # CI=false : CRA traiterait sinon le moindre avertissement comme une
+        # erreur ; on ne bloque ici que ce qui casse réellement le build.
+        env:
+          CI: "false"
+        run: yarn build

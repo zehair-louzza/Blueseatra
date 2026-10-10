@@ -25,9 +25,9 @@
 ![Vercel](https://img.shields.io/badge/Site-Vercel-000000?labelColor=2D333B&logo=vercel&logoColor=white)
 ![Ollama](https://img.shields.io/badge/IA-Ollama%20%C2%B7%20OVH-000E9C?labelColor=2D333B&logo=ollama&logoColor=white)
 
-![Routes API](https://img.shields.io/badge/routes%20API-114-0969DA?labelColor=2D333B&logo=openapiinitiative&logoColor=white)
-![Migrations](https://img.shields.io/badge/migrations-22-8250DF?labelColor=2D333B&logo=postgresql&logoColor=white)
-![Tests](https://img.shields.io/badge/tests%20automatis%C3%A9s-300%2B-1A7F37?labelColor=2D333B&logo=pytest&logoColor=white)
+![Routes API](https://img.shields.io/badge/routes%20API-124-0969DA?labelColor=2D333B&logo=openapiinitiative&logoColor=white)
+![Migrations](https://img.shields.io/badge/migrations-34-8250DF?labelColor=2D333B&logo=postgresql&logoColor=white)
+![Tests](https://img.shields.io/badge/tests%20automatis%C3%A9s-690-1A7F37?labelColor=2D333B&logo=pytest&logoColor=white)
 ![Isolation](https://img.shields.io/badge/isolation-RLS%20par%20entreprise-BC4C00?labelColor=2D333B&logo=supabase&logoColor=white)
 ![RGPD](https://img.shields.io/badge/RGPD-anonymisation%20%C2%B7%20opposition-BF3989?labelColor=2D333B)
 ![Langues](https://img.shields.io/badge/langues-FR%20%C2%B7%20EN-0E7490?labelColor=2D333B&logo=googletranslate&logoColor=white)
@@ -38,6 +38,7 @@
 [**Architecture**](./docs/architecture.md) ·
 [**API**](./docs/reference-api.md) ·
 [**Changements**](./CHANGELOG.md) ·
+[**Licence**](./LICENSE) ·
 [**English**](./README.en.md)
 
 </div>
@@ -98,7 +99,7 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 |---|---|:---:|
 | **Lecture IA** | PDF, DOCX, XLSX, CSV, TXT, images ; cascade OCR ; file d'extraction séquentielle ; score de confiance ; brouillon généré automatiquement | ✅ |
 | **Devis** | Lots et sous-lots, matériaux, main-d'œuvre, déplacement, notes ; TVA 20 / 10 / 5,5 / 0 % ; marge masquée ; variantes ; PDF Pro Forma | ✅ |
-| **Catalogues sur mesure** | Import CSV de n'importe quel format, correspondance des colonnes, versions, activation atomique, fichiers volumineux | ✅ |
+| **Catalogues sur mesure** | Import CSV ou Excel (.xlsx, .xls) de n'importe quel format, feuille et ligne d'en-tête détectées, classeurs à macros refusés, correspondance des colonnes, versions, activation atomique, fichiers volumineux | ✅ |
 | **Catalogue fournisseurs** | Rexel, Prolians, Point.P, YESSS, La Plateforme du Bâtiment, Au Forum du Bâtiment, SFIC, Chausson, Icilux ; partagé, masquable, jamais supprimé ; recherche par mot et par famille dans chaque catalogue | ✅ |
 | **Chiffrage sur sources activables** | Chaque catalogue fournisseur s'active ou se désactive pour le chiffrage (bouton poussoir, contenu conservé) ; sans catalogue interne, les sources activées génèrent le devis ; recherche rapide sous RLS (index trigramme via fonctions sécurisées) | ✅ |
 | **Comparateur de prix** | Le moins cher par fournisseur, critères isolés, termes équivalents reconnus (« courbe c », « 2p », « ph+n »…), filtre par famille | ✅ |
@@ -107,9 +108,13 @@ Le devis validé part en PDF Pro Forma, puis les **relances en jours ouvrés** e
 | **Clients** | Fiches, contacts, chantiers, journal des échanges, import et export CSV, indicateurs | ✅ |
 | **Suggestions IA** | Donneur d'ordre et client final proposés avec la phrase source ; rattachement automatique seulement sur SIRET ou e-mail identique | ✅ |
 | **Relances** | Jours ouvrés et fériés, urgence, rappel d'expiration, appel au-delà d'un seuil, opposition RGPD, textes FR / EN | ✅ |
+| **Relances par e-mail** | Envoi depuis la boîte de l'entreprise (SMTP 465 / 587) : par clic après relecture, ou automatique à l'échéance ; texte modifiable, jamais deux fois, contact opposé jamais relancé | ✅ |
+| **Suggestions d'articles G3** | Depuis une demande : fournitures extraites par l'IA, choix parmi 20 candidats réels (catalogue interne et catalogues fournisseurs activés), toujours à valider | ✅ |
+| **Masquage RGPD** | Tout appel IA reçoit un texte masqué (adresses, noms, personnes, identifiants), restauré côté serveur ; aucune image hors du VPS | ✅ |
 | **Multi-entreprises** | Rôles owner, admin, operator, viewer, billing_admin ; sélecteur d'entreprise ; RLS PostgreSQL | ✅ |
 | **Offres et quotas** | Découverte, Initial, Pilotage, Performance, Signature ; registre de consommation en ajout seul ; blocage activable (`BLUESEATRA_QUOTAS_APPLIQUES`) | ✅ |
-| **Intégrations** | Webhook n8n par entreprise, pont MCP, choix du moteur IA | ✅ |
+| **Intégrations** | Webhook n8n par entreprise, pont MCP, choix du moteur IA (VPS, Mistral, OpenCode Free) | ✅ |
+| **Contact** | `contact@blueseatra.com` avec objet prérempli par motif (prestations, offres, entreprise, aide) | ✅ |
 | **Paiement en ligne** | Stripe | 🔜 ticket #90 |
 
 ## Démarrage rapide
@@ -156,6 +161,8 @@ flowchart LR
 
 </details>
 
+<img src="docs/assets/schema-routage.png" alt="Routage IA par la passerelle Hermès" width="100%">
+
 **Principes**
 - L'IA ne fixe jamais un prix.
 - Chaque entreprise est isolée dans le code et dans la base ; les rares fonctions qui contournent la RLS (recherche) vérifient elles-mêmes l'entreprise.
@@ -164,6 +171,114 @@ flowchart LR
 
 Détails : [architecture.md](./docs/architecture.md).
 
+## Tous les schémas
+
+Cliquez sur un schéma pour ouvrir le document qui le détaille. Ils sont générés par [`scripts/docs/generer_schemas.py`](./scripts/docs/generer_schemas.py).
+
+<table>
+<tr>
+<td width="50%" valign="top"><a href="./docs/architecture.md"><img src="./docs/assets/schema-architecture.png" alt="Architecture"></a><br><sub><b>Architecture</b> : Vercel, Render, Supabase, passerelle Hermès, VPS OVH</sub></td>
+<td width="50%" valign="top"><a href="./docs/infrastructure.md"><img src="./docs/assets/schema-parcours-complet.png" alt="Parcours complet d'un devis"></a><br><sub><b>Parcours complet d'un devis</b> : dix phases, qui agit et qui réagit</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/manuel-utilisateur.md"><img src="./docs/assets/schema-parcours.png" alt="Parcours d'une demande"></a><br><sub><b>Parcours d'une demande</b> : de l'e-mail au devis validé</sub></td>
+<td width="50%" valign="top"><a href="./docs/architecture.md"><img src="./docs/assets/schema-routage.png" alt="Routage IA"></a><br><sub><b>Routage IA</b> : passerelle Hermès, Ollama, Mistral, OpenCode Free</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/rgpd-masquage-ia-externe.md"><img src="./docs/assets/schema-masquage-rgpd.png" alt="Masquage RGPD"></a><br><sub><b>Masquage RGPD</b> : marqueurs avant chaque appel IA, restauration côté serveur</sub></td>
+<td width="50%" valign="top"><a href="./docs/rgpd-masquage-ia-externe.md"><img src="./docs/assets/schema-g3.png" alt="Suggestions d'articles G3"></a><br><sub><b>Suggestions d'articles G3</b> : candidats réels, choix de l'IA, validation humaine</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/manuel-utilisateur.md"><img src="./docs/assets/schema-chiffrage.png" alt="Chiffrage sur sources activables"></a><br><sub><b>Chiffrage sur sources activables</b> : catalogue interne et catalogues fournisseurs</sub></td>
+<td width="50%" valign="top"><a href="./docs/architecture.md"><img src="./docs/assets/schema-recherche-rls.png" alt="Recherche fournisseurs sous RLS"></a><br><sub><b>Recherche fournisseurs sous RLS</b> : fonctions sécurisées, mesures avant et après</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/manuel-utilisateur.md"><img src="./docs/assets/schema-import-catalogue.png" alt="Import de catalogue"></a><br><sub><b>Import de catalogue</b> : cinq étapes et verdict du contrôle</sub></td>
+<td width="50%" valign="top"><a href="./docs/manuel-utilisateur.md"><img src="./docs/assets/schema-cycle-devis.png" alt="Cycle de vie d'un devis"></a><br><sub><b>Cycle de vie d'un devis</b> : statuts, relances, arrêt</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/specs/module-clients.md"><img src="./docs/assets/schema-relances-email.png" alt="Relances par e-mail"></a><br><sub><b>Relances par e-mail</b> : clic ou automatique, boîte de l'entreprise</sub></td>
+<td width="50%" valign="top"><a href="./docs/tarification-2026-09.md"><img src="./docs/assets/schema-quotas.png" alt="Quotas"></a><br><sub><b>Quotas</b> : réservation, remboursement, ce qui n'est jamais compté</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/audit-isolation-tenants-2026-09-12.md"><img src="./docs/assets/schema-isolation.png" alt="Isolation des entreprises"></a><br><sub><b>Isolation des entreprises</b> : filtre du code et RLS PostgreSQL</sub></td>
+<td width="50%" valign="top"><a href="./docs/conformite-rgpd.md"><img src="./docs/assets/schema-rgpd.png" alt="Droits RGPD"></a><br><sub><b>Droits RGPD</b> : export, anonymisation, opposition</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/exploitation.md"><img src="./docs/assets/schema-livraison.png" alt="Chaîne de livraison"></a><br><sub><b>Chaîne de livraison</b> : PR, contrôles, déploiement, retour arrière</sub></td>
+<td width="50%" valign="top"><a href="./docs/runbook-incident.md"><img src="./docs/assets/schema-incident.png" alt="Déroulé d'un incident"></a><br><sub><b>Déroulé d'un incident</b> : détecter, contenir, corriger, vérifier</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="./docs/infrastructure.md"><img src="./docs/assets/vue-supabase.png" alt="Vue Supabase"></a><br><sub><b>Vue Supabase</b> : schéma blueseatra, rôles et RLS</sub></td>
+<td width="50%" valign="top"><a href="./docs/infrastructure.md"><img src="./docs/assets/vue-render.png" alt="Vue Render"></a><br><sub><b>Vue Render</b> : services, variables, déploiement</sub></td>
+</tr>
+</table>
+
+## Captures d'écran
+
+<details>
+<summary><b>Les 31 écrans de l'application</b> (cliquer pour afficher)</summary>
+
+<table>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/01-tableau-de-bord.jpg" alt="Tableau de bord"><br><sub><b>Tableau de bord</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/02-demandes.jpg" alt="Demandes"><br><sub><b>Demandes</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/02b-boite-reception.jpg" alt="Boîte de réception triée"><br><sub><b>Boîte de réception triée</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/03-demande-detail.jpg" alt="Demande lue par l'IA"><br><sub><b>Demande lue par l'IA</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/03b-demande-lignes.jpg" alt="Lignes de travaux extraites"><br><sub><b>Lignes de travaux extraites</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/04-devis-liste.jpg" alt="Liste des devis"><br><sub><b>Liste des devis</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/05-editeur-devis.jpg" alt="Éditeur de devis"><br><sub><b>Éditeur de devis</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/05b-versions-devis.jpg" alt="Versions d'un devis"><br><sub><b>Versions d'un devis</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/16-pdf-devis.jpg" alt="PDF Pro Forma"><br><sub><b>PDF Pro Forma</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/06-catalogues.jpg" alt="Catalogues"><br><sub><b>Catalogues</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/06b-controle-import.jpg" alt="Contrôle avant activation"><br><sub><b>Contrôle avant activation</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/06c-afficher-catalogue-fournisseur.jpg" alt="Catalogue d'un fournisseur"><br><sub><b>Catalogue d'un fournisseur</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/06d-sources-chiffrage.jpg" alt="Sources du chiffrage"><br><sub><b>Sources du chiffrage</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/screens/catalogue-fournisseurs.jpg" alt="Catalogue fournisseurs"><br><sub><b>Catalogue fournisseurs</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/15-comparateur-prix.jpg" alt="Comparateur de prix"><br><sub><b>Comparateur de prix</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/15b-comparateur-resultats.jpg" alt="Le moins cher par fournisseur"><br><sub><b>Le moins cher par fournisseur</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/15c-comparateur-produits-identiques.jpg" alt="Produits identiques"><br><sub><b>Produits identiques</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/07-clients.jpg" alt="Clients"><br><sub><b>Clients</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/08-fiche-client.jpg" alt="Fiche client"><br><sub><b>Fiche client</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/09-relances.jpg" alt="À relancer"><br><sub><b>À relancer</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/10-offre-consommation.jpg" alt="Offre et consommation"><br><sub><b>Offre et consommation</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/11-membres.jpg" alt="Membres et rôles"><br><sub><b>Membres et rôles</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/12-parametres.jpg" alt="Paramètres"><br><sub><b>Paramètres</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/12b-societe-pdf.jpg" alt="Société et PDF"><br><sub><b>Société et PDF</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/13-donnees-personnelles.jpg" alt="Données personnelles"><br><sub><b>Données personnelles</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/manuel/14-journal-audit.jpg" alt="Journal d'audit"><br><sub><b>Journal d'audit</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/screens/accueil.jpg" alt="Page d'accueil"><br><sub><b>Page d'accueil</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/screens/tarifs.jpg" alt="Offres"><br><sub><b>Offres</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/screens/valeurs.jpg" alt="Valeurs"><br><sub><b>Valeurs</b></sub></td>
+<td width="33%" valign="top"><img src="./docs/assets/screens/connexion.jpg" alt="Connexion"><br><sub><b>Connexion</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="./docs/assets/screens/ollama-config.jpg" alt="Configuration du moteur IA"><br><sub><b>Configuration du moteur IA</b></sub></td>
+</tr>
+</table>
+
+Chaque écran est expliqué pas à pas dans le [manuel d'utilisation](./docs/manuel-utilisateur.md).
+
+</details>
+
 ## Documentation
 
 | Pour | Document |
@@ -171,8 +286,9 @@ Détails : [architecture.md](./docs/architecture.md).
 | Utiliser l'application | [Manuel d'utilisation](./docs/manuel-utilisateur.md) |
 | Comprendre le système | [Architecture](./docs/architecture.md) · [Infrastructure et parcours complet d'un devis](./docs/infrastructure.md) · [Décisions (ADR)](./docs/decisions) |
 | Développer | [Guide développeur](./docs/guide-developpeur.md) · [Référence API](./docs/reference-api.md) · [Contribuer](./CONTRIBUTING.md) |
-| Mettre en production | [Exploitation](./docs/exploitation.md) · [DEPLOIEMENT.md](./DEPLOIEMENT.md) |
+| Mettre en production | [Exploitation](./docs/exploitation.md) · [DEPLOIEMENT.md](./DEPLOIEMENT.md) · [Vocabulaire des gros catalogues](./docs/vocabulaire-rexel-passe-nuit.md) |
 | Offres et prix | [Tarification](./docs/tarification-2026-09.md) |
+| Nous contacter | `contact@blueseatra.com` · [Adresses, motifs et DNS du domaine](./docs/contact-blueseatra.md) |
 | Module Clients | [Spécification](./docs/specs/module-clients.md) |
 | Sécurité | [SECURITY.md](./SECURITY.md) · [Audit d'isolation](./docs/audit-isolation-tenants-2026-09-12.md) |
 | Tout le reste | [Index de la documentation](./docs/README.md) |
@@ -205,10 +321,27 @@ Détails : [architecture.md](./docs/architecture.md).
 - [x] Registre et quotas ([#89](https://github.com/zehair-louzza/Blueseatra/issues/89)), blocage activable
 - [x] Recherche fournisseurs rapide sous RLS, filtre par famille
 - [ ] Paiement Stripe et recharges ([#90](https://github.com/zehair-louzza/Blueseatra/issues/90))
-- [ ] Envoi des relances par e-mail depuis Blueseatra
+- [x] Envoi des relances par e-mail depuis Blueseatra
+- [x] Masquage RGPD de tous les appels IA et suggestions d'articles G3
+
+## Licence
+
+Logiciel **propriétaire**. Titulaire des droits : **Zehair Louzza**, exploitant le nom commercial « Blueseatra ». Le texte qui fait foi est le fichier [LICENSE](./LICENSE), version 2.0 du 10 octobre 2026.
+
+| Point | En pratique |
+|---|---|
+| Ce qui est protégé | Code, documentation, schémas, captures d'écran, nom et logo, bases de données et catalogues normalisés |
+| Ce que la publication sur GitHub permet | Consulter le dépôt et le dupliquer (« fork ») sur GitHub, comme l'imposent les conditions de GitHub. Rien d'autre |
+| Ce qui est interdit sans accord écrit | Copier, exécuter, modifier, redistribuer, proposer en SaaS, bâtir un produit concurrent, extraire les catalogues |
+| Intelligence artificielle | Opposition à la fouille de textes et de données (article L.122-5-3 du CPI) : aucun entraînement de modèle sur ce dépôt |
+| Composants de tiers | Ils restent sous leurs propres licences. Les marques et tarifs des distributeurs appartiennent à leurs titulaires |
+| Contributions | Acceptées seulement avec cession des droits au titulaire |
+| Droit applicable | Droit français, tribunaux du ressort de la cour d'appel de Paris |
+
+Demande d'autorisation (évaluation, partenariat, licence commerciale) : `contact@blueseatra.com`. Une faille de sécurité se signale en privé selon [SECURITY.md](./SECURITY.md).
 
 ---
 
 <div align="center">
-<sub>© 2025-2026 Blueseatra. Code propriétaire, tous droits réservés. Voir <a href="./LICENSE">LICENSE</a>.</sub>
+<sub>© 2025-2026 Zehair Louzza, exploitant le nom commercial « Blueseatra ». Logiciel propriétaire, tous droits réservés. Voir <a href="./LICENSE">LICENSE</a>.</sub>
 </div>

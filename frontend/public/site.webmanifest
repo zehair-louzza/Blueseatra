@@ -1,0 +1,14 @@
+{
+  "name": "Blueseatra - Logiciel de devis IA pour le bâtiment",
+  "short_name": "Blueseatra",
+  "description": "Des demandes brutes aux devis validés, sur vos prix.",
+  "lang": "fr-FR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#193852",
+  "icons": [
+    { "src": "/brand/blueseatra-mark.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/brand/apple-touch.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

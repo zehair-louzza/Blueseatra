@@ -3,6 +3,7 @@ import os
 import io
 import csv
 import json
+import time
 import uuid
 import logging
 import asyncio
@@ -22,18 +23,26 @@ from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 
 import ai_service
+import cache_ia
+import ia_runs
+import tce_v4
 import matching as match_engine
 import quote_scenarios
+import quote_approval
 import pdf_service
 import fournisseur_recherche
+from fournisseur_recherche import normalise
 import catalogue_commun
+import suggestions_mots
 import catalogue_navigation
 import catalogue_chiffrage
 import quotas
 import clients_module
+import relances_email
 import quote_versions_diff
 import observabilite
 import catalogue_comparaison
+import recherche_g3
 import facturation_stripe
 import mcp_bridge
 from database import set_current_tenant, tenant_context, with_system_context, with_tenant
@@ -147,6 +156,35 @@ class CurrentUser(BaseModel):
     role: str
 
 
+# Cache court des controles d'authentification (02/10/2026).
+#
+# Mesure en production (en-tete Server-Timing) : chaque requete authentifiee
+# relisait `users` puis `tenant_users`, soit 2 sessions et ~350 ms avant tout
+# travail (Render Frankfurt -> Supabase eu-west-1 : ~110 ms par emprunt de
+# connexion, ~65 ms par requete). La saisie d'une recherche enchaine des
+# dizaines de requetes en quelques secondes.
+#
+# Securite : seuls les SUCCES sont mis en cache (un refus est toujours
+# reverifie), le JWT reste verifie a chaque requete, et toute modification de
+# membre (role, nom, mot de passe, retrait) invalide immediatement l'entree.
+# L'API tourne en un seul processus uvicorn : l'invalidation est donc
+# immediate. Un changement fait hors de l'API (SQL direct) prend effet en
+# 20 s au plus.
+_AUTH_TTL_S = 20.0
+_AUTH_MAX = 5000
+_auth_cache: dict[tuple[str, str], tuple[float, dict, str]] = {}
+
+
+def invalider_auth(user_id: str | None = None, tenant_id: str | None = None) -> None:
+    """Retire du cache les entrees d'un utilisateur et/ou d'un tenant (tout si None)."""
+    if user_id is None and tenant_id is None:
+        _auth_cache.clear()
+        return
+    for k in [k for k in _auth_cache
+              if (user_id is None or k[0] == user_id) and (tenant_id is None or k[1] == tenant_id)]:
+        _auth_cache.pop(k, None)
+
+
 async def get_current(creds: HTTPAuthorizationCredentials = Depends(security)) -> CurrentUser:
     if not creds:
         raise HTTPException(401, "Not authenticated")
@@ -154,20 +192,32 @@ async def get_current(creds: HTTPAuthorizationCredentials = Depends(security)) -
         payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.PyJWTError:
         raise HTTPException(401, "Invalid or expired token")
-    user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
-    if not user:
-        raise HTTPException(401, "User not found")
-    tu = await db.tenant_users.find_one(
-        {"tenant_id": payload["tenant_id"], "user_id": payload["user_id"]}, {"_id": 0})
-    if not tu:
-        raise HTTPException(403, "No access to tenant")
+    cle = (payload["user_id"], payload["tenant_id"])
+    entree = _auth_cache.get(cle)
+    if entree and entree[0] > time.monotonic():
+        # Entree creee uniquement APRES un controle d'appartenance reussi.
+        user, role = entree[1], entree[2]
+    else:
+        user = await db.users.find_one({"id": payload["user_id"]}, {"_id": 0})
+        if not user:
+            raise HTTPException(401, "User not found")
+        tu = await db.tenant_users.find_one(
+            {"tenant_id": payload["tenant_id"], "user_id": payload["user_id"]}, {"_id": 0})
+        if not tu:
+            raise HTTPException(403, "No access to tenant")
+        role = tu["role"]
+        if len(_auth_cache) >= _AUTH_MAX:
+            _auth_cache.clear()
+        _auth_cache[cle] = (time.monotonic() + _AUTH_TTL_S,
+                            {"id": user["id"], "email": user["email"], "name": user.get("name", "")},
+                            role)
     # Publie le tenant pour toute la suite de la requete : tenant_session()
     # le lira et l'emettra a la base (set_config app.tenant_id, is_local).
     # Place APRES la verification d'appartenance (tenant_users) : on ne
     # declare jamais un tenant que l'appelant n'a pas prouve.
     set_current_tenant(payload["tenant_id"])
     return CurrentUser(user_id=user["id"], email=user["email"], name=user.get("name", ""),
-                       tenant_id=payload["tenant_id"], role=tu["role"])
+                       tenant_id=payload["tenant_id"], role=role)
 
 
 def require_role(*allowed):
@@ -398,6 +448,7 @@ async def update_member(user_id: str, body: RoleUpdate,
             raise HTTPException(400, "Password must be at least 6 characters")
         await db.users.update_one({"id": user_id}, {"$set": {"password_hash": hash_pw(body.password)}})
         await audit(cu.tenant_id, cu.email, "member.password_update", user_id)
+    invalider_auth(user_id=user_id)
     return {"ok": True}
 
 
@@ -414,6 +465,7 @@ async def remove_member(user_id: str, cu: CurrentUser = Depends(require_role("ow
     if user_id == cu.user_id:
         raise HTTPException(400, "Vous ne pouvez pas vous retirer vous-m\u00eame")
     await db.tenant_users.delete_one({"tenant_id": cu.tenant_id, "user_id": user_id})
+    invalider_auth(user_id=user_id, tenant_id=cu.tenant_id)
     await audit(cu.tenant_id, cu.email, "member.remove", user_id)
     return {"ok": True}
 
@@ -433,7 +485,10 @@ class IntegrationSettings(BaseModel):
 # 02/10/2026 : OpenAI / Gemini / Anthropic retirés des réglages (demande
 # utilisateur) : leurs modèles n'existent pas sur le VPS. Seuls restent le
 # moteur intégré (modèles locaux du VPS) et Mistral (API UE via Hermès).
-PROVIDER_LABELS = {"mistral": "Mistral AI (via Hermès)", "hermes": "Moteur intégré (Hermès)"}
+# 09/10/2026 : OpenCode Free (13 modèles gratuits, hébergés aux États-Unis) par
+# l'agent Hermès ; le texte envoyé est toujours masqué (masquage_rgpd).
+PROVIDER_LABELS = {"mistral": "Mistral AI (via Hermès)", "hermes": "Moteur intégré (Hermès)",
+                   "opencode": "OpenCode Free (via Hermès, États-Unis, texte masqué)"}
 
 
 def _apercu_cle(chiffree: Optional[str]) -> Optional[str]:
@@ -487,6 +542,8 @@ PROVIDER_MODELS = {
     "hermes": ["glm-4.7-flash:Q3_K_M", "gpt-oss:20b", "qwen2.5:7b",
                "hermes-3:latest", "hermes3:latest",
                "mistral:mistral-medium-latest", "mistral:mistral-large-latest", "mistral:mistral-small-latest"],
+    # 09/10/2026 : liste exacte https://opencode.ai/zen/v1/models (modèles gratuits).
+    "opencode": list(ai_service.OPENCODE_FREE_MODELES),
 }
 
 
@@ -534,6 +591,8 @@ async def update_settings(body: IntegrationSettings,
            "ocr_model_preference": ocr_pref, "updated_at": now_iso()}
     if body.ai_provider not in PROVIDER_MODELS:
         raise HTTPException(400, "Fournisseur IA inconnu.")
+    if body.ai_provider == "opencode" and body.ai_model not in PROVIDER_MODELS["opencode"]:
+        raise HTTPException(400, "Modèle OpenCode Free inconnu.")
     if body.ai_key:
         doc["ai_key"] = encrypt_secret(body.ai_key.strip())
     elif body.effacer_cle:
@@ -552,6 +611,10 @@ async def tester_integration(cu: CurrentUser = Depends(require_role("owner", "ad
     if ai_service.est_mistral_via_hermes(fournisseur, s.get("ai_model")) or (fournisseur == "mistral" and ai_service.IA_VIA_HERMES):
         res = await ai_service.tester_mistral_via_hermes(s.get("ai_model"))
         await audit(cu.tenant_id, cu.email, "settings.test_ia", None, {"fournisseur": "mistral_hermes", "ok": res["ok"]})
+        return res
+    if fournisseur == "opencode":
+        res = await ai_service.tester_opencode_via_hermes(s.get("ai_model"))
+        await audit(cu.tenant_id, cu.email, "settings.test_ia", None, {"fournisseur": "opencode_hermes", "ok": res["ok"]})
         return res
     if fournisseur != "mistral":
         return {"ok": True, "message": "Moteur intégré : aucune clé à vérifier."} if fournisseur == "hermes" else \
@@ -658,16 +721,32 @@ async def company_profile_put(body: CompanyProfile,
 # mecanisme que le watchdog Redis : voir _requeue_stuck_on_startup).
 _extraction_queue: "asyncio.Queue" = asyncio.Queue()
 _extraction_worker_task = None
+_envoi_auto_task = None   # envoi automatique des relances (relances_email.boucle_envoi_auto)
+
+
+_TACHES: dict[str, "asyncio.Task"] = {}   # tenant:demande -> tâche de traitement en cours (pour l'arrêter)
 
 
 async def _extraction_worker_loop():
     while True:
         request_id, tenant_id, vision_pages = await _extraction_queue.get()
+        tache = None
         try:
-            await process_request(request_id, tenant_id, vision_pages)
+            if ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
+                continue   # arrêtée avant son tour : la file ne la ressuscite pas
+            tache = asyncio.create_task(process_request(request_id, tenant_id, vision_pages))
+            _TACHES[ia_runs.cle_demande(tenant_id, request_id)] = tache
+            await tache
+        except asyncio.CancelledError:
+            # Arrêt d'UNE demande (tache.cancel()) : la boucle continue. Arrêt du serveur : on relaie.
+            courante = asyncio.current_task()
+            if courante is not None and courante.cancelling() > 0:
+                raise
+            logger.info("traitement de la demande %s arrêté", request_id)
         except Exception:
             logger.exception("_extraction_worker_loop: process_request a leve une exception non interceptee")
         finally:
+            _TACHES.pop(ia_runs.cle_demande(tenant_id, request_id), None)
             _extraction_queue.task_done()
 
 
@@ -710,12 +789,37 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
     req = await db.requests.find_one({"id": request_id, "tenant_id": tenant_id}, {"_id": 0})
     if not req:
         return
-    await db.requests.update_one({"id": request_id}, {"$set": {"status": "processing"}})
+    if req.get("status") == "cancelled" or ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
+        return   # arrêtée par l'utilisateur : ne jamais la relancer
+    # Tentative courante : identifiant conservé en base (même valeur après un redémarrage du site, donc
+    # les tâches déjà lancées sur le VPS sont reprises au lieu d'être refaites ; nouvelle valeur à chaque
+    # « Retraiter »). `etat_prog` est la valeur complète de la colonne progression.
+    etat_prog: dict = {"nonce": (req.get("progression") or {}).get("nonce") or new_id()}
+    if (req.get("progression") or {}).get("runs"):
+        etat_prog["runs"] = dict(req["progression"]["runs"])
+
+    async def _maj(infos: dict):
+        """Étape de lecture et tâches IA en cours (page de la demande, point de contrôle)."""
+        if "run_id" in infos:
+            etat_prog.setdefault("runs", {})[infos["run_id"]] = {
+                "role": infos.get("role"), "statut": infos.get("statut")}
+        else:
+            etat_prog.update(infos)
+        await db.requests.update_one({"id": request_id, "tenant_id": tenant_id}, {"$set": {"progression": etat_prog}})
+
+    await db.requests.update_one({"id": request_id}, {"$set": {"status": "processing", "progression": etat_prog}})
+    jeton_ia = ia_runs.ouvrir(request_id, etat_prog["nonce"], _maj, tenant_id=tenant_id)
     try:
         settings = await get_tenant_ai_settings(tenant_id)
         text = req.get("raw_text") or ""
         stype = req.get("source_type")
-        if stype == "pdf_ocr" and vision_pages:
+        # Cache par empreinte du contenu (cache_ia.py) : un document déjà extrait avec la même
+        # configuration n'est pas recalculé. Les échecs et les résultats douteux ne sont jamais figés.
+        cle_cache = cache_ia.cle_demande(req, settings, vision_pages)
+        extracted = await cache_ia.lire(tenant_id, cle_cache[1]) if cle_cache else None
+        if extracted is not None:
+            logger.info("cache_ia : extraction réutilisée pour la demande %s (source %s)", request_id, cle_cache[0])
+        elif stype == "pdf_ocr" and vision_pages:
             extracted = await ai_service.extract_from_pdf_pages(vision_pages, settings, session_id=request_id)
             extracted["_warning"] = (
                 (extracted.get("_warning") + " ") if extracted.get("_warning") else ""
@@ -730,8 +834,9 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
                 "reimportez le fichier pour relancer une extraction visuelle.")
         elif stype == "image" and req.get("file_b64"):
             import base64
+
             extracted = await ai_service.extract_from_image(
-                base64.b64decode(req["file_b64"]), settings, session_id=request_id)
+                base64.b64decode(req["file_b64"]), settings, session_id=request_id, on_progress=_maj)
         elif text.strip():
             # Gemma (role="file", raisonnement actif) est le moteur d'extraction
             # par defaut pour tout fichier importe (PDF, DOCX, XLSX, CSV, TXT),
@@ -743,11 +848,15 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
             raise ValueError("No content to process")
         if extracted.get("_error"):
             raise RuntimeError(extracted["_error"])
+        if ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
+            return   # arrêtée pendant le calcul : ne rien écrire
+        if cle_cache and not extracted.get("_cache_ia"):
+            await cache_ia.ecrire(tenant_id, cle_cache[1], cle_cache[0], extracted)
         status = "needs_review" if (extracted.get("confidence") or 0) < 0.6 else "done"
         await db.requests.update_one({"id": request_id}, {"$set": {
             "status": status, "extracted": extracted,
             "language": extracted.get("language"), "confidence": extracted.get("confidence"),
-            "error": extracted.get("_error"),
+            "error": extracted.get("_error"), "progression": None,
         }})
         await audit(tenant_id, req.get("created_by"), "request.processed", request_id,
                     {"items": len(extracted.get("line_items", [])), "lang": extracted.get("language")})
@@ -755,11 +864,16 @@ async def process_request(request_id: str, tenant_id: str, vision_pages: list | 
         await clients_module.suggerer_depuis_extraction(request_id, extracted, req.get("raw_text") or "")
         await _auto_generate_quote_if_needed(request_id, tenant_id, req.get("created_by"))
     except Exception as e:
+        if ia_runs.est_arretee(ia_runs.cle_demande(tenant_id, request_id)):
+            logger.info("process_request : demande %s arrêtée par l'utilisateur (%s)", request_id, type(e).__name__)
+            return
         logger.exception("process_request failed")
-        await db.requests.update_one({"id": request_id}, {"$set": {"status": "failed", "error": str(e)}})
+        await db.requests.update_one({"id": request_id}, {"$set": {"status": "failed", "error": str(e), "progression": None}})
         # Extraction échouée : le devis assisté et les pages sont rendus
         # (ligne inverse dans le registre, jamais de modification).
         await quotas.annuler(request_id, f"Extraction échouée : {type(e).__name__}")
+    finally:
+        ia_runs.fermer(jeton_ia)
 
 
 @api.post("/requests")
@@ -785,9 +899,12 @@ async def create_request(
         content = await file.read()
         _check_size(content)
         lower = (filename or "").lower()
+        # 06/10/2026 : lectures de fichiers dans un thread (asyncio.to_thread). Appelées
+        # directement, elles bloquaient la boucle d'événements (un seul processus) :
+        # pendant l'analyse d'un PDF, toute l'API, /api/health compris, ne répondait plus.
         if lower.endswith(".pdf"):
             source_type = "pdf"
-            raw_text = ai_service.extract_pdf_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_pdf_text, content)
             # Certains PDF (police subset sans table ToUnicode, export tableau
             # vectoriel, scan) ont un calque texte illisible meme si la page
             # se lit tres bien a l'oeil. On rend alors les pages en image et on
@@ -813,16 +930,16 @@ async def create_request(
                 # observes de certains modeles OCR sur des images composites
                 # multi-pages (decision du 2026-08-19, voir
                 # ai_service.extract_from_pdf_pages).
-                vision_bytes = ai_service.render_pdf_pages_to_images(content)
+                vision_bytes = await asyncio.to_thread(ai_service.render_pdf_pages_to_images, content)
         elif lower.endswith(".docx"):
             source_type = "docx"
-            raw_text = ai_service.extract_docx_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_docx_text, content)
         elif lower.endswith((".xlsx", ".xlsm")):
             source_type = "xlsx"
-            raw_text = ai_service.extract_xlsx_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_xlsx_text, content)
         elif lower.endswith((".csv", ".tsv")):
             source_type = "csv"
-            raw_text = ai_service.extract_csv_text(content)
+            raw_text = await asyncio.to_thread(ai_service.extract_csv_text, content)
         elif lower.endswith(".txt"):
             source_type = "text_file"
             raw_text = ai_service.extract_plain_text(content)
@@ -843,6 +960,7 @@ async def create_request(
         "id": req_id, "tenant_id": cu.tenant_id, "title": title, "source_type": source_type,
         "status": "received", "raw_text": raw_text, "filename": filename, "file_b64": file_b64,
         "extracted": None, "language": None, "confidence": None,
+        "progression": {"nonce": new_id()},
         "created_by": cu.email, "created_at": now_iso(),
     }
     try:
@@ -980,6 +1098,7 @@ async def get_request(request_id: str, cu: CurrentUser = Depends(get_current)):
         {"_id": 0, "id": 1, "number": 1, "status": 1},
     ).to_list(50)
     r["quotes"] = qs
+    r["g3_actif"] = G3_ACTIF   # bouton « Suggérer des articles (G3) » de la page de la demande
     return r
 
 
@@ -1019,6 +1138,15 @@ async def reprocess_request(request_id: str, background: BackgroundTasks,
     # Retraitement : gratuit si le devis de cette demande est déjà compté ;
     # recompté seulement si la première extraction avait échoué (rendue).
     await quotas.reserver(request_id, 1, 1 if r.get("source_type") == "image" else 0, cu.email)
+    # « Retraiter » est une demande de nouvel essai : le résultat en cache de ce contenu est
+    # retiré pour que la file ne le resserve pas (cache_ia.py).
+    cle_cache = cache_ia.cle_demande(r, await get_tenant_ai_settings(cu.tenant_id))
+    if cle_cache:
+        await cache_ia.invalider(cu.tenant_id, cle_cache[1])
+    # Nouvelle tentative : nouvel identifiant (les tâches IA de la précédente ne sont pas reprises).
+    ia_runs.reinitialiser(ia_runs.cle_demande(cu.tenant_id, request_id))
+    await db.requests.update_one({"id": request_id, "tenant_id": cu.tenant_id},
+                                 {"$set": {"progression": {"nonce": new_id()}}})
     if _redis_sync() is not None:
         _enqueue_extraction(request_id, cu.tenant_id)
         background.add_task(_watchdog_reprocess_if_stuck, request_id, cu.tenant_id)
@@ -1050,6 +1178,47 @@ async def _run_deep_vision(request_id: str, tenant_id: str, image_bytes: bytes):
             "deep_vision_status": "failed",
             "deep_vision_error": f"{type(e).__name__}: {e or repr(e)}",
         }})
+
+
+# Chaîne G3 (09/10/2026) : suggestions d'articles pour une demande en texte libre,
+# toujours à valider par le chiffreur. Désactivée tant que BLUESEATRA_G3 != 1.
+# Mesure : 33 besoins sur 40 retrouvés (17 demandes réelles), voir recherche_g3.py.
+G3_ACTIF = os.environ.get("BLUESEATRA_G3", "0") == "1"
+
+
+@api.post("/requests/{request_id}/suggestions-g3")
+async def suggestions_g3(request_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    if not G3_ACTIF:
+        raise HTTPException(404, "Suggestions G3 non activées (BLUESEATRA_G3).")
+    req = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "raw_text": 1, "extracted": 1})
+    if not req:
+        raise HTTPException(404, "Request not found")
+    # PDF ou photo : le texte lu par l'OCR sur le VPS remplace le texte brut absent.
+    texte = req.get("raw_text") or ((req.get("extracted") or {}).get("_ocr_text") or "")
+    _, items = await get_active_catalog(cu.tenant_id)
+    reglages = await get_tenant_ai_settings(cu.tenant_id)
+
+    async def appel(consigne, texte, schema):
+        return await ai_service.appel_json_ia(reglages, consigne, texte, schema, role="g3")
+
+    # Catalogues fournisseurs activés pour le chiffrage (page Catalogues) : même
+    # recherche que les devis (catalogue_chiffrage.rechercher, sans copie des offres).
+    chercher = None
+    if await catalogue_chiffrage.a_sources_actives(cu.tenant_id):
+        async def chercher(designation: str) -> list:
+            async with tenant_context(cu.tenant_id):
+                for q in (catalogue_chiffrage.requete_materielle(designation), designation):
+                    if q and len(q) >= 3:
+                        offres = await catalogue_chiffrage.rechercher(q, recherche_g3.N_CANDIDATS)
+                        if offres:
+                            return offres
+                return []
+
+    res = await recherche_g3.suggerer(texte, items, appel, chercher_fournisseurs=chercher)
+    await audit(cu.tenant_id, cu.email, "requests.suggestions_g3", request_id,
+                {"statut": res["statut"], "lignes": len(res["lignes"]), "fournisseur": reglages.get("ai_provider"),
+                 "catalogue_interne": len(items or []), "catalogues_fournisseurs": chercher is not None})
+    return res
 
 
 @api.post("/requests/{request_id}/deep-vision")
@@ -1240,15 +1409,33 @@ async def catalog_template():
                              headers={"Content-Disposition": "attachment; filename=blueseatra_catalog_template.csv"})
 
 
+def _lire_fichier_import(content: bytes, filename: str | None, feuille: str | None = None):
+    """CSV, XLSX ou XLS -> (DataFrame de chaines, infos). Ticket #86.
+
+    Le format est lu dans le contenu ; un classeur passe par
+    lecture_tableur (macros, zip bomb, plafonds, detection de l'en-tete).
+    """
+    import lecture_tableur as lt
+    try:
+        fmt = lt.format_fichier(content, filename)
+        if fmt == "csv":
+            return _read_csv_robust(content), {"format": "csv"}
+        return lt.lire_classeur(content, fmt, (feuille or "").strip() or None)
+    except lt.FichierRefuse as exc:
+        raise HTTPException(400, str(exc))
+
+
 @api.post("/catalogs/import/preview")
 async def import_preview(cu: CurrentUser = Depends(require_role("owner", "admin", "operator")),
-                         file: UploadFile = File(...)):
+                         file: UploadFile = File(...),
+                         feuille: str = Form(None)):
     content = await file.read()
     _check_size(content)
-    df = _read_csv_robust(content)
+    df, infos = _lire_fichier_import(content, file.filename, feuille)
     columns = list(df.columns)
     mapping = suggest_mapping(columns)
     return {
+        "fichier": infos,
         "columns": columns,
         "preview": df.head(5).fillna("").astype(str).to_dict(orient="records"),
         "total_rows": len(df),
@@ -1263,10 +1450,11 @@ async def import_catalog(cu: CurrentUser = Depends(require_role("owner", "admin"
                          file: UploadFile = File(...),
                          catalog_name: str = Form(...),
                          mapping: str = Form(None),
-                         activate: str = Form("true")):
+                         activate: str = Form("true"),
+                         feuille: str = Form(None)):
     content = await file.read()
     _check_size(content)
-    df = _read_csv_robust(content)
+    df, _infos = _lire_fichier_import(content, file.filename, feuille)
     columns = list(df.columns)
 
     # Effective mapping: start from auto-detection, override with user-provided mapping.
@@ -1611,6 +1799,26 @@ async def catalog_active(cu: CurrentUser = Depends(get_current)):
     return {"catalog": cat, "items": items}
 
 
+@api.get("/catalog/suggestions")
+async def catalog_suggestions(q: str = Query(""), portee: str = Query("devis"),
+                              cu: CurrentUser = Depends(get_current)):
+    """Mots existant dans les catalogues, proposes pendant la frappe.
+
+    Le chiffreur choisit un mot complet (« disjoncteur ») avant que la
+    recherche lourde ne parte. `portee=devis` : sources actives du chiffrage
+    + catalogue interne ; `portee=comparateur` : toutes les sources visibles.
+    """
+    designations = None
+    if portee != "comparateur":
+        _, items = await get_active_catalog(cu.tenant_id)
+        designations = [str(it.get("item_label") or "") for it in (items or [])]
+    try:
+        return await suggestions_mots.suggerer(q, portee, designations)
+    except Exception:
+        logger.warning("suggestions indisponibles", exc_info=True)
+        return {"debut": "", "prefixe": "", "suggestions": []}
+
+
 @api.get("/catalog/search")
 async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80),
                          cu: CurrentUser = Depends(get_current)):
@@ -1619,10 +1827,17 @@ async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80)
     needle = (q or "").strip().lower()
     if not needle:
         return {"catalog": infos_cat, "items": (items or [])[:limit]}
+    # Composition de mots : chaque mot tape doit etre present, sans etre
+    # colle (« porte coupe feu » doit trouver « porte coupe-feu », tiret).
+    # L'ancien test de sous-chaine contigue ratait tout libelle ou les mots
+    # etaient separees par une ponctuation ou dans un autre ordre. Meme
+    # normalisation que la recherche fournisseurs (normalise).
+    mots = normalise(needle).split()
     hits = []
     for it in (items or []):
-        blob = " ".join(str(it.get(k) or "") for k in ("item_label", "item_code", "category", "family", "brand")).lower()
-        if needle in blob:
+        blob = normalise(" ".join(str(it.get(k) or "") for k in
+                                  ("item_label", "item_code", "category", "family", "brand")))
+        if all(m in blob for m in mots):
             hits.append(it)
         if len(hits) >= limit:
             break
@@ -1649,6 +1864,89 @@ async def catalog_search(q: str = Query(""), limit: int = Query(40, ge=1, le=80)
 # ===========================================================================
 # QUOTES
 # ===========================================================================
+
+# 04/10/2026 — rapprochement fournisseur par ligne : une ligne de fourniture
+# sans prix reçoit la meilleure offre des sources actives (pertinence puis
+# prix) et ses alternatives, pour le menu de choix par ligne de l'éditeur.
+# L'IA ne choisit PAS le fournisseur : la recherche classe (preuve = pertinence),
+# l'humain peut changer avant envoi. Le prix reste figé à la sélection.
+def _resume_offre(offre: dict) -> dict:
+    return {
+        "id": offre.get("id"),
+        "fournisseur": offre.get("fournisseur"),
+        "designation": offre.get("designation"),
+        "marque": offre.get("marque"),
+        "reference_fournisseur": offre.get("reference_fournisseur"),
+        "prix_net_ht": offre.get("prix_net_ht"),
+        "prix_public_ht": offre.get("prix_public_ht"),
+        "unite_vente": offre.get("unite_vente"),
+        "url_produit": offre.get("url_produit"),
+        "pertinence": (round(float(offre.get("_pertinence")), 3)
+                      if offre.get("_pertinence") is not None else None),
+    }
+
+
+def _applique_offre_ligne(ligne: dict, offre: dict) -> None:
+    """Applique une offre fournisseur à une ligne : prix, unité, preuve.
+
+    Le prix est FIGÉ à l'application (règle « source tarifaire figée ») ;
+    changer d'offre repasse par l'endpoint dédié, qui refige.
+    """
+    prix = offre.get("prix_net_ht")
+    ligne["unit_price_ht"] = float(prix) if prix is not None else None
+    qte = tce_v4.positive_number(ligne.get("qty"))
+    ligne["line_ht"] = round(float(prix) * qte, 2) if prix is not None and qte is not None else None
+    if offre.get("unite_vente"):
+        ligne["unit"] = offre["unite_vente"]
+    ligne["chosen_offer"] = {**_resume_offre(offre), "choisie_le": now_iso()}
+    ligne["status"] = "proposed" if ligne["line_ht"] is not None else "to_confirm"
+    motif = f"offre_fournisseur:{offre.get('fournisseur')}"
+    # Un seul motif d'offre par ligne : le changement de fournisseur
+    # remplace la preuve, il ne l'accumule pas.
+    ligne["reasons"] = [r for r in (ligne.get("reasons") or [])
+                       if not r.startswith("offre_fournisseur:")] + [motif]
+
+
+def _garde_alternatives(offres: list[dict]) -> list[dict]:
+    """Règle pertinence 3/3 — garde anti-accessoire (04/10/2026, même règle
+    que le panneau du comparateur) : une alternative dont la pertinence vaut
+    moins de la moitié du leader est un accessoire qui MENTIONNE la demande,
+    pas le produit demandé (panneau PVC pour « porte coupe feu »). Elle est
+    retirée du menu — la ligne elle-même reste inchangée si tout est faible :
+    le leader est toujours proposé, l'humain décide. Sans pertinences
+    exploitables, tout est gardé."""
+    scores = [float(o.get("pertinence") or 0.0) for o in offres if o.get("pertinence") is not None]
+    if not scores or max(scores) <= 0:
+        return list(offres)
+    plancher = 0.5 * max(scores)
+    gardees = [o for o in offres
+               if o.get("pertinence") is None or float(o.get("pertinence")) >= plancher]
+    return gardees or [offres[0]]
+
+
+def _enrichit_lignes_fournisseurs(lignes: list[dict], offres_par_ligne: dict) -> None:
+    """Attache à chaque ligne de fourniture sans prix sa meilleure offre
+    (appliquée) et ses alternatives (menu de l'éditeur)."""
+    for ligne in lignes:
+        if ligne.get("action") in tce_v4.SERVICE_ACTIONS:
+            continue
+        if ligne.get("tce_id") and ligne.get("tce_fourniture_autorisee") is not True:
+            continue
+        if ligne.get("line_type") in ("travel", "labor", "lot", "sublot", "note", "page_break"):
+            continue  # structure et tarifs internes : jamais de rapprochement fournisseur
+        if ligne.get("unit_price_ht") is not None and ligne.get("chosen_offer") is not None:
+            continue  # déjà prixée par une sélection antérieure
+        cles = [str(ligne.get("request_label") or "").strip().lower(),
+                str(ligne.get("description") or "").strip().lower()]
+        offres = next((offres_par_ligne[c] for c in cles if c and c in offres_par_ligne), None)
+        if not offres:
+            continue
+        alternatives = _garde_alternatives([_resume_offre(o) for o in offres[:8]])
+        if ligne.get("unit_price_ht") is None:
+            _applique_offre_ligne(ligne, offres[0])
+        ligne["alternatives"] = alternatives
+
+
 async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str | None) -> list[dict]:
     """Coeur partage de la creation de brouillon(s) de devis depuis une
     demande deja traitee. Utilise a la fois par l'endpoint manuel
@@ -1664,6 +1962,8 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
     cat, items = await get_active_catalog(tenant_id)
 
     extracted0 = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    if not extracted0.get("_tce_version"):
+        extracted0 = tce_v4.protect_extraction(extracted0, req.get("raw_text") or "")
     # 01/10/2026 : tout type de catalogue activé par l'entreprise est
     # utilisable pour le chiffrage. Les sources fournisseurs activées
     # (boutons de la page Catalogues / Catalogue fournisseurs) complètent le
@@ -1695,17 +1995,28 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
     n_opt = len(scenarios)
     created = []
     for i, extracted in enumerate(scenarios, 1):
+        # Protection après découpage aussi : les replis historiques des variantes
+        # ne doivent pas réintroduire 1 forfait ou une quantité sans preuve.
+        if any(not row.get("preuve_valide") for row in extracted.get("line_items") or []):
+            extracted = tce_v4.protect_extraction(extracted, req.get("raw_text") or "")
         # Multi-option drafts already have scoped line_items. Do not block on Ollama
         # (Hermes 404 / cold start caused a 90s browser timeout on "Générer un devis").
-        if n_opt == 1:
-            try:
-                extracted = await asyncio.wait_for(
-                    ai_service.expand_work_into_materials(extracted, settings, labels),
-                    timeout=15,
-                )
-            except Exception:
-                logger.warning("expand_work_into_materials skipped for request %s", request_id)
+        # V4 : fiches déterministes par lot, sans nouvelle requête IA. Chaque
+        # variante reçoit sa propre nomenclature, jamais celle d'une autre option.
+        extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
         lines, total_ht, total_vat = match_engine.build_quote_lines(extracted, pool_matching)
+        # 04/10/2026 : rapprochement fournisseur PAR LIGNE — chaque ligne de
+        # fourniture sans prix reçoit la meilleure offre des sources actives
+        # (appliquée, prix figé) et ses alternatives pour le menu de l'éditeur.
+        if await catalogue_chiffrage.a_sources_actives(tenant_id):
+            try:
+                offres_par_ligne = await catalogue_chiffrage.meilleures_offres_par_ligne(
+                    tenant_id, extracted)
+                _enrichit_lignes_fournisseurs(lines, offres_par_ligne)
+                total_ht, total_vat, _ = match_engine.recompute_totals(lines)
+            except Exception:
+                logger.warning("rapprochement par ligne indisponible (request %s)", request_id,
+                               exc_info=True)
         # role=describe (redaction uniquement) : glm-4.7-flash enrichit
         # description + etapes, jamais les quantites/prix de ce devis --
         # repli automatique et transparent sur le gabarit deterministe en
@@ -1736,6 +2047,11 @@ async def _build_quote_drafts(tenant_id: str, request_id: str, created_by: str |
                 "option_index": i,
                 "option_count": n_opt,
                 "option_label": extracted.get("option_label"),
+                "tce_version": tce_v4.VERSION,
+                "tce_nomenclature": extracted.get("_tce_nomenclature") or [],
+                "tce_issues": extracted.get("_tce_issues") or [],
+                "reserves": extracted.get("reserves") or [],
+                "exclusions": extracted.get("option_excludes") or "",
             },
             "lines": lines, "total_ht": total_ht, "total_vat": total_vat,
             "total_ttc": round(total_ht + total_vat, 2),
@@ -1810,6 +2126,7 @@ async def get_quote(quote_id: str, cu: CurrentUser = Depends(get_current)):
     q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
     if not q:
         raise HTTPException(404, "Quote not found")
+    q["review_digest"] = tce_v4.review_digest(q)
     return q
 
 
@@ -1844,6 +2161,12 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
             "margin": _num(l.get("margin")),
             "score": l.get("score", 0),
             "reasons": l.get("reasons") or [],
+            "action": l.get("action"),
+            "lot_tce": l.get("lot_tce"),
+            "tce_id": l.get("tce_id"),
+            "tce_fourniture_autorisee": l.get("tce_fourniture_autorisee"),
+            "preuve": l.get("preuve"),
+            "quantite_preuve": l.get("quantite_preuve"),
         }
         if ltype in ("note", "page_break", "lot", "sublot"):
             base.update({
@@ -1874,38 +2197,127 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
         meta = dict(q.get("meta") or {})
         meta["works_description"] = body["works_description"]
         update["meta"] = meta
-    await db.quotes.update_one({"id": quote_id}, {"$set": update})
+    changed = await db.quotes.update_one(
+        {"id": quote_id, "tenant_id": cu.tenant_id, "status": "draft", "version": q.get("version", 1)},
+        {"$set": update})
+    if changed.matched_count != 1:
+        raise HTTPException(409, "Le devis a changé de version ou a été validé. Rechargez-le.")
     await audit(cu.tenant_id, cu.email, "quote.edit", quote_id)
     q.update(update)
+    q["review_digest"] = tce_v4.review_digest(q)
     return q
 
 
 @api.post("/quotes/{quote_id}/validate")
-async def validate_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+async def validate_quote(quote_id: str, body: dict | None = None,
+                         cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    result = await quote_approval.transition(
+        cu.tenant_id, quote_id, cu.email, "validated",
+        expected_digest=(body or {}).get("expected_digest"),
+        review_tce=(body or {}).get("review_tce"),
+    )
+    await audit(cu.tenant_id, cu.email, "quote.validate", quote_id)
+    return result
+
+
+def _ligne_devis_ou_404(quote: dict, index: int) -> dict:
+    """Ligne d'un devis par index, avec garde structurelle."""
+    lignes = quote.get("lines") or []
+    if not 0 <= index < len(lignes):
+        raise HTTPException(404, "Ligne introuvable")
+    ligne = lignes[index]
+    if ligne.get("line_type") in ("lot", "sublot", "note", "page_break"):
+        raise HTTPException(400, "Cette ligne est structurelle (lot/sous-lot), pas une fourniture")
+    return ligne
+
+
+@api.get("/quotes/{quote_id}/lines/{line_index}/offers")
+async def quote_line_offers(quote_id: str, line_index: int,
+                            cu: CurrentUser = Depends(get_current)):
+    """Alternatives fournisseur d'une ligne du devis (menu de l'éditeur).
+
+    Recherche FRAÎCHE dans les sources actives par requête matériau de la
+    ligne — les alternatives figées au moment de la génération peuvent être
+    périmées (nouveau tarif importé depuis).
+    """
     q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
     if not q:
         raise HTTPException(404, "Quote not found")
-    await db.quote_versions.insert_one({
-        "id": new_id(), "tenant_id": cu.tenant_id, "quote_id": quote_id,
-        "version": q.get("version", 1), "snapshot": q, "created_at": now_iso(),
-    })
-    await db.quotes.update_one({"id": quote_id}, {"$set": {"status": "validated", "validated_at": now_iso()}})
-    await audit(cu.tenant_id, cu.email, "quote.validate", quote_id)
-    return {"ok": True, "status": "validated"}
+    ligne = _ligne_devis_ou_404(q, line_index)
+    label = str(ligne.get("request_label") or ligne.get("description") or "").strip()
+    requete = catalogue_chiffrage.requete_materielle(label) or label
+    offres: list[dict] = []
+    try:
+        async with tenant_context(cu.tenant_id):
+            offres = await catalogue_chiffrage.rechercher(requete, 6) or []
+    except Exception:
+        logger.warning("recherche offres ligne indisponible (quote %s)", quote_id, exc_info=True)
+    resumees = _garde_alternatives([_resume_offre(o) for o in offres])
+    return {
+        "line_index": line_index,
+        "requete": requete,
+        "actuelle": ligne.get("chosen_offer"),
+        "offres": resumees,
+    }
+
+
+@api.post("/quotes/{quote_id}/lines/{line_index}/offer")
+async def quote_line_choose_offer(quote_id: str, line_index: int, body: dict,
+                                   cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
+    """Change l'offre fournisseur d'une ligne : prix REFIGÉ, preuve mise à
+    jour, totaux recalculés. Le devis doit être en brouillon — une fois
+    validé/envoyé, la source tarifaire est historisée, on ne la change plus."""
+    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not q:
+        raise HTTPException(404, "Quote not found")
+    if q.get("status") not in ("draft",):
+        raise HTTPException(409, "Le devis est déjà validé ou envoyé : la source tarifaire est figée.")
+    ligne = _ligne_devis_ou_404(q, line_index)
+    offre_id = str((body or {}).get("offer_id") or "").strip()
+    if not offre_id:
+        raise HTTPException(400, "offer_id manquant")
+    # L'offre vient du cache de la ligne ou d'une recherche fraîche — jamais
+    # de la confiance du client : on la retrouve par id dans les sources.
+    label = str(ligne.get("request_label") or ligne.get("description") or "").strip()
+    candidats = list(ligne.get("alternatives") or [])
+    try:
+        async with tenant_context(cu.tenant_id):
+            for source in (catalogue_chiffrage.requete_materielle(label), label):
+                if not source:
+                    continue
+                for o in (await catalogue_chiffrage.rechercher(source, 6) or []):
+                    candidats.append(_resume_offre(o))
+    except Exception:
+        logger.warning("recherche offres changement indisponible (quote %s)", quote_id, exc_info=True)
+    offre = next((o for o in candidats if str(o.get("id")) == offre_id), None)
+    if not offre:
+        raise HTTPException(404, "Offre introuvable dans les sources actives pour cette ligne")
+    _applique_offre_ligne(ligne, offre)
+    # Rafraîchit les alternatives connues de la ligne.
+    ligne["alternatives"] = _garde_alternatives(candidats)
+    total_ht, total_vat, total_ttc = match_engine.recompute_totals(q["lines"])
+    changed = await db.quotes.update_one(
+        {"id": quote_id, "tenant_id": cu.tenant_id, "status": "draft", "version": q.get("version", 1)},
+        {"$set": {"lines": q["lines"], "total_ht": total_ht,
+                  "total_vat": total_vat, "total_ttc": total_ttc}})
+    if changed.matched_count != 1:
+        raise HTTPException(409, "Le devis a changé de version ou a été validé. Rechargez-le.")
+    await audit(cu.tenant_id, cu.email, "quote.line.offer", quote_id,
+                {"line_index": line_index, "offer_id": offre_id,
+                 "fournisseur": offre.get("fournisseur")})
+    q.update({"total_ht": total_ht, "total_vat": total_vat, "total_ttc": total_ttc})
+    return {"ok": True, "quote": q}
 
 
 @api.post("/quotes/{quote_id}/send")
 async def send_quote(quote_id: str, cu: CurrentUser = Depends(require_role("owner", "admin", "operator"))):
-    q = await db.quotes.find_one({"id": quote_id, "tenant_id": cu.tenant_id}, {"_id": 0})
-    if not q:
-        raise HTTPException(404, "Quote not found")
-    await db.quotes.update_one({"id": quote_id}, {"$set": {"status": "sent", "sent_at": now_iso()}})
+    result = await quote_approval.transition(cu.tenant_id, quote_id, cu.email, "sent")
     await audit(cu.tenant_id, cu.email, "quote.send", quote_id)
     try:
         await clients_module.planifier_relances_devis(quote_id, cu.email)
     except Exception:
         logger.exception("relances : planification impossible pour le devis %s", quote_id)
-    return {"ok": True, "status": "sent"}
+    return result
 
 
 @api.post("/quotes/{quote_id}/reopen")
@@ -2010,6 +2422,13 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     if not cat:
         raise HTTPException(400, "No active pricing catalog")
     extracted = ai_service._normalize_extracted(dict(req["extracted"] or {}))
+    if not extracted.get("_tce_version"):
+        extracted = tce_v4.protect_extraction(extracted, req.get("raw_text") or "")
+    try:
+        extracted = quote_scenarios.scenario_for_quote(
+            extracted, req.get("raw_text") or "", q.get("meta") or {})
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
     settings = await get_tenant_ai_settings(cu.tenant_id)
     labels = [it.get("item_label") for it in items if it.get("item_label")]
     extracted = await ai_service.expand_work_into_materials(extracted, settings, labels)
@@ -2021,6 +2440,12 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
     if old_mat > 0 and new_mat <= 0:
         raise HTTPException(400, "Aucun article catalogue correspondant. Les prix du brouillon sont conservés.")
     meta = dict(q.get("meta") or {})
+    meta.update(tce_version=tce_v4.VERSION,
+                tce_nomenclature=extracted.get("_tce_nomenclature") or [],
+                tce_issues=extracted.get("_tce_issues") or [],
+                reserves=extracted.get("reserves") or [],
+                exclusions=extracted.get("option_excludes") or "")
+    meta.pop("tce_review_digest", None)
     # role=describe (redaction uniquement), meme repli deterministe qu'en
     # creation -- voir ai_service.build_works_description_ai.
     meta["works_description"] = await ai_service.build_works_description_ai(extracted, settings)
@@ -2032,7 +2457,11 @@ async def rematch_quote(quote_id: str, cu: CurrentUser = Depends(require_role("o
         "meta": meta,
         "object": _intitule_with_di(q.get("object") or extracted.get("description"), meta.get("di_number")),
     }
-    await db.quotes.update_one({"id": quote_id}, {"$set": update})
+    changed = await db.quotes.update_one(
+        {"id": quote_id, "tenant_id": cu.tenant_id, "status": "draft", "version": q.get("version", 1)},
+        {"$set": update})
+    if changed.matched_count != 1:
+        raise HTTPException(409, "Le devis a changé de version ou a été validé. Rechargez-le.")
     await audit(cu.tenant_id, cu.email, "quote.rematch", quote_id)
     q.update(update)
     return q
@@ -2071,11 +2500,64 @@ async def update_request(request_id: str, body: dict, cu: CurrentUser = Depends(
     return r
 
 
+async def _arreter_demande(request_id: str, tenant_id: str, motif: str) -> int:
+    """Arrête une demande en cours : tâches IA du VPS, tâche de traitement, statut, quota rendu."""
+    arretees = await ia_runs.arreter_demande(ia_runs.cle_demande(tenant_id, request_id))          # marque l'arrêt + /stop sur le VPS
+    tache = _TACHES.get(ia_runs.cle_demande(tenant_id, request_id))
+    if tache is not None and not tache.done():
+        tache.cancel()
+    await db.requests.update_one({"id": request_id, "tenant_id": tenant_id},
+                                 {"$set": {"status": "cancelled", "error": motif, "progression": None}})
+    await quotas.annuler(request_id, motif)
+    return arretees
+
+
+@api.post("/requests/{request_id}/stop")
+async def stop_request(request_id: str, cu: CurrentUser = Depends(get_current)):
+    """Bouton « Arrêter » : interrompt la lecture et libère le VPS (tâches IA arrêtées)."""
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    if r.get("status") not in ("received", "queued", "processing"):
+        return {"ok": True, "status": r.get("status"), "deja_termine": True}
+    arretees = await _arreter_demande(request_id, cu.tenant_id, "Arrêtée par l'utilisateur.")
+    await audit(cu.tenant_id, cu.email, "request.stop", request_id, {"runs_arretes": arretees})
+    return {"ok": True, "status": "cancelled", "runs_arretes": arretees}
+
+
+@api.get("/requests/{request_id}/etat-ia")
+async def etat_ia_demande(request_id: str, cu: CurrentUser = Depends(get_current)):
+    """POINT DE CONTRÔLE : où en sont, sur le VPS, les tâches IA de cette demande."""
+    r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0, "progression": 1, "status": 1})
+    if not r:
+        raise HTTPException(404, "Request not found")
+    prog = r.get("progression") or {}
+    runs = []
+    for run_id, info in list((prog.get("runs") or {}).items())[-8:]:
+        statut, source = info.get("statut"), "enregistre"
+        if statut not in ia_runs.TERMINAUX and HERMES_GATEWAY_URL_CONFIGUREE():
+            try:
+                e = await ia_runs.etat(ai_service.HERMES_GATEWAY_URL, ai_service.entetes_hermes_runs(), run_id)
+                statut, source = e.get("status"), "vps"
+            except Exception:  # noqa: BLE001
+                source = "enregistre (VPS injoignable)"
+        runs.append({"run_id": run_id, "role": info.get("role"), "statut": statut, "source": source})
+    return {"demande": r.get("status"), "etape": prog.get("etape"), "total": prog.get("total"),
+            "libelle": prog.get("libelle"), "debut": prog.get("debut"), "runs": runs}
+
+
+def HERMES_GATEWAY_URL_CONFIGUREE() -> bool:
+    return bool(ai_service.HERMES_GATEWAY_URL)
+
+
 @api.delete("/requests/{request_id}")
 async def delete_request(request_id: str, cu: CurrentUser = Depends(require_role("owner", "admin"))):
     r = await db.requests.find_one({"id": request_id, "tenant_id": cu.tenant_id}, {"_id": 0})
     if not r:
         raise HTTPException(404, "Request not found")
+    if r.get("status") in ("received", "queued", "processing"):
+        # Supprimer une demande en cours l'arrête d'abord : sinon le calcul continue sur le VPS.
+        await _arreter_demande(request_id, cu.tenant_id, "Demande supprimée pendant le traitement.")
     try:
         await db.requests.delete_one({"id": request_id, "tenant_id": cu.tenant_id})
     except Exception as e:
@@ -2105,10 +2587,15 @@ async def quote_pdf(quote_id: str, token: Optional[str] = None,
         )
         if not q:
             raise HTTPException(404, "Quote not found")
+        if q.get("status") in ("validated", "sent") and (
+            tce_v4.blockers(q) or not tce_v4.reviewed(q)
+        ):
+            raise HTTPException(409, "Devis à rouvrir et revalider avant export client.")
         tenant = await db.tenants.find_one({"id": tenant_id}, {"_id": 0})
         profile = await get_company_profile(tenant_id)
-        pdf_bytes = pdf_service.generate_quote_pdf(
-            q, tenant["name"] if tenant else "Blueseatra", profile
+        pdf_bytes = await asyncio.to_thread(
+            pdf_service.generate_quote_pdf,
+            tce_v4.client_quote(q), tenant["name"] if tenant else "Blueseatra", profile,
         )
 
     return StreamingResponse(
@@ -2280,7 +2767,10 @@ async def health():
     Render) : renvoie alors "unknown" plutot que d'echouer.
     """
     commit = os.environ.get("RENDER_GIT_COMMIT", "unknown")
-    return {"status": "healthy", "commit": commit[:7] if commit != "unknown" else commit}
+    return {"status": "healthy", "commit": commit[:7] if commit != "unknown" else commit,
+            "tce": {**tce_v4.manifest(),
+                    "text_model": ai_service.HERMES_EXTRACT_MODEL,
+                    "structuring_model": ai_service.HERMES_STRUCTURING_MODEL_1}}
 
 
 # ===========================================================================
@@ -2470,6 +2960,7 @@ async def catalogue_commun_afficher_tous(cu: CurrentUser = Depends(require_role(
 
 
 api.include_router(clients_module.build_router(get_current, require_role))
+api.include_router(relances_email.build_router(require_role, chiffrer=encrypt_secret, dechiffrer=decrypt_secret))
 app.include_router(observabilite.build_router(get_current, require_role))
 app.include_router(facturation_stripe.build_router(get_current, require_role))
 app.middleware("http")(observabilite.intergiciel)
@@ -2486,6 +2977,7 @@ app.add_middleware(
     allow_origins=_cors_origins or ['*'],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Server-Timing", "X-Request-ID"],
 )
 
 
@@ -2498,9 +2990,11 @@ async def startup():
             await db[col].create_index("tenant_id")
     except Exception as e:
         logger.warning(f"index creation: {e}")
-    global _extraction_worker_task
+    global _extraction_worker_task, _envoi_auto_task
     if _extraction_worker_task is None:
         _extraction_worker_task = asyncio.create_task(_extraction_worker_loop())
+    if _envoi_auto_task is None and os.environ.get("DATABASE_URL"):
+        _envoi_auto_task = asyncio.create_task(relances_email.boucle_envoi_auto())
     await _requeue_stuck_on_startup()
     logger.info("Blueseatra API started")
 
@@ -2509,4 +3003,6 @@ async def startup():
 async def shutdown():
     if _extraction_worker_task is not None:
         _extraction_worker_task.cancel()
+    if _envoi_auto_task is not None:
+        _envoi_auto_task.cancel()
     await db.dispose()

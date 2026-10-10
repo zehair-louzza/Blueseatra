@@ -97,25 +97,25 @@
         "number",
         "null"
       ],
-      "description": "Main-d'œuvre estimée en heures-homme : préparation, dépose, pose, raccordement, essais, repli et nettoyage. Hors temps de trajet, chiffré séparément."
+      "description": "Toujours null côté IA ; calcul par le SaaS."
     },
     "travel_days": {
       "type": [
         "number",
         "null"
       ],
-      "description": "Nombre de jours d'intervention sur site, chacun générant un déplacement."
+      "description": "Toujours null côté IA ; calcul par le SaaS."
     },
     "crew_size": {
       "type": [
         "number",
         "null"
       ],
-      "description": "Composition de l'équipe : 2 compagnons par défaut (sécurité et manutention), 1 seulement pour une intervention courte et légère de 3 h au plus."
+      "description": "Toujours null côté IA ; calcul par le SaaS."
     },
     "line_items": {
       "type": "array",
-      "description": "Décomposer la prestation comme un métreur, sans rien négliger, en vérifiant systématiquement : 1) préliminaires (visite, relevé, repérage des réseaux, consignation électrique ou coupure d'eau, autorisations) ; 2) protection et balisage (bâches, films, protections de sols, barrières, signalisation en site occupé ou ERP) ; 3) moyens d'accès et engins dès que la hauteur, le poids ou l'accès l'exigent (escabeau pro, échafaudage roulant, nacelle ciseaux ou articulée, monte-matériaux, transpalette, carotteuse, perforateur, aspirateur de chantier), chacun sur sa ligne avec sa durée ; 4) dépose, évacuation, tri et mise en décharge des existants ; 5) matériau ou appareil principal, sur sa propre ligne ; 6) accessoires indispensables à la pose (supports, raccords, vannes, boîtes, gaines, profilés, quincaillerie) ; 7) fixations (vis, chevilles, colliers, scellement chimique, tiges filetées) ; 8) étanchéité et calfeutrement (joints, mastic, silicone, mousse, bande, coupe-feu si requis) ; 9) collage et préparation (primaire, colle, mortier-colle, enduit, ragréage) ; 10) raccordements (câbles, bornes, connecteurs, flexibles, manchons) ; 11) petites fournitures et consommables regroupés sur UNE ligne explicite en forfait, détaillée dans included_items, jamais « divers » ; 12) finitions (baguettes, plinthes, caches, retouches de peinture) ; 13) essais, mesures, réglages, mise en service et autocontrôle ; 14) nettoyage et repli. Ne retenir que ce qui s'applique réellement à cette prestation. Un matériau principal coûteux n'est jamais caché dans les consommables. Liste vide si la demande comporte des variantes exclusives : les postes figurent alors dans quote_options.",
+      "description": "Prestations explicitement demandées uniquement, avec preuve exacte, action et lot. Accessoires implicites dans la nomenclature candidate séparée du backend.",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -129,7 +129,7 @@
               "number",
               "null"
             ],
-            "description": "Quantité issue de la demande, du métré ou d'un minimum réaliste de mise en œuvre. Null seulement si elle est réellement indéterminable."
+            "description": "Quantité explicitement écrite et prouvée, sinon null. Aucun minimum ni calcul."
           },
           "unit": {
             "type": "string",
@@ -193,7 +193,69 @@
               "string",
               "null"
             ],
-            "description": "Réserve ou hypothèse retenue lorsque la demande est imprécise (ex. « hauteur sous plafond supposée inférieure à 3 m »). Null si aucune."
+            "description": "Information à relever ou réserve explicite. Aucune hypothèse inventée."
+          },
+          "action": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "fournir",
+              "poser",
+              "fournir_et_poser",
+              "deposer",
+              "creer",
+              "modifier",
+              "reparer",
+              "raccorder",
+              "tester",
+              "mettre_en_service",
+              "nettoyer",
+              "proteger",
+              "etudier",
+              "controler",
+              "evacuer",
+              "documenter",
+              null
+            ]
+          },
+          "lot_tce": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "00",
+              "01",
+              "02",
+              "03",
+              "04",
+              "05",
+              "06",
+              "07",
+              "08",
+              "09",
+              "10",
+              "11",
+              "12",
+              "13",
+              "14",
+              "15",
+              "16",
+              "17",
+              "18",
+              "19",
+              null
+            ]
+          },
+          "preuve": {
+            "type": "string",
+            "description": "Citation exacte unique de la prestation, sans reformulation."
+          },
+          "quantite_preuve": {
+            "type": "string",
+            "description": "Citation exacte justifiant la quantité ; vide si inconnue."
           }
         },
         "required": [
@@ -238,7 +300,7 @@
                     "number",
                     "null"
                   ],
-                  "description": "Quantité issue de la demande, du métré ou d'un minimum réaliste de mise en œuvre. Null seulement si elle est réellement indéterminable."
+                  "description": "Quantité explicitement écrite et prouvée, sinon null. Aucun minimum ni calcul."
                 },
                 "unit": {
                   "type": "string",
@@ -302,7 +364,69 @@
                     "string",
                     "null"
                   ],
-                  "description": "Réserve ou hypothèse retenue lorsque la demande est imprécise (ex. « hauteur sous plafond supposée inférieure à 3 m »). Null si aucune."
+                  "description": "Information à relever ou réserve explicite. Aucune hypothèse inventée."
+                },
+                "action": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "fournir",
+                    "poser",
+                    "fournir_et_poser",
+                    "deposer",
+                    "creer",
+                    "modifier",
+                    "reparer",
+                    "raccorder",
+                    "tester",
+                    "mettre_en_service",
+                    "nettoyer",
+                    "proteger",
+                    "etudier",
+                    "controler",
+                    "evacuer",
+                    "documenter",
+                    null
+                  ]
+                },
+                "lot_tce": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "00",
+                    "01",
+                    "02",
+                    "03",
+                    "04",
+                    "05",
+                    "06",
+                    "07",
+                    "08",
+                    "09",
+                    "10",
+                    "11",
+                    "12",
+                    "13",
+                    "14",
+                    "15",
+                    "16",
+                    "17",
+                    "18",
+                    "19",
+                    null
+                  ]
+                },
+                "preuve": {
+                  "type": "string",
+                  "description": "Citation exacte unique de la prestation, sans reformulation."
+                },
+                "quantite_preuve": {
+                  "type": "string",
+                  "description": "Citation exacte justifiant la quantité ; vide si inconnue."
                 }
               },
               "required": [
@@ -321,21 +445,21 @@
               "number",
               "null"
             ],
-            "description": "Heures-homme propres à la variante, hors trajet."
+            "description": "Toujours null côté IA ; calcul par le SaaS."
           },
           "travel_days": {
             "type": [
               "number",
               "null"
             ],
-            "description": "Jours d'intervention sur site pour la variante."
+            "description": "Toujours null côté IA ; calcul par le SaaS."
           },
           "crew_size": {
             "type": [
               "number",
               "null"
             ],
-            "description": "Compagnons mobilisés (2 par défaut)."
+            "description": "Toujours null côté IA ; calcul par le SaaS."
           },
           "excludes": {
             "type": "string",

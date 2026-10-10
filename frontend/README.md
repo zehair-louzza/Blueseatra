@@ -35,3 +35,7 @@ Authentification maison : jeton `bs_token` en localStorage, en-têtes `Authoriza
 
 - [Architecture](../docs/architecture.md) · [Guide développeur](../docs/guide-developpeur.md) · [Manuel d'utilisation](../docs/manuel-utilisateur.md)
 - [Déploiement (Vercel / Render / Supabase / OVH)](../DEPLOIEMENT.md)
+
+## Licence
+
+Logiciel propriétaire, tous droits réservés. Titulaire : Zehair Louzza, exploitant le nom commercial « Blueseatra ». Voir [LICENSE](../LICENSE).

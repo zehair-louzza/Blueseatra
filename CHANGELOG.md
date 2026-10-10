@@ -1,12 +1,256 @@
 # Changelog
 
-## 2026-10-02 (6) — Journal d'audit en ajout seul
+## 2026-10-10 — Journal d'audit en ajout seul
 
 - **Écart corrigé** : la documentation présentait `audit_logs` comme un journal en ajout seul, mais la base ne l'imposait pas (le rôle `blueseatra_app` gardait `UPDATE` et `DELETE`, aucun trigger).
-- **Migration `20261002040000_journal_audit_ajout_seul.sql`** : fonction `blueseatra.audit_ajout_seul()` sur le modèle de `registre_ajout_seul()`, triggers `BEFORE UPDATE OR DELETE` (par ligne) et `BEFORE TRUNCATE` (par instruction), retrait de `UPDATE`, `DELETE` et `TRUNCATE` au rôle applicatif et à `authenticated`. Idempotente.
+- **Migration `20261010030000_journal_audit_ajout_seul.sql`** : fonction `blueseatra.audit_ajout_seul()` sur le modèle de `registre_ajout_seul()`, triggers `BEFORE UPDATE OR DELETE` (par ligne) et `BEFORE TRUNCATE` (par instruction), retrait de `UPDATE`, `DELETE` et `TRUNCATE` au rôle applicatif et à `authenticated`. Idempotente. Numérotée après la dernière migration de `main` (le numéro d'origine, `20261002040000`, était déjà pris par `vocabulaire_recherche`).
 - **Maintenance explicite** : seul un rôle d'administration, jamais `blueseatra_app`, peut purger des traces de test avec `SET LOCAL blueseatra.maintenance_audit = 'on'`, pour sa seule transaction.
 - **Aucun changement fonctionnel** : l'application n'écrit dans le journal que par insertion ; l'export RGPD le lit seulement.
 - 9 tests sur PostgreSQL 17 jetable (`backend/tests_security/test_journal_audit_ajout_seul_sql.py`), ajoutés aux tests métier de la CI ; le prévol du rôle applicatif vérifie désormais que `UPDATE` et `DELETE` sont refusés.
+
+## 2026-10-10 — Licence propriétaire 2.0, README complets, nouveaux schémas
+
+- **Licence durcie** (`LICENSE`, version 2.0) :
+  - titulaire identifié : Zehair Louzza, exploitant le nom commercial « Blueseatra » ;
+  - objet protégé : code, documentation, schémas, captures, signes distinctifs, bases de données ;
+  - interdictions détaillées : exécution, SaaS, produit concurrent, extraction des catalogues ;
+  - opposition à la fouille de textes et de données et à l'entraînement d'IA (CPI, art. L.122-5-3), sous réserve des droits accordés à GitHub ;
+  - exceptions légales préservées, composants de tiers, cession des contributions, droit français, cour d'appel de Paris ;
+  - version française faisant foi, traduction anglaise informative.
+  La même licence s'applique aux dépôts Fournisseur-Blueseatra et ovh-ai-stack.
+- **README français et anglais** :
+  - galerie de tous les schémas (18) et des 31 captures d'écran ;
+  - section Licence ;
+  - badges à jour (124 routes, 34 migrations, 690 tests) ;
+  - fonctions récentes ajoutées : relances par e-mail, G3, masquage RGPD, contact.
+- **Nouveaux schémas** :
+  - G3, relances par e-mail, masquage RGPD ;
+  - routage IA mis à jour avec OpenCode Free ;
+  - architecture des dépôts Fournisseur-Blueseatra et ovh-ai-stack (`scripts/docs/generer_schemas_ecosysteme.py`).
+
+## 2026-10-07 — Bouton Arrêter, tâches IA asynchrones avec point de contrôle
+
+Problème : supprimer une demande en cours ne l'arrêtait pas, et le site attendait le VPS par une connexion ouverte pendant des minutes ; un délai dépassé laissait le calcul tourner sur OVH.
+- **Bouton « Arrêter »** sur la demande en cours (`POST /api/requests/{id}/stop`). La demande passe en « Arrêtée », le quota est rendu, la file ne la relance pas. Supprimer une demande en cours l'arrête d'abord.
+- **Tâches asynchrones Hermès** (`backend/ia_runs.py`, interface `/v1/runs`) pour tous les appels IA faits pendant le traitement d'une demande, photos comprises : lancement immédiat, interrogation régulière (2 s puis 4 s puis 8 s) de l'état côté VPS, résultat lu dès qu'il est prêt.
+- **Libération du VPS :** arrêt de la demande, délai dépassé ou suppression appellent `/v1/runs/{id}/stop`.
+- **Point de contrôle :** `GET /api/requests/{id}/etat-ia` donne l'état réel des tâches sur le VPS ; les tâches sont aussi enregistrées dans `requests.progression`.
+- **Reprise :** `Idempotency-Key` dérivée de la demande, de la tentative et du contenu ; après un redémarrage du site, la tâche d'origine est reprise au lieu d'être refaite. « Retraiter » ouvre une nouvelle tentative.
+- **Repli automatique** vers `/v1/chat/completions` si l'interface de tâches est absente ; `BLUESEATRA_IA_RUNS=0` désactive tout.
+- Limite connue : la sortie JSON imposée (`response_format`) n'existe pas sur `/v1/runs` ; la consigne porte seule le format.
+
+## 2026-10-07 — Lecture des photos : résultat partiel conservé, attentes bornées, étape visible
+
+Cause du 06/10 (photo « Test zeh », plus de 25 min puis échec « ReadTimeout (qwen2.5vl:7b) ») : PaddleOCR et la structuration avaient réussi en 6 min, mais le résultat avait été jugé incomplet et écarté ; les quatre étages suivants ont échoué (deux en erreur 500 immédiate, deux en dépassement de délai, dont un de 704 s) ; le secours « vision directe » relançait le même modèle que l'étage qui venait d'échouer.
+- **Résultat partiel conservé :** un résultat sans erreur, avec des lignes ou une description, est gardé comme dernier recours. Il passe toujours en « à revoir » (confiance plafonnée à 0,55) avec un avertissement.
+- **Pas de doublon :** le secours « vision directe » n'est plus relancé avec un modèle déjà essayé.
+- **Attentes bornées :** l'attente supplémentaire due à l'étage suivant est plafonnée à 420 s (`OCR_STAGE_TIMEOUT_MAX`), et la cascade s'arrête après 25 min (`OCR_CASCADE_BUDGET_S`).
+- **Journaux :** chaque rejet d'étage indique sa raison (`ocr_etape_rejetee`).
+- **Étape visible :** la page de la demande affiche « Lecture par GLM-OCR — étape 2 sur 6, depuis 3 min » (migration `20261007010000_requests_progression.sql`, colonne `requests.progression`).
+
+## 2026-10-06 — Cache des extractions IA par empreinte du contenu
+
+- **Un document déjà extrait n'est plus recalculé.** `backend/cache_ia.py` garde le résultat structuré (jamais le fichier) par entreprise, avec une clé SHA-256 qui mélange le contenu (texte, image, pages rendues) et la configuration (fournisseur, modèle, OCR préféré, consigne, schéma, code d'extraction). Changer l'un de ces éléments produit une autre clé.
+- **Règles :** seuls les résultats sans erreur et de confiance d'au moins 0,6 sont gardés ; conservation 30 jours ; « Retraiter » ignore le cache ; l'anonymisation RGPD vide le cache de l'entreprise ; la facturation des quotas est inchangée.
+- **Migration `20261006220000_cache_ia.sql`** (table `cache_ia`, RLS par entreprise). Tant qu'elle n'est pas appliquée, le cache est ignoré sans erreur.
+
+## 2026-10-06 — Dépendances allégées, lectures de fichiers hors de la boucle, audit des dépendances
+
+- **requirements.txt : 139 -> 62 lignes.** 91 paquets jamais importés par l'API sont retirés (litellm, openai, google-*, boto3, stripe, jq, tiktoken, alembic, passlib, python-jose, aiohttp...). Les outils de test et de développement passent dans `backend/requirements-dev.txt` (pytest, black, flake8, isort, mypy, requests, jsonschema, motor, pymongo). Le nombre de paquets avec une faille connue passe de 15 à 5.
+- **API non bloquée par les imports :** lecture des PDF, DOCX, XLSX et CSV et génération du PDF de devis passent par `asyncio.to_thread`. Avant, un PDF lent figeait toute l'API (un seul processus), `/api/health` compris. Test : `tests/test_lectures_en_thread.py`.
+- **CI :** workflow « Audit des dépendances » (pip-audit et yarn audit, en cliquet, plus un passage hebdomadaire) et `dependabot.yml` (une PR groupée par semaine).
+
+## 2026-10-05 (2) — CI frontend : contrôle des identifiants non définis + build sur chaque PR
+
+**Pourquoi** : la page blanche du 05/10 (#181 → #182) venait de deux icônes utilisées sans import. Le script `build` désactive ESLint (`DISABLE_ESLINT_PLUGIN=true`) : la compilation passait, React plantait au rendu, en production. Aucun workflow ne contrôlait le frontend.
+
+**Nouveau workflow `Frontend`** (chaque PR + push sur main) : `yarn lint:undef` (règles `no-undef`, `react/jsx-no-undef` — seulement ce qui casse l'exécution, aucune règle de style), puis build de production complet.
+
+**Vérifié** : 105 fichiers analysés, 0 erreur sur le code actuel ; en rejouant la panne (import retiré), le contrôle échoue avec les 2 erreurs exactes.
+
+## 2026-10-05 (1) — Correctif : page blanche après la mise en ligne de #181
+
+**Constat** : après le déploiement de la PR #181, l'application affichait une page blanche. Cause : l'import des icônes `PanelLeftClose` / `PanelLeftOpen` (bouton de repli du menu latéral) ne s'était pas appliqué dans `AppShell.js` ; le build passe (pas de contrôle des identifiants JSX non définis), mais React plante au premier rendu de la coque de l'application.
+
+**Correction** : import ajouté. Vérifié avec un contrôle `react/jsx-no-undef` + `no-undef` sur les fichiers modifiés : 2 erreurs sur la version déployée, 0 sur la version corrigée.
+
+## 2026-10-04 (7) — Rapprochement fournisseur par ligne de devis + menu de choix
+
+**Constat** (devis BS-2026-0055) : les lignes de fournitures restaient des libellés de prestation (« fourniture et pose de prises 2p+t 16 a, gamme blanche standard ») sans aucun rapprochement catalogue — toutes « à confirmer » sans prix. Cause : la recherche exige TOUS les mots présents (AND), et un libellé de 10 mots ne matche aucune désignation catalogue, alors que le catalogue Rexel vend des prises 2P+T.
+
+**Correction — requête matériau** : `requete_materielle()` extrait l'ARTICLE du libellé de prestation (« prise 2p+t 16 a »), en coupant à la première virgule, retirant les mots de prestation (fourniture, pose, création, mise en place…), préservant les unités d'une lettre après un chiffre (« 16 a » = ampères, « 150 l » = litres) et singulierisant les pluriels longs.
+
+**Rapprochement par ligne** : à la génération, chaque ligne de fourniture sans prix reçoit la **meilleure offre** des sources actives (pertinence puis prix — prix figé, preuve `chosen_offer` horodatée) et ses **alternatives** (6). L'IA ne choisit PAS le fournisseur : la recherche classe, l'humain tranche.
+
+**Menu de choix** (`LineOfferMenu`) : pastille fournisseur sous chaque ligne de fourniture, popover au clic avec offres alternatives (fournisseur, désignation, marque, référence, prix, unité), recherche fraîche à l'ouverture. Changer d'offre = `POST /quotes/{id}/lines/{n}/offer` → prix refigé, totaux recalculés, audit. Refusé si le devis n'est plus en brouillon (source tarifaire historisée). Les lignes de main-d'œuvre et déplacement ne sont jamais proposées au changement.
+
+**Éditeur compact** : colonnes resserrées (désignation flexible, plus de scroll horizontal), bloc « Description / déroulement des travaux » élargi (10 lignes, toujours visible et modifiable), **menu latéral pliable** (icônes seules, état persisté par navigateur, bouton en pied de barre) qui libère la largeur de l'éditeur.
+
+**Règles pertinence appliquées au rapprochement** (mêmes règles que le comparateur) : 1/3 tri pertinence puis prix (déjà en place), 2/3 exclusion des négations — une porte « non coupe-feu » ne peut jamais prixer une ligne « coupe feu » ni figurer dans le menu, 3/3 garde anti-accessoire — les alternatives dont la pertinence vaut moins de 50 % du leader sont retirées du menu (le leader reste toujours proposé, l'humain décide).
+
+**Tests** : `test_rapprochement_lignes.py` (17 : requête matériau sur les vraies lignes du devis, enrichissement, refige du prix, preuve remplacée, garde anti-accessoire, négations, pertinence portée par les offres) ; mock de `candidats_rapprochement` adapté à la requête normalisée ; suite 310 verts.
+
+## 2026-10-04 (6) — Devis 9 pages lettre par lettre : normalisation des listes narratives IA
+
+**Constat** (devis BS-2026-0055, premier devis généré après la réparation de la chaîne d'extraction) : les sections « Préliminaires », « Déroulement » et « Contrôles de fin de travaux » explosaient **lettre par lettre** — chaque caractère devenait une ligne à puce, étirant le devis sur 9 pages.
+
+**Cause racine** : le modèle de rédaction (role=describe) renvoie parfois `etapes` comme CHAÎNE au lieu d'un tableau (schéma ignoré). Le code itérait `for x in (data.get("etapes") or [])` — itérer une chaîne Python produit ses caractères un par un. La validation `len(etapes) >= 2` passait puisque les caractères comptent comme des étapes.
+
+**Correction** : `_liste_propre()` normalise les trois champs avant tout usage —
+- chaîne → découpée sur sauts de ligne, points-virgules ou numérotations « 1. » (une chaîne plate devient une seule entrée)
+- liste d'éléments d'au plus 2 caractères (chaîne cassée en caractères) → recollée sur les éléments BRUTS en une seule phrase
+- vrai tableau → intact ; éléments plus courts que 4 caractères écartés
+
+**Tests** : +6 dans `test_extraction_prompt_cpu.py` (numérotation découpée, chaîne plate, recollure avec espaces préservés, tableau valide, vide/null) ; suite 293 verts.
+
+## 2026-10-04 (5) — Extraction sur VPS CPU : prompt borné et cascade réordonnée
+
+**Constat** (mesures Ollama du 04/10 sur le VPS, CPU seul) : évaluation de prompt ~16 jetons/s, génération ~3 jetons/s. Un prompt d'extraction de ~6 000 jetons (consigne 6 858 caractères + document ~8 400 + contexte web 1 200) = **6 minutes de silence avant le premier fragment** — au-delà du timeout d'étage (600 s) et du seuil « stream stale » de la passerelle (900 s). Du 02/10 au 04/10 : 23 flux tués à 900 s, toutes les extractions de fichiers en échec. Une requête à petit prompt (519 jetons) passait en 8m30 — le mécanisme est purement la taille du prompt.
+
+**Correctifs (les timeouts d'étage ne sont PAS modifiés — mesure d'abord, ajustement ensuite)** :
+1. **Document borné** : la structuration locale reçoit la tête (client, articles) et la queue (totaux, validité) du document — le milieu (CGV, mentions légales) est remplacé par un marqueur annoncé. Bornes réglables : `EXTRACTION_DOC_MAX=9000`, compact `3000`. Les chemins cloud (Mistral, OpenAI) gardent le document intégral.
+2. **Contexte web réservé aux demandes courtes** (< 4 000 caractères) : un long document importé se suffit à lui-même — 1 200 caractères économisés et un appel DuckDuckGo évité à chaque extraction de fichier.
+3. **Cascade réordonnée** : l'ancien étage 2 (Qwen2.5-VL-7B) était un modèle VISION appelé sans image — un 7B vision sur du texte n'est qu'un 7B plus lent qui rejouait le même prompt full déjà mort au timeout de l'étage 1 (7 minutes de CPU perdues à coup sûr). Remplacé par un **deuxième essai de l'étage 1 sur le prompt compact** — une vraie seconde chance dans la fenêtre du timeout. Hermes-3 en dernier étage joue aussi sur le compact.
+
+**Tests** : `test_extraction_prompt_cpu.py` (9, sans base de données) ; suite complète 287 verts, échecs inchangés (environnementaux). Prochaine étape si un échec subsiste : relever les timeouts d'étage (600 → 900 s), maintenant que le prompt est sain.
+
+## 2026-10-04 (4) — Panneau « meilleure correspondance » : seuls les fournisseurs qui vendent le produit demandé
+
+**Constat** (capture du 04/10 au soir) : pour « porte coupe feu », le panneau de négociation affichait Rexel avec un panneau PVC à 1,80 €, AFDB avec une garniture et YESSS avec un déclencheur — des accessoires qui MENTIONNENT la demande. L'écart affiché, +22 593 % entre le panneau et une porte métallique à 409 €, n'a aucun sens de négociation.
+
+**Correction** : la MEILLEURE offre d'un fournisseur doit valoir au moins 50 % de la pertinence du leader (`garder_meilleures_correspondances`, mesuré : portes réelles 1,08-1,83, accessoires 0,62-0,78, soit 34-43 % du leader). Un fournisseur écarté n'est retiré que du PANNEAU — jamais silencieusement : fournisseurs et désignations sont renvoyés (`fournisseurs_ecartes_pertinence`) et affichés dans une note sous le panneau (FR/EN) ; ses offres restent dans les résultats, les produits identiques et le sélecteur du devis.
+
+**Tests** : `test_comparateur_produits.py` +5 (cas réel mesuré, sans pertinence, unique, seuil personnalisé) ; suite comparateur/négation/pertinence 44 verts.
+
+## 2026-10-04 (3) — Recherche : exclusion des désignations qui nient un terme demandé
+
+**Constat** : « porte coupe feu » ramenait des portes Prolians « multi-usage TWIN **non coupe-feu** » — les mots demandés y sont tous présents, mais le libellé affirme le CONTRAIRE de la recherche. La pertinence reléguait ces faux positifs en bas de classement, mais un tri par prix les faisait remonter en tête de tableau.
+
+**Correction** : nouveau module autonome `negation_recherche.py`. Une désignation contenant « non » + un groupe de mots de la requête (1 à 3 mots) ou « sans » + un groupe d'au moins 2 mots est exclue des résultats — avant les statistiques, le panneau par fournisseur et les produits identiques. Le respect du principe « la pertinence trie, elle ne filtre jamais » est préservé en esprit : la négation n'est pas un manque de pertinence mais une contradiction explicite, et RIEN ne disparaît silencieusement — le compte, les motifs (ex. « non coupe feu ») et trois désignations exemples sont renvoyés et affichés dans un bandeau dédié (FR/EN).
+
+**Garde-fous** : une négation hors requête n'exclut pas (« porte coupe feu non isole » reste candidate pour « porte coupe feu ») ; « vis sans fin » n'est pas une négation de « vis » (le « sans » exige 2 mots) ; le motif le plus long est rapporté.
+
+**Tests** : `test_negation_recherche.py` (14, sans base de données) ; suite pertinence/comparateur/matching 38 verts.
+
+## 2026-10-04 (2) — Comparateur : tri par défaut du tableau conforme à la règle de pertinence
+
+**Constat** : le correctif porte-coupe-feu (#166) classait bien les résultats par pertinence côté backend, mais `SupplierResultsTable` (PR #159, antérieure) re-triait tout **par prix croissant côté navigateur** au moment de l'affichage — l'ordre pertinent était écrasé à l'écran et les accessoires pas chers repassaient en tête du tableau.
+
+**Correction** : le tableau conserve désormais l'ordre du backend (pertinence décroissante puis prix croissant) par défaut, avec une bascule « Pertinence / Prix » dans l'en-tête pour retrouver la lecture par prix comparable croissant. L'étiquette sous le titre reflète le tri actif (FR/EN). Aucun changement backend : l'ordre pertinent était déjà calculé et renvoyé.
+
+## 2026-10-04 — Vocabulaire Rexel terminé en production + traces d'explication du moteur
+
+**Résultat** : la source Rexel (747 771 offres) a désormais son vocabulaire complet en production — 406 562 entrées dont 306 863 groupes de mots (113 997 paires ≥ 5, 192 866 triples ≥ 3), 100 % des offres couvertes par tranches contiguës, suggestions multi-mots vérifiées (« porte c », « coupe feu »). Les 10 versions de sources du catalogue commun sont complètes. Procédure, mesures et constats d'exploitation détaillés dans `docs/vocabulaire-rexel-passe-nuit.md` (dont deux constats majeurs : le connecteur execute_sql continue d'exécuter côté serveur après son timeout client — vérifier `pg_stat_activity` avant toute relance — et deux requêtes zombies de 15-23 h saturaient l'I/O et expliquaient tous les échecs précédents).
+
+**Ajouts** :
+- `scripts/traces/trace_hermes_selection.py` — exécute le vrai `matching.py` (match_line, build_quote_lines, wrap_in_lots, estimate_chantier) sur un catalogue réel : scores, raisons, décision matched/to_confirm, prix uniquement du catalogue, main-d'œuvre au barème. Démontre le principe « l'IA propose, la base décide ».
+- `scripts/traces/trace_comparateur.py` — exécute le vrai `pertinence.py` et `meilleurs_par_fournisseur` sur des offres réelles (Rexel, LPB, YESSS) : le produit principal passe devant les accessoires moins chers.
+- `docs/vocabulaire-rexel-passe-nuit.md` — procédure par tranches reproductible, seuils, résultats et leçons d'exploitation.
+
+## 2026-10-03 — Vocabulaire des gros catalogues : version tables de travail
+
+**Mesuré en production sur le Rexel (747 000 offres, ~7,5 millions de paires)**, la construction des groupes de mots a buté sur trois murs, chacun documenté dans la migration :
+1. la version monobloc agrégeait tout d'un coup : débordement de work_mem, passe abandonnée à 75 minutes ;
+2. le planificateur aplatit la sous-requête lateral et **recalcule la découpe de la désignation à chaque référence** (6 découpages par paire, des millions de fois — visible dans le Group Key du EXPLAIN) ;
+3. la version par lots avec upserts accumulés s'effondrait à partir de la 6e tranche : les upserts invalident la carte de visibilité, les Index Only Scan redeviennent des lectures de table (52 000 heap fetches mesurés sur un échantillon de 5 000 offres).
+
+**Solution (20261002070000 puis 20261003000000)** : `vocabulaire_recalculer_lourd` construit tout dans des tables temporaires — découpage de la désignation une seule fois par offre, mots isolés, paires et triples agrégés sans jamais écrire dans la table cible, jointures contre la table temporaire des mots courants — puis remplace la source en une seule écriture. Équivalence exacte avec la fonction de référence vérifiée par test (mêmes lignes, mêmes comptes), et mêmes gardes de cloisonnement.
+
+**Tests** : `test_vocabulaire_sql.py` 28 (dont équivalence de la version lourde, no-op pour la source d'un autre tenant, délégation des sources hist).
+
+## 2026-10-02 (11) — Recalcul du vocabulaire : version rapide
+
+La version 20261002050000 construisait les groupes de mots avec des EXISTS corrélés : chaque paire de mots sondeait l'index. Sur le catalogue Rexel (747 000 offres), des millions de sondes, plusieurs minutes par source — le remplissage ne tenait pas dans la fenêtre d'un appel d'administration. Réécriture en jointures semi-fonceuses : la liste des mots courants est hachée une fois. Résultats identiques (25 tests SQL, comptes exacts vérifiés), seule la vitesse change.
+
+## 2026-10-02 (10) — Recherche par composition de mots et classement par pertinence
+
+**Constat utilisateur** : chercher « porte-coupe-feu » en tapant les mots un par un n'affinait pas le résultat, et le comparateur affichait d'abord un panneau PVC à 1,80 €, un judas et une gâche — des accessoires — parce que le tri était au prix. Les vraies portes (150 à 255 €) arrivaient en 4e position.
+
+**Trois causes, trois corrections** :
+1. Le filtre du navigateur exigeait la requête mot pour mot collée : « porte coupe feu » ne matchait pas « porte coupe-feu » (tiret). Désormais chaque mot tapé doit être présent, sans être collé (`rechercheMots.js`), côté navigateur comme côté serveur pour le catalogue interne.
+2. Les suggestions ne proposaient que des mots isolés. La migration `20261002050000` ajoute au vocabulaire les **groupes de 2 et 3 mots consécutifs fréquents** (construits sur des mots courants de la même source) : « porte c » propose « porte coupe feu », « porte » + espace propose les groupes qui continuent. Chaque suggestion porte `remplace` : le nombre de mots tapés qu'elle remplace.
+3. Le classement était au prix. Il est désormais **par pertinence** (`pertinence.py`) : un produit EST ce que sa désignation annonce en premier ; un accessoire le mentionne en fin de libellé. Score = somme de 1/position de chaque mot demandé ; égalité → prix croissant. Appliqué aux résultats, au panneau « par fournisseur » (la plus proche correspondance par fournisseur, plus la moins chère) et au sélecteur d'articles du devis.
+
+**Vérifié sur le cas réel** : « bloc porte coupe feu » (1,08) > « bloc porte prépeint coupe feu » (0,95) > « panneau pvc porte coupe feu » (0,78) > gâche (0,38) > judas (0,28) — les portes passent devant les accessoires.
+
+**Tests** : `test_pertinence.py` (7), `test_vocabulaire_sql.py` (25, dont groupes de mots et préfixes multi-mots), `test_suggestions_mots.py` (11), suite complète 278 passés. Migration idempotente vérifiée sur PostgreSQL 17.
+
+**Après déploiement** : réappliquer le remplissage du vocabulaire (les groupes de mots s'ajoutent aux mots isolés).
+
+## 2026-10-02 (9) — Recherche : suggestions de mots pendant la frappe + recherche parallèle
+
+**Mesure en production** : chaque source paie ~35 ms d'index trigramme pour un mot long, en série dans une seule requête — 9 sources actives = ~330 ms de SQL pour « disjoncteur ». Et la recherche lourde partait à chaque pause de frappe.
+
+**Suggestions de mots** (migration 20261002040000) :
+- table `blueseatra.vocabulaire_recherche` : les mots qui existent dans les offres, par entreprise et par source, recalculés après chaque import (`vocabulaire_recalculer`) ;
+- route `/catalog/suggestions` : les mots commençant par ce qui est tapé, triés par nombre d'offres, avec les synonymes du métier (ph+n = 1P+N…). Cloisonnée : entreprise courante + catalogue commun uniquement ;
+- sélecteur d'articles du devis et champ du comparateur : liste sous le champ (clic ou Tab, flèches pour naviguer, Entrée pour choisir) ; la recherche lourde ne part que sur un mot complet.
+
+**Recherche en parallèle** (`catalogue_chiffrage`) :
+- les sources actives sont réparties en jusqu'à 3 groupes interrogés simultanément, chacun dans sa session (au plus 4 sessions simultanées) ;
+- chaque groupe renvoie ses `limite` offres les moins chères : le meilleur `limite` global est identique à celui d'une seule requête.
+
+**Tests** : `test_vocabulaire_sql.py` (19 : cloisonnement par entreprise, préfixes refusés, écriture directe refusée, recalcul refusé hors tenant, idempotence), `test_suggestions_mots.py` (9), `test_catalogue_chiffrage.py` (+5 : répartition en groupes, fusion et tri global, prix absents en dernier, erreur d'un groupe).
+
+## 2026-10-02 (8) — Temps de réponse : cache court de l'authentification et des sources
+
+**Mesure en production** (en-tête `Server-Timing`, PR #163). Aucune nouvelle connexion n'est ouverte : le pool fonctionne. Chaque connexion empruntée coûte en revanche environ 110 ms (ping, `BEGIN`, `COMMIT`) et chaque requête SQL environ 65 ms (Render Frankfurt → Supabase eu-west-1).
+
+| Route | Total | SQL | Requêtes / emprunts |
+|---|---:|---:|---:|
+| `/auth/me` | 890 ms | 340 ms | 5 / 5 |
+| `/catalog/active` | 352 ms | 132 ms | 2 / 2 |
+| `/catalog/search` | 1 195 ms | 642 ms | 10 / 5 |
+
+**Changements** :
+- `get_current` : le succès du contrôle utilisateur + appartenance est gardé **20 s**, ce qui supprime 2 sessions (~350 ms) sur chaque requête authentifiée.
+  - Le JWT reste vérifié à chaque requête.
+  - Un refus n'est jamais mis en cache.
+  - Toute modification de membre (rôle, nom, mot de passe, retrait) invalide l'entrée immédiatement. L'API tourne en un seul processus, donc l'invalidation est immédiate.
+- `catalogue_chiffrage.rechercher` : les sources actives et visibles d'une entreprise sont gardées **20 s**, ce qui supprime 2 sessions par frappe dans la recherche d'articles du devis.
+  - Le cache est invalidé par `basculer()` et par le masquage du catalogue commun.
+  - Une activation de version faite hors de l'API (script d'import) est prise en compte en 20 s au plus.
+
+**Tests** : `backend/tests/test_cache_auth_sources.py` (9 tests : succès en cache, refus jamais en cache, jeton invalide, retrait de membre, changement de rôle, expiration, tenant publié depuis le cache, sources par entreprise, invalidation par masquage).
+
+## 2026-10-02 (7) — Mesure des temps côté serveur (en-tête Server-Timing)
+
+**Constat**, mesuré depuis le navigateur sur l'API de production :
+
+| Route | Médiane |
+|---|---:|
+| `/api/health` | 28 ms |
+| `/api/catalog/active` | 384 ms |
+| `/api/auth/me` | 916 ms |
+| `/api/catalog/search` | 1,2 s (objectif du ticket #86 : 500 ms) |
+
+Le SQL des sources fournisseurs ne prend pourtant que 40 à 277 ms. Chaque requête du `pg_adapter` coûte donc environ 180 ms, sans qu'on sache où va ce temps.
+
+**Ajout** :
+- `backend/mesure_temps.py` : compteurs par requête HTTP (nombre et durée des requêtes SQL, connexions ouvertes et connexions empruntées au pool), alimentés par les événements SQLAlchemy.
+- Chaque réponse `/api` porte `Server-Timing: app;dur=…, sql;dur=…;desc="N requetes", cnx;dur=…;desc="N nouvelles / N emprunts"`, exposé au navigateur par CORS (`expose_headers`).
+- Seuls des nombres sont exposés, jamais de SQL ni de donnée.
+
+**Tests** : `backend/tests/test_mesure_temps.py` (5 tests), plus une vérification sur moteur asynchrone avec deux requêtes concurrentes.
+
+## 2026-10-02 (6) — Import de catalogue depuis Excel (.xlsx, .xls), ticket #86
+
+L'assistant d'import (Catalogues → Importer) n'acceptait que le CSV.
+
+- **Nouveau module `backend/lecture_tableur.py`** : il renvoie le même tableau de chaînes que le CSV. Le mapping, les contrôles, la comparaison de versions et l'activation ne changent pas.
+- **Format lu dans le contenu** (signature), pas dans l'extension : un faux `.xlsx` est refusé.
+- **Garde-fous repris de l'import lourd** :
+  - macros refusées (`vbaProject.bin`) ;
+  - nombre d'entrées, taille décompressée et taux de compression bornés (zip bomb) ;
+  - 50 feuilles, 1 million de lignes et 500 colonnes au plus ;
+  - formules jamais exécutées : seule leur dernière valeur enregistrée est lue.
+- **Classeurs réels** :
+  - l'en-tête est cherché dans les 30 premières lignes, sous les titres et logos ;
+  - c'est la première feuille contenant un tableau qui est lue, ou celle que l'utilisateur choisit dans l'assistant ;
+  - les valeurs sont propres (`8.0` → `8`, date → `AAAA-MM-JJ`) ;
+  - les en-têtes vides ou en double sont nommés.
+- **Dépendances** : `openpyxl==3.1.5` et `xlrd==2.0.2` (`.xls` 97-2003 uniquement).
+- **Tests** : `backend/tests/test_lecture_tableur.py`, 11 tests dont un `.xls` réel (ignoré en CI si `xlwt` est absent).
 
 ## 2026-10-02 (5) — Conduits YESSS « par 100 » = 100 m ; pas d'écart entre unités différentes
 

@@ -1,0 +1,8 @@
+# Paquets Python AVEC une faille connue au 06/10/2026 (pip-audit sur backend/requirements.txt).
+# Le workflow « Audit des dépendances » échoue si un autre paquet apparaît.
+# Supprimer une ligne dès que le paquet est mis à jour.
+anyio
+cryptography
+pillow
+pyjwt
+starlette

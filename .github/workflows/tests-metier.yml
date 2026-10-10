@@ -36,10 +36,10 @@ jobs:
       TEST_PG_DSN: postgresql://postgres:ci@localhost:5432/ci
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -60,6 +60,8 @@ jobs:
             backend/tests_clients/test_module_clients_sql.py \
             backend/tests_quotas/test_quotas_sql.py \
             backend/tests_security/test_offres_candidates_sql.py \
+            backend/tests_security/test_vocabulaire_sql.py \
+            backend/tests_security/test_cache_ia_sql.py \
             backend/tests_security/test_journal_audit_ajout_seul_sql.py \
             -v --tb=short | tee resultat.txt
           # Une suite entièrement ignorée ne doit pas passer pour un succès.
@@ -79,27 +81,28 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:1/ci
       REACT_APP_BACKEND_URL: http://127.0.0.1:1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Secret JWT jetable, généré pour cette exécution
         run: echo "JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" >> "$GITHUB_ENV"
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements*.txt
       - name: Dépendances de l'API
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt "pytest-asyncio==1.4.0"
+          pip install -r backend/requirements-dev.txt
       - name: Tests
         working-directory: backend
         run: |
           set -euo pipefail
           python -m pytest \
-            tests/test_ai_service_unit.py tests/test_description_role_isolation.py \
+            tests/test_cascade_ocr_resultat_partiel.py tests/test_cache_ia.py tests/test_ia_runs.py tests/test_lectures_en_thread.py tests/test_gpt_oss_text.py tests/test_tce_v4.py tests/test_ai_service_unit.py tests/test_description_role_isolation.py \
             tests/test_matching_material_detail.py tests/test_ocr_model_preference.py \
-            tests/test_queue_watchdog.py tests/test_ia_garde_fous.py tests/test_corpus_ia.py tests/test_catalogue_comparaison.py tests/test_facturation_stripe.py tests/test_mistral.py tests/test_schemas_devis.py tests/test_catalogue_chiffrage.py tests/test_fournisseur_recherche_sql.py tests/test_designation_fournisseur.py tests/test_comparateur_produits.py tests_clients/test_versions_devis.py \
+            tests/test_queue_watchdog.py tests/test_ia_garde_fous.py tests/test_corpus_ia.py tests/test_catalogue_comparaison.py tests/test_facturation_stripe.py tests/test_mistral.py tests/test_schemas_devis.py tests/test_catalogue_chiffrage.py tests/test_fournisseur_recherche_sql.py tests/test_designation_fournisseur.py tests/test_comparateur_produits.py tests/test_lecture_tableur.py tests/test_mesure_temps.py tests/test_cache_auth_sources.py tests/test_suggestions_mots.py tests/test_pertinence.py tests_clients/test_versions_devis.py \
+            tests/test_masquage_rgpd.py tests/test_ia_externe_rgpd.py tests/test_recherche_g3.py tests/test_envoi_relances.py tests/test_contact_blueseatra.py \
             tests_quotas/test_quotas_branchement.py tests_quotas/test_projection.py tests_security/test_observabilite.py \
             -v --tb=short | tee resultat.txt
           PASSES=$(grep -oE '[0-9]+ passed' resultat.txt | grep -oE '[0-9]+' || echo 0)

@@ -65,6 +65,8 @@ Le menu de gauche regroupe les écrans par usage :
 
 En haut à droite : le choix de la langue (**FR** ou **EN**) et votre menu personnel (profil, déconnexion). Le mot de passe d'un membre se change depuis **Membres**, par le propriétaire.
 
+En bas du menu, **Contacter Blueseatra** ouvre un e-mail à `contact@blueseatra.com`, avec l'objet « [Blueseatra] Aide » prérempli.
+
 ## 4. Tableau de bord
 
 ![Tableau de bord](assets/manuel/01-tableau-de-bord.jpg)
@@ -113,6 +115,12 @@ Les demandes sont lues l'une après l'autre. Quand plusieurs sont en cours, la l
 - **Clients détectés dans cette demande :** voir la section [9.4](#94-suggestions-de-lia).
 - **Retraiter :** relance la lecture, par exemple après avoir corrigé le texte.
 - **Générer un autre devis :** crée une variante, par exemple une option A ou une option B.
+- **Suggestions d'articles du catalogue (G3) :** cliquez sur **Suggérer des articles**.
+  - L'IA liste les fournitures nécessaires à la demande, puis choisit pour chacune jusqu'à 3 articles (code, libellé, unité, prix HT). Ils viennent de votre catalogue interne, s'il est utilisé pour le chiffrage, et des catalogues fournisseurs activés sur la page **Catalogues**. Chaque article indique son origine : « Mon catalogue » ou le nom du fournisseur.
+  - Si aucun catalogue n'est activé, la carte l'indique : activez votre catalogue ou au moins un catalogue fournisseur.
+  - Chaque ligne indique son origine : « Choix de l'IA », « Suggestion de repli » (meilleur article trouvé par la recherche par mots, quand l'IA n'a rien retenu) ou « Aucun article ».
+  - L'analyse prend en général 1 à 3 minutes. Les données personnelles sont masquées avant l'envoi.
+  - Ce sont des suggestions à vérifier : reportez vous-même les articles retenus dans le devis.
 
 ![Lignes de travaux extraites](assets/manuel/03b-demande-lignes.jpg)
 
@@ -316,7 +324,10 @@ Les **jours ouvrés** excluent les samedis, les dimanches et les 11 jours féri�
 ### Traiter une relance
 
 - **Regroupement :** l'écran classe les relances en **En retard**, **Aujourd'hui** et **Cette semaine**. Chaque carte affiche la raison, par exemple « Devis D-2026-041 envoyé le 24/09/2026, sans réponse : relance 1 sur 3 ».
-- **Ouvrir l'e-mail :** prépare un message en français ou en anglais, selon la langue du contact. Il cite le numéro et la date du devis, jamais un montant recalculé.
+- **Texte proposé :** un message en français ou en anglais, selon la langue du contact. Il cite le numéro et la date du devis, jamais un montant recalculé. Pour une relance par e-mail, l'objet et le texte sont modifiables ; **Enregistrer le texte** garde vos modifications.
+- **Envoyer maintenant :** envoie l'e-mail depuis la boîte de votre entreprise, après une confirmation qui affiche l'adresse du destinataire. La relance passe à « faite » et l'envoi est noté dans l'historique du client. Ce bouton apparaît une fois la messagerie d'envoi configurée.
+- **Ouvrir l'e-mail :** sans messagerie d'envoi, ouvre votre logiciel de messagerie avec l'objet et le texte.
+- **Envoi en échec :** le motif s'affiche sur la carte, par exemple un mot de passe refusé. La relance reste à envoyer.
 - **Appeler :** affiche le numéro du contact, ou celui du client à défaut.
 - **Marquer faite :** enregistre le résultat de la relance.
   - « À rappeler » crée une tâche le jour ouvré suivant.
@@ -345,7 +356,24 @@ Le bouton **Réglages des relances** est réservé au propriétaire et aux admin
 - la validité par défaut des devis ;
 - le rappel avant expiration ;
 - le seuil au-dessus duquel un appel est proposé ;
-- l'heure des relances.
+- l'heure des relances ;
+- l'envoi automatique des relances par e-mail à leur échéance (voir ci-dessous).
+
+### Envoyer les relances par e-mail depuis Blueseatra
+
+1. Ouvrez **À relancer → Réglages des relances**, puis la carte **Messagerie d'envoi (SMTP)**.
+2. Choisissez un préréglage (Zoho Mail, OVHcloud, Hostinger, Gmail, Microsoft 365) ou saisissez le serveur et le port (465 ou 587).
+3. Renseignez l'identifiant, le mot de passe, l'adresse d'expédition, le nom affiché et la signature. Pour Gmail et Microsoft 365, utilisez un mot de passe d'application.
+4. Cliquez sur **Enregistrer la messagerie**, puis sur **Envoyer un e-mail de test**. Vérifiez qu'il arrive dans votre boîte.
+5. Pour l'envoi automatique, cochez **Envoyer automatiquement les relances par e-mail à leur échéance**, puis **Enregistrer**.
+
+Bon à savoir :
+
+- **Expéditeur et réponses :** les e-mails partent de votre adresse et vos clients vous répondent directement. Avec l'option de copie cachée, chaque relance arrive aussi dans votre boîte.
+- **Mot de passe :** il est chiffré et n'est jamais réaffiché. Laissez le champ vide pour le garder.
+- **Relances concernées par l'envoi automatique :** seules celles dont l'échéance tombe après l'activation. Les retards plus anciens restent à envoyer à la main.
+- **Relances par appel :** elles restent des tâches et ne partent jamais par e-mail.
+- **Contact opposé aux relances :** il ne reçoit jamais d'e-mail.
 
 ## 11. Membres et rôles
 
@@ -366,6 +394,10 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
 ![Paramètres](assets/manuel/12-parametres.jpg)
 
 - **Moteur IA :** Blueseatra utilise par défaut son propre moteur, hébergé sur un serveur OVH. Vous pouvez choisir un autre fournisseur et ajouter votre clé ; elle est chiffrée avant d'être enregistrée.
+- **OpenCode Free :** 13 modèles gratuits, sans clé à saisir.
+  - Ils sont hébergés aux États-Unis, et certains réutilisent les données pour s'améliorer : à réserver aux essais.
+  - Cliquez sur **Tester la connexion** après avoir enregistré.
+- **Confidentialité :** avant chaque appel IA, quel que soit le fournisseur, Blueseatra masque les adresses, noms, téléphones, e-mails et identifiants. La lecture des PDF et des photos reste sur le serveur OVH.
 - **Modèle OCR préféré :** le mode « Automatique » est conseillé.
 - **Webhook n8n :** une adresse appelée après les étapes clés, pour automatiser la suite (e-mail, tableur, CRM).
 ![Données personnelles](assets/manuel/13-donnees-personnelles.jpg)
@@ -402,6 +434,8 @@ Cliquez sur **Ajouter un membre**, puis indiquez son e-mail et son rôle. Chaque
 | Signature | Sur devis | Contrat | Contrat | Contrat |
 
 Détail des offres : [`tarification-2026-09.md`](./tarification-2026-09.md).
+
+**Changer d'offre ou demander l'offre Signature :** tant que le paiement en ligne n'est pas ouvert, l'écran **Facturation** affiche un lien vers `contact@blueseatra.com`, avec l'objet « [Blueseatra] Offres et abonnement » prérempli. Sur la page d'accueil, le bouton **Nous contacter** de l'offre Signature ouvre le même e-mail.
 
 ## 14. Journal d'audit
 

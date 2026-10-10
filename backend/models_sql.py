@@ -133,6 +133,8 @@ class Request(Base):
     language = Column(String(20), nullable=True)
     confidence = Column(Float, nullable=True)
     error = Column(Text, nullable=True)
+    # Etape de lecture en cours (migration 20261007010000) : {etape, total, libelle, debut}.
+    progression = Column(JSONB, nullable=True)
     created_by = Column(String(255))
     created_at = Column(String(40))
 

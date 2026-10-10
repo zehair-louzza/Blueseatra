@@ -2,7 +2,7 @@ import React from 'react';
 import { Card } from '@/components/ui/card';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTranslation } from 'react-i18next';
-import { Info, ScanSearch } from 'lucide-react';
+import { Ban, Info, ScanSearch } from 'lucide-react';
 import { entier, prixHT, pourcent } from '@/lib/fournisseursFormat';
 
 // Bandeau de garantie d'inclusion.
@@ -106,6 +106,39 @@ export const RecognizedTerms = ({ termes, requete }) => {
           </ul>
         )}
       </div>
+    </Card>
+  );
+};
+
+
+// Bandeau des exclusions par négation (04/10/2026) : une désignation
+// « ... non coupe-feu » pour la requête « porte coupe feu » contient tous
+// les mots demandés mais affirme le contraire. Ces offres sont exclues
+// des résultats — jamais silencieusement : le compte et les motifs sont
+// affichés ici, dans l'esprit de la promesse « rien n'est caché ».
+export const NegationsExclues = ({ rapport }) => {
+  const { t } = useTranslation();
+  const nombre = Number(rapport?.nombre) || 0;
+  if (!nombre) return null;
+  const motifs = Array.isArray(rapport?.motifs) ? rapport.motifs : [];
+  return (
+    <Card className="card-shadow border-0 p-4" data-testid="fournisseurs-negations-exclues">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+          <Ban className="h-4 w-4 text-muted-foreground" />
+          {t('fo.n_titre', { n: nombre })}
+        </span>
+        {motifs.map((m) => (
+          <span
+            key={m}
+            className="rounded-full bg-muted px-2.5 py-1 text-xs ring-1 ring-inset ring-border"
+            data-testid="fournisseurs-negation-motif"
+          >
+            «&nbsp;{m}&nbsp;»
+          </span>
+        ))}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">{t('fo.n_detail')}</p>
     </Card>
   );
 };

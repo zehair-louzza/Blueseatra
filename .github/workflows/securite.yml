@@ -4,9 +4,8 @@ name: Sécurité
 # dépendance externe : un contrôle de sécurité lent ou instable finit
 # désactivé, et un contrôle désactivé ne protège rien.
 #
-# N'installe PAS backend/requirements.txt (≈130 paquets, dont une wheel
-# litellm hébergée sur customer-assets.emergentagent.com — point de panne
-# unique hors de notre contrôle). Seules les dépendances réellement
+# N'installe PAS backend/requirements.txt (une cinquantaine de paquets depuis le
+# 06/10/2026) : ce contrôle doit rester rapide. Seules les dépendances réellement
 # nécessaires à l'import de pg_adapter / models_sql sont installées, avec
 # les mêmes versions épinglées que requirements.txt.
 
@@ -30,10 +29,10 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           # Aligné sur render.yaml (PYTHON_VERSION 3.11.0).
           python-version: '3.11'
@@ -42,10 +41,12 @@ jobs:
       - name: Dépendances minimales
         run: |
           python -m pip install --upgrade pip
-          # Versions identiques a backend/requirements.txt.
+          # Versions identiques a backend/requirements.txt. SQLAlchemy 2.1
+          # n'installe plus greenlet, requis par sqlalchemy.ext.asyncio.
           pip install \
-            "SQLAlchemy==2.0.51" \
-            "python-dotenv==1.2.2" \
+            "SQLAlchemy==2.1.3" \
+            "greenlet==3.5.6" \
+            "python-dotenv==1.2.4" \
             "pytest==9.1.1" \
             "requests==2.34.2"
 
@@ -102,10 +103,10 @@ jobs:
     # etait deja signale dans nos rapports internes sans avoir ete corrige.
     # Ce controle garantit qu'elle ne peut pas revenir.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 

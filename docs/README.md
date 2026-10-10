@@ -5,22 +5,109 @@ Toute la documentation du projet, classée par usage.
 
 ## Schémas
 
-| | |
-|---|---|
-| [![Architecture](./assets/schema-architecture.png)](./architecture.md) | [![Parcours d'une demande](./assets/schema-parcours.png)](./manuel-utilisateur.md#1-principe-en-une-minute) |
-| **Architecture** : Vercel, Render, Supabase, passerelle Hermès | **Parcours** : de la demande au devis validé |
-| [![Chiffrage sur sources activables](./assets/schema-chiffrage.png)](./manuel-utilisateur.md#8-catalogue-fournisseurs-et-comparateur-de-prix) | [![Cycle de vie d'un devis](./assets/schema-cycle-devis.png)](./manuel-utilisateur.md#10-à-relancer) |
-| **Chiffrage** : catalogue interne et sources fournisseurs activables | **Devis et relances** : statuts, calendrier, arrêt |
-| [![Import de catalogue](./assets/schema-import-catalogue.png)](./manuel-utilisateur.md#7-catalogues-sur-mesure) | [![Quotas](./assets/schema-quotas.png)](./tarification-2026-09.md) |
-| **Import de catalogue** : 5 étapes et verdict du contrôle | **Quotas** : réservation, remboursement, ce qui n'est jamais compté |
-| [![Isolation des entreprises](./assets/schema-isolation.png)](./audit-isolation-tenants-2026-09-12.md) | [![Routage IA](./assets/schema-routage.png)](./architecture.md#routage-ia) |
-| **Isolation** : filtre du code et RLS PostgreSQL | **Routage IA** : tout passe par la passerelle Hermès |
-| [![Chaîne de livraison](./assets/schema-livraison.png)](./exploitation.md) | [![Droits RGPD](./assets/schema-rgpd.png)](./conformite-rgpd.md) |
-| **Livraison** : PR, contrôles, déploiement, retour arrière | **RGPD** : droits des personnes et traçabilité |
-| [![Déroulé d'un incident](./assets/schema-incident.png)](./runbook-incident.md) | [![Recherche fournisseurs sous RLS](./assets/schema-recherche-rls.png)](./architecture.md#recherche-fournisseurs-sous-rls) |
-| **Incident** : détecter, contenir, corriger, vérifier | |
+<table>
+<tr>
+<td width="50%" valign="top"><a href="../docs/architecture.md"><img src="../docs/assets/schema-architecture.png" alt="Architecture"></a><br><sub><b>Architecture</b> : Vercel, Render, Supabase, passerelle Hermès, VPS OVH</sub></td>
+<td width="50%" valign="top"><a href="../docs/infrastructure.md"><img src="../docs/assets/schema-parcours-complet.png" alt="Parcours complet d'un devis"></a><br><sub><b>Parcours complet d'un devis</b> : dix phases, qui agit et qui réagit</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/manuel-utilisateur.md"><img src="../docs/assets/schema-parcours.png" alt="Parcours d'une demande"></a><br><sub><b>Parcours d'une demande</b> : de l'e-mail au devis validé</sub></td>
+<td width="50%" valign="top"><a href="../docs/architecture.md"><img src="../docs/assets/schema-routage.png" alt="Routage IA"></a><br><sub><b>Routage IA</b> : passerelle Hermès, Ollama, Mistral, OpenCode Free</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/rgpd-masquage-ia-externe.md"><img src="../docs/assets/schema-masquage-rgpd.png" alt="Masquage RGPD"></a><br><sub><b>Masquage RGPD</b> : marqueurs avant chaque appel IA, restauration côté serveur</sub></td>
+<td width="50%" valign="top"><a href="../docs/rgpd-masquage-ia-externe.md"><img src="../docs/assets/schema-g3.png" alt="Suggestions d'articles G3"></a><br><sub><b>Suggestions d'articles G3</b> : candidats réels, choix de l'IA, validation humaine</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/manuel-utilisateur.md"><img src="../docs/assets/schema-chiffrage.png" alt="Chiffrage sur sources activables"></a><br><sub><b>Chiffrage sur sources activables</b> : catalogue interne et catalogues fournisseurs</sub></td>
+<td width="50%" valign="top"><a href="../docs/architecture.md"><img src="../docs/assets/schema-recherche-rls.png" alt="Recherche fournisseurs sous RLS"></a><br><sub><b>Recherche fournisseurs sous RLS</b> : fonctions sécurisées, mesures avant et après</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/manuel-utilisateur.md"><img src="../docs/assets/schema-import-catalogue.png" alt="Import de catalogue"></a><br><sub><b>Import de catalogue</b> : cinq étapes et verdict du contrôle</sub></td>
+<td width="50%" valign="top"><a href="../docs/manuel-utilisateur.md"><img src="../docs/assets/schema-cycle-devis.png" alt="Cycle de vie d'un devis"></a><br><sub><b>Cycle de vie d'un devis</b> : statuts, relances, arrêt</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/specs/module-clients.md"><img src="../docs/assets/schema-relances-email.png" alt="Relances par e-mail"></a><br><sub><b>Relances par e-mail</b> : clic ou automatique, boîte de l'entreprise</sub></td>
+<td width="50%" valign="top"><a href="../docs/tarification-2026-09.md"><img src="../docs/assets/schema-quotas.png" alt="Quotas"></a><br><sub><b>Quotas</b> : réservation, remboursement, ce qui n'est jamais compté</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/audit-isolation-tenants-2026-09-12.md"><img src="../docs/assets/schema-isolation.png" alt="Isolation des entreprises"></a><br><sub><b>Isolation des entreprises</b> : filtre du code et RLS PostgreSQL</sub></td>
+<td width="50%" valign="top"><a href="../docs/conformite-rgpd.md"><img src="../docs/assets/schema-rgpd.png" alt="Droits RGPD"></a><br><sub><b>Droits RGPD</b> : export, anonymisation, opposition</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/exploitation.md"><img src="../docs/assets/schema-livraison.png" alt="Chaîne de livraison"></a><br><sub><b>Chaîne de livraison</b> : PR, contrôles, déploiement, retour arrière</sub></td>
+<td width="50%" valign="top"><a href="../docs/runbook-incident.md"><img src="../docs/assets/schema-incident.png" alt="Déroulé d'un incident"></a><br><sub><b>Déroulé d'un incident</b> : détecter, contenir, corriger, vérifier</sub></td>
+</tr>
+<tr>
+<td width="50%" valign="top"><a href="../docs/infrastructure.md"><img src="../docs/assets/vue-supabase.png" alt="Vue Supabase"></a><br><sub><b>Vue Supabase</b> : schéma blueseatra, rôles et RLS</sub></td>
+<td width="50%" valign="top"><a href="../docs/infrastructure.md"><img src="../docs/assets/vue-render.png" alt="Vue Render"></a><br><sub><b>Vue Render</b> : services, variables, déploiement</sub></td>
+</tr>
+</table>
 
-Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/docs/generer_schemas.py) et la bannière par [`scripts/docs/generer_banniere.py`](../scripts/docs/generer_banniere.py).
+Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/docs/generer_schemas.py) et la bannière par [`scripts/docs/generer_banniere.py`](../scripts/docs/generer_banniere.py). Les schémas des dépôts Fournisseur-Blueseatra et ovh-ai-stack sont générés par [`scripts/docs/generer_schemas_ecosysteme.py`](../scripts/docs/generer_schemas_ecosysteme.py).
+
+## Captures d'écran
+
+<details>
+<summary><b>Les 31 écrans de l'application</b> (cliquer pour afficher)</summary>
+
+<table>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/01-tableau-de-bord.jpg" alt="Tableau de bord"><br><sub><b>Tableau de bord</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/02-demandes.jpg" alt="Demandes"><br><sub><b>Demandes</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/02b-boite-reception.jpg" alt="Boîte de réception triée"><br><sub><b>Boîte de réception triée</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/03-demande-detail.jpg" alt="Demande lue par l'IA"><br><sub><b>Demande lue par l'IA</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/03b-demande-lignes.jpg" alt="Lignes de travaux extraites"><br><sub><b>Lignes de travaux extraites</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/04-devis-liste.jpg" alt="Liste des devis"><br><sub><b>Liste des devis</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/05-editeur-devis.jpg" alt="Éditeur de devis"><br><sub><b>Éditeur de devis</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/05b-versions-devis.jpg" alt="Versions d'un devis"><br><sub><b>Versions d'un devis</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/16-pdf-devis.jpg" alt="PDF Pro Forma"><br><sub><b>PDF Pro Forma</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/06-catalogues.jpg" alt="Catalogues"><br><sub><b>Catalogues</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/06b-controle-import.jpg" alt="Contrôle avant activation"><br><sub><b>Contrôle avant activation</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/06c-afficher-catalogue-fournisseur.jpg" alt="Catalogue d'un fournisseur"><br><sub><b>Catalogue d'un fournisseur</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/06d-sources-chiffrage.jpg" alt="Sources du chiffrage"><br><sub><b>Sources du chiffrage</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/screens/catalogue-fournisseurs.jpg" alt="Catalogue fournisseurs"><br><sub><b>Catalogue fournisseurs</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/15-comparateur-prix.jpg" alt="Comparateur de prix"><br><sub><b>Comparateur de prix</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/15b-comparateur-resultats.jpg" alt="Le moins cher par fournisseur"><br><sub><b>Le moins cher par fournisseur</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/15c-comparateur-produits-identiques.jpg" alt="Produits identiques"><br><sub><b>Produits identiques</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/07-clients.jpg" alt="Clients"><br><sub><b>Clients</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/08-fiche-client.jpg" alt="Fiche client"><br><sub><b>Fiche client</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/09-relances.jpg" alt="À relancer"><br><sub><b>À relancer</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/10-offre-consommation.jpg" alt="Offre et consommation"><br><sub><b>Offre et consommation</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/11-membres.jpg" alt="Membres et rôles"><br><sub><b>Membres et rôles</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/12-parametres.jpg" alt="Paramètres"><br><sub><b>Paramètres</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/12b-societe-pdf.jpg" alt="Société et PDF"><br><sub><b>Société et PDF</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/13-donnees-personnelles.jpg" alt="Données personnelles"><br><sub><b>Données personnelles</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/manuel/14-journal-audit.jpg" alt="Journal d'audit"><br><sub><b>Journal d'audit</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/screens/accueil.jpg" alt="Page d'accueil"><br><sub><b>Page d'accueil</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/screens/tarifs.jpg" alt="Offres"><br><sub><b>Offres</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/screens/valeurs.jpg" alt="Valeurs"><br><sub><b>Valeurs</b></sub></td>
+<td width="33%" valign="top"><img src="../docs/assets/screens/connexion.jpg" alt="Connexion"><br><sub><b>Connexion</b></sub></td>
+</tr>
+<tr>
+<td width="33%" valign="top"><img src="../docs/assets/screens/ollama-config.jpg" alt="Configuration du moteur IA"><br><sub><b>Configuration du moteur IA</b></sub></td>
+</tr>
+</table>
+
+</details>
 
 ## Utiliser
 
@@ -28,6 +115,7 @@ Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/
 |---|---|
 | [Manuel d'utilisation](./manuel-utilisateur.md) | Chaque écran, pas à pas, avec captures : demandes, devis, catalogues, clients, relances, membres, paramètres, offre |
 | [Tarification](./tarification-2026-09.md) | Offres, quotas, règles multi-entreprises |
+| [Contact et messagerie](./contact-blueseatra.md) | Adresse publique `contact@blueseatra.com`, motifs, boîtes Hostinger, DNS (SPF, DKIM, DMARC) |
 | [Blueseatra_Documentation_FR.pdf](./Blueseatra_Documentation_FR.pdf) · [EN](./Blueseatra_Documentation_EN.pdf) | Présentation générale (PDF) |
 
 ## Comprendre
@@ -64,7 +152,9 @@ Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/
 | [Checklist des secrets Render](../render-secrets-checklist.md) | Variables à renseigner à la main |
 | [Audit d'isolation](./audit-isolation-tenants-2026-09-12.md) | Audit RLS du 12/09/2026 |
 | [Runbook incident](./runbook-incident.md) | SLO, corrélation par `request_id`, déroulé, RACI, post-mortem |
+| [Vocabulaire Rexel — passe de nuit](./vocabulaire-rexel-passe-nuit.md) | Remplissage par tranches des gros catalogues (747 771 offres) : procédure, seuils, constats `pg_stat_activity` |
 | [Conformité RGPD](./conformite-rgpd.md) | Registre des traitements, droits des personnes, sous-traitants |
+| [Masquage RGPD, OpenCode Free et G3](./rgpd-masquage-ia-externe.md) | Ce qui est masqué avant chaque appel IA, mesures sur données réelles, limites, OpenCode Free, chaîne G3, état en production |
 | [SECURITY.md](../SECURITY.md) | Politique de sécurité et signalement |
 
 ## Historique
@@ -76,3 +166,7 @@ Les schémas sont générés par [`scripts/docs/generer_schemas.py`](../scripts/
 | [HANDOFF](../HANDOFF.md) · [Journal des actions](../JOURNAL-ACTIONS.md) | Optimisation de l'IA locale |
 | [Guide d'import n8n](./Guide-import-n8n-P1.pdf) | Automatisations n8n (PDF) |
 | [Skills de devis](./skills/devis-options-master/SKILL.md) · [Master prompt](./Skill_MASTER_agent_wWthone.md) · [Profil organisation](./Skill_PROFIL_organisation_wWthone.md) | Consignes des agents de chiffrage |
+
+## Licence
+
+Toute cette documentation, ses schémas et ses captures sont couverts par la licence propriétaire du dépôt : [LICENSE](../LICENSE). Titulaire : Zehair Louzza, exploitant le nom commercial « Blueseatra ».

@@ -56,6 +56,31 @@ sequenceDiagram
 
 ![Routage IA par la passerelle Hermès](./assets/schema-routage.png)
 
+Depuis le 9 octobre 2026, **chaque appel IA est masqué**, qu'il vise un modèle local du VPS (`custom:ollama`), Mistral (`custom:mistral`) ou OpenCode Free (`opencode-free`) :
+
+- **Avant l'envoi** : `masquage_rgpd.py` remplace les adresses, noms de sites, clients, donneurs d'ordre, personnes et identifiants par des marqueurs.
+- **Après la réponse** : `ai_service` remet les vraies valeurs, sur le serveur.
+- **Images** : elles ne quittent jamais le VPS.
+
+Le fournisseur choisi dans les réglages devient un paramètre `provider` envoyé à la passerelle :
+
+| Réglage | Envoyé à la passerelle |
+|---|---|
+| Moteur intégré | `custom:ollama` |
+| Mistral | `custom:mistral` (préfixe interne `mistral:`) |
+| OpenCode Free | `opencode-free` (préfixe interne `opencode:`) |
+
+La file d'attente du VPS (`OLLAMA_MAX_CONCURRENCY`, une place par défaut) ne concerne que les modèles locaux. Un appel externe ne l'occupe pas et ne l'attend pas.
+
+**Suggestions G3** : depuis la page d'une demande, `POST /api/requests/{id}/suggestions-g3` (`recherche_g3.py`) enchaîne les étapes suivantes. Elles sont activées par `BLUESEATRA_G3=1`.
+
+1. Extraction des fournitures par l'IA.
+2. Recherche de 20 candidats dans le catalogue actif (recherche par mots et BM25).
+3. Choix de l'IA parmi ces candidats.
+4. Résultat toujours « à valider ».
+
+Détails : [rgpd-masquage-ia-externe.md](./rgpd-masquage-ia-externe.md).
+
 ## Chiffrage sur sources activables
 
 ![Chiffrage sur sources activables](./assets/schema-chiffrage.png)
@@ -79,7 +104,7 @@ Les motifs sont injectés en littéraux échappés (`format %L`), les limites de
 
 1. **L'IA ne fixe jamais un prix.** Elle lit et structure ; les prix viennent du catalogue interne ou des catalogues fournisseurs **activés par l'entreprise pour le chiffrage** (boutons poussoirs, table `chiffrage_sources`), puis les remises, marges et TVA sont calculées par des règles (`matching.py`). Sans catalogue interne, les sources fournisseurs activées prennent le relais ; sans aucune des deux, la génération refuse avec un message explicite — mais jamais à cause d'offres simplement introuvables (le devis est produit, lignes à confirmer).
 2. **Isolation des entreprises à deux niveaux.** Le code filtre `tenant_id`, et PostgreSQL l'impose par RLS sous le rôle `blueseatra_app`. Un identifiant d'une autre entreprise renvoie 404. Les trois fonctions de recherche `SECURITY DEFINER` (ci-dessus) vérifient elles-mêmes le tenant et ne renvoient que des identifiants, relus sous RLS.
-3. **Aucune suppression silencieuse.** Le catalogue commun est masquable mais jamais supprimé. Les clients sont archivés et les contacts anonymisés. Le registre de consommation, les échanges clients et le journal d'audit sont en ajout seul, protégés par un trigger (`audit_logs` depuis la migration `20261002040000`).
+3. **Aucune suppression silencieuse.** Le catalogue commun est masquable mais jamais supprimé. Les clients sont archivés et les contacts anonymisés. Le registre de consommation, les échanges clients et le journal d'audit sont en ajout seul, protégés par un trigger (`audit_logs` depuis la migration `20261010030000`).
 4. **Validation humaine.** Un devis reste un brouillon tant qu'une personne ne l'a pas validé.
 
 ## Isolation des entreprises

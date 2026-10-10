@@ -27,18 +27,22 @@ export default function CatalogImport() {
   const [result, setResult] = useState(null);
   const [errors, setErrors] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Classeur Excel : feuille lue (la premiere qui contient un tableau, sinon celle choisie).
+  const [feuille, setFeuille] = useState('');
   const { tenant } = useAuth();
   const peutForcer = ['owner', 'admin'].includes(tenant?.role);
 
-  const doPreview = async () => {
+  const doPreview = async (choix = '') => {
     if (!file) { toast.error(t('wiz.choose_file')); return; }
     setBusy(true);
     try {
       const fd = new FormData(); fd.append('file', file);
+      if (choix) fd.append('feuille', choix);
       const { data } = await api.post('/catalogs/import/preview', fd);
       setPreview(data);
+      setFeuille(data.fichier?.feuille || '');
       setMapping(data.suggested_mapping || {});
-      if (!catalogName) setCatalogName(file.name.replace(/\.csv$/i, ''));
+      if (!catalogName) setCatalogName(file.name.replace(/\.(csv|xlsx|xls)$/i, ''));
       setStep(1);
     } catch (err) { toast.error(apiError(err, 'Preview failed')); }
     finally { setBusy(false); }
@@ -50,6 +54,7 @@ export default function CatalogImport() {
     try {
       const fd = new FormData(); fd.append('file', file); fd.append('catalog_name', catalogName); fd.append('activate', 'false');
       fd.append('mapping', JSON.stringify(mapping));
+      if (feuille) fd.append('feuille', feuille);
       const { data } = await api.post('/catalogs/import', fd);
       setResult(data);
       if (data.error_rows > 0) { const e = await api.get(`/import-jobs/${data.job_id}/errors`); setErrors(e.data); }
@@ -96,9 +101,10 @@ export default function CatalogImport() {
             <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed bg-card py-10 text-sm text-muted-foreground transition-colors hover:bg-muted/40" data-testid="csv-dropzone">
               <Upload className="h-6 w-6" />
               <span>{file ? file.name : t('wiz.choose_file')}</span>
-              <input type="file" accept=".csv" className="hidden" onChange={(e) => setFile(e.target.files[0])} data-testid="csv-file-input" />
+              <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={(e) => { setFile(e.target.files[0]); setFeuille(''); }} data-testid="csv-file-input" />
             </label>
-            <Button onClick={doPreview} disabled={busy || !file} className="gap-2" data-testid="preview-next-button">
+            <p className="text-center text-xs text-muted-foreground">{t('wiz.formats')}</p>
+            <Button onClick={() => doPreview()} disabled={busy || !file} className="gap-2" data-testid="preview-next-button">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}{t('wiz.next')}
             </Button>
           </div>
@@ -106,6 +112,20 @@ export default function CatalogImport() {
 
         {step === 1 && preview && (
           <div className="space-y-4">
+            {(preview.fichier?.feuilles || []).length > 1 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm" data-testid="import-feuille">
+                <span>{t('wiz.sheet')}</span>
+                <Select value={feuille} onValueChange={(v) => doPreview(v)} disabled={busy}>
+                  <SelectTrigger className="h-8 w-56" data-testid="import-feuille-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {preview.fichier.feuilles.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {preview.fichier.ligne_entete > 1 && (
+                  <span className="text-xs text-muted-foreground">{t('wiz.header_row', { n: preview.fichier.ligne_entete })}</span>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap gap-4 text-sm">
               <span>{t('wiz.total_rows')}: <b>{preview.total_rows}</b></span>
               <span className="text-muted-foreground">{preview.columns.length} colonnes</span>

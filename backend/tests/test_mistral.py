@@ -21,6 +21,7 @@ def test_resolution_cle_entreprise_puis_plateforme(monkeypatch):
 
 def test_appel_json_image_et_cle_absente_des_journaux(monkeypatch, caplog):
     monkeypatch.setattr(ai, "IA_VIA_HERMES", False)   # ancien chemin direct (retour arrière)
+    monkeypatch.setattr(ai, "MASQUAGE_RGPD", False)   # image : seulement sans masquage (voir test_ia_externe_rgpd)
     vu = {}
     class _C:
         def __init__(self, **kw): pass

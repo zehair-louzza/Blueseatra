@@ -47,6 +47,8 @@ from sqlalchemy import text
 
 from database import get_current_tenant, tenant_session
 import catalogue_commun
+import pertinence
+import negation_recherche
 from designation_fournisseur import nettoyer_ligne
 import comparateur_produits as cp
 from vocabulaire_btp import (
@@ -488,6 +490,12 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         lignes = [dict(r) for r in resultat.mappings().all()]
         for l in lignes:
             l["prix_net_ht"] = l.pop("price_ht")
+        # Négations : une désignation « ... non coupe-feu » pour la requête
+        # « porte coupe feu » contredit la demande — tous les mots y sont,
+        # mais le libellé dit le contraire. Exclues AVANT tout le reste
+        # (stats, panneau par fournisseur, produits identiques) et le
+        # rapport est renvoyé pour affichage. Voir negation_recherche.py.
+        lignes, negations_exclues = negation_recherche.exclure(lignes, requete)
         noms = {(r["tenant_id"], r["id"]): r["name"] for r in (await session.execute(
             sql_noms, {"tenant_id": tenant, "commun": parametres["commun"]})).mappings()}
         for l in lignes:
@@ -500,6 +508,13 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
             retenus, isoles = lignes, []
         else:
             retenus, isoles = _separe_qualifiants(lignes, requete)
+
+        # Pertinence : la designation qui MENE avec les mots demandes passe
+        # devant l'accessoire moins cher qui les mentionne en fin de libelle
+        # (« bloc porte coupe feu » devant « gache pour porte coupe-feu »).
+        for l in retenus:
+            l["_pertinence"] = pertinence.score(
+                l.get("recherche_norm") or l.get("designation") or "", requete)
 
         # Format unique : prix par unite de base et cle produit de chaque
         # candidat (5 000 lectures par cle primaire au plus, ~50 ms). Les
@@ -516,16 +531,15 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
                 "offres normalisees")}
         for l in retenus:
             cp.enrichir(l, normalisees.get(l["id"]))
-        if normalisees:
-            retenus.sort(key=cp.cle_tri)
+        retenus.sort(key=cp.cle_recherche)
 
         # Ids a detailler : les lignes affichees + le moins cher de chaque
         # fournisseur (meme regle que plus bas).
         a_lire = [l["id"] for l in retenus[:limite]]
         vus: dict[str, tuple] = {}
-        for l in retenus:
+        for l in sorted(retenus, key=cp.cle_recherche):
             p, nom = cp.prix_comparable(l), l.get("fournisseur") or "inconnu"
-            if p is not None and (nom not in vus or p < vus[nom][0]):
+            if p is not None and nom not in vus:
                 vus[nom] = (p, l["id"])
         a_lire += [i for _, i in vus.values()]
         fiches = {}
@@ -546,8 +560,14 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
 
     # Les lignes detaillees reprennent l'ordre et le perimetre du premier
     # passage ; les autres gardent seulement prix/fournisseur/recherche.
-    retenus = [cp.enrichir(fiches[l["id"]], normalisees.get(l["id"])) if l["id"] in fiches else l
-               for l in retenus]
+    def _avec_fiche(l):
+        if l["id"] not in fiches:
+            return l
+        f = fiches[l["id"]]
+        f["_pertinence"] = l.get("_pertinence", 0.0)
+        return cp.enrichir(f, normalisees.get(l["id"]))
+
+    retenus = [_avec_fiche(l) for l in retenus]
     # Libelles amputes a la source (« , D 350 H 1, blanc ») : affichage
     # seulement, la base garde le libelle brut.
     for l in retenus:
@@ -592,9 +612,17 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
     # Le moins cher chez chaque fournisseur : la vue de negociation, au prix
     # comparable (un lot de 100 m n'est plus « le plus cher »).
     meilleurs = cp.meilleurs_par_fournisseur(retenus)
+    # Panneau « la meilleure correspondance » : si un fournisseur ne vend
+    # pas le produit demandé, sa meilleure offre est un accessoire qui le
+    # mentionne (Rexel : panneau PVC 1,80 € pour « porte coupe feu ») et
+    # l'écart affiché n'a aucun sens. Il est retiré du PANNEAU SEULEMENT
+    # — jamais silencieusement : fournisseur et désignation sont renvoyés
+    # pour affichage. Les résultats et le sélecteur du devis gardent tout.
+    meilleurs, fournisseurs_ecartes = cp.garder_meilleures_correspondances(meilleurs)
 
     for ligne in retenus:
         ligne.pop("recherche_norm", None)
+        ligne.pop("_pertinence", None)
 
     return {
         "requete": requete,
@@ -604,9 +632,11 @@ async def recherche(requete: str, limite: int = LIMITE_DEFAUT,
         "tronque": tronque,
         "comparables": len(retenus),
         "termes_reconnus": reconnus,
+        "negations_exclues": negations_exclues,
         "prix": bloc_prix,
         "resultats": retenus[:limite],
         "moins_cher_par_fournisseur": meilleurs,
+        "fournisseurs_ecartes_pertinence": fournisseurs_ecartes,
         # Produits vendus par au moins deux fournisseurs (cle GTIN ou
         # marque + reference), offres comparees au prix par unite de base.
         "produits_identiques": produits,

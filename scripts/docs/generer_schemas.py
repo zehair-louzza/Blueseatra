@@ -236,26 +236,106 @@ def build_parcours() -> None:
 
 # --------------------------------------------------------------------------
 def build_routage() -> None:
-    c = Canvas(1400, 370)
-    c.title("Routage IA", "Depuis le 29/09/2026 : plus aucun appel direct du SaaS vers Ollama.")
+    c = Canvas(1400, 420)
+    c.title("Routage IA", "Tout passe par la passerelle Hermès ; le texte est masqué (RGPD) avant chaque appel.")
 
-    c.box((40, 110, 400, 236), "API FastAPI", ["OCR, structuration, extraction,",
-                                               "décomposition, rédaction,",
-                                               "vision approfondie"])
-    c.box((520, 110, 880, 236), "Passerelle Hermès", ["POST /v1/chat/completions",
+    c.box((40, 120, 400, 246), "API FastAPI", ["OCR, structuration, extraction,",
+                                               "rédaction, suggestions G3,",
+                                               "masquage puis restauration"])
+    c.box((520, 120, 880, 246), "Passerelle Hermès", ["POST /v1/chat/completions",
                                                       "choisit le fournisseur",
                                                       "à chaque requête"], fill=ACCENT_BG)
     c.box((1000, 86, 1360, 169), "custom:ollama", ["modèles du VPS OVH (OCR, texte, vision)"])
-    c.box((1000, 185, 1360, 268), "custom:mistral", ["API Mistral, texte uniquement"])
-    c.arrow([(400, 173), (520, 173)], "X-Api-Key", (420, 149))
+    c.box((1000, 182, 1360, 265), "custom:mistral", ["API Mistral, texte uniquement"], fill=AMBER_BG)
+    c.box((1000, 278, 1360, 361), "opencode-free", ["13 modèles gratuits, texte uniquement"], fill=AMBER_BG)
+    c.arrow([(400, 183), (520, 183)], "X-Api-Key", (420, 159))
     c.arrow([(880, 160), (940, 160), (940, 127), (1000, 127)])
-    c.arrow([(880, 186), (940, 186), (940, 226), (1000, 226)])
+    c.arrow([(880, 223), (1000, 223)])
+    c.arrow([(880, 236), (940, 236), (940, 319), (1000, 319)])
 
-    c.text((40, 292), "Sortie contrainte par schéma JSON (json_schema strict), nouvel essai sans schéma si "
-                      "la passerelle le refuse.", F_FOOT, FOOT)
-    c.text((40, 318), "Sans HERMES_GATEWAY_URL : erreur explicite, pas de repli silencieux. "
-                      "BLUESEATRA_IA_VIA_HERMES=0 : retour arrière d'urgence.", F_FOOT, FOOT)
+    c.text((40, 300), "Hors VPS (ambre) : texte masqué et contrôlé", F_FOOT, FOOT)
+    c.text((40, 324), "avant envoi, aucune image ; OpenCode est", F_FOOT, FOOT)
+    c.text((40, 348), "hébergé aux États-Unis : à réserver aux essais.", F_FOOT, FOOT)
+    c.text((40, 384), "Sortie contrainte par schéma JSON. BLUESEATRA_MASQUAGE_RGPD=0 : coupure d'urgence du masquage.",
+           F_FOOT, FOOT)
     c.save("schema-routage.png")
+
+
+# --------------------------------------------------------------------------
+def build_masquage() -> None:
+    c = Canvas(1400, 360)
+    c.title("Masquage RGPD de chaque appel IA",
+            "Les informations personnelles sont remplacées par des marqueurs, puis restaurées sur le serveur.")
+    etapes = [
+        ("1 Texte", ["demande, OCR,", "lignes du devis"], WHITE),
+        ("2 Détecter", ["adresses, noms connus,", "personnes, SIRET, IBAN"], WHITE),
+        ("3 Remplacer", ["[client_1], [tel_1],", "[adresse_1]…"], ACCENT_BG),
+        ("4 Contrôler", ["détection résiduelle :", "envoi refusé"], WHITE),
+        ("5 Modèle", ["VPS, Mistral ou", "OpenCode (texte)"], AMBER_BG),
+        ("6 Restaurer", ["marqueurs remplacés", "côté serveur"], ACCENT_BG),
+    ]
+    w, gap, y0, y1 = 196, 28, 110, 216
+    x, spans = 40, []
+    for t, l, f in etapes:
+        c.box((x, y0, x + w, y1), t, l, fill=f)
+        spans.append((x, x + w))
+        x += w + gap
+    for (_, xe), (xs, _) in zip(spans[:-1], spans[1:]):
+        c.arrow([(xe, 163), (xs, 163)])
+    c.text((40, 248), "Noms connus chargés par entreprise (clients, contacts, chantiers, société, utilisateurs) ; "
+                      "prénoms INSEE ; mots courants protégés.", F_FOOT, FOOT)
+    c.text((40, 274), "Mesure sur 26 demandes réelles : 0 demande bloquée après masquage, 725 lignes relues. "
+                      "Code : backend/masquage_rgpd.py.", F_FOOT, FOOT)
+    c.text((40, 300), "Une image ne quitte jamais le VPS. Le modèle ne voit jamais les vraies valeurs.", F_FOOT, FOOT)
+    c.save("schema-masquage-rgpd.png")
+
+
+# --------------------------------------------------------------------------
+def build_g3() -> None:
+    c = Canvas(1400, 470)
+    c.title("Suggestions d'articles G3", "Depuis la page d'une demande : l'IA choisit parmi des candidats réels, "
+                                          "le chiffreur valide.")
+    c.box((40, 110, 300, 216), "1 Demande", ["texte ou OCR", "du VPS"])
+    c.box((340, 110, 600, 216), "2 Minimiser", ["description des", "travaux seule"])
+    c.box((640, 110, 900, 216), "3 Extraire", ["fournitures et quantités", "(texte masqué)"], fill=ACCENT_BG)
+    c.box((940, 92, 1360, 175), "Catalogue interne", ["mots IDF + BM25, 10 au plus"])
+    c.box((940, 188, 1360, 271), "Catalogues fournisseurs activés", ["recherche SQL des devis"], fill=AMBER_BG)
+    for (xa, xb) in ((300, 340), (600, 640)):
+        c.arrow([(xa, 163), (xb, 163)])
+    c.arrow([(900, 150), (920, 150), (920, 133), (940, 133)])
+    c.arrow([(900, 176), (920, 176), (920, 229), (940, 229)])
+    c.box((640, 300, 900, 406), "4 Choisir", ["3 codes au plus parmi", "20 candidats"], fill=ACCENT_BG)
+    c.box((340, 300, 600, 406), "5 À valider", ["carte G3 : article,", "prix HT, origine"], fill=ACCENT_BG)
+    c.arrow([(1150, 271), (1150, 353), (900, 353)], "20 candidats", (960, 327))
+    c.arrow([(640, 353), (600, 353)])
+    c.text((40, 300), "Code inventé : ignoré.", F_FOOT, FOOT)
+    c.text((40, 324), "Rien retenu : repli sur", F_FOOT, FOOT)
+    c.text((40, 348), "le meilleur article.", F_FOOT, FOOT)
+    c.text((40, 424), "Mesure : 33 besoins sur 40 retrouvés (17 demandes réelles, modèle externe, catalogue interne). "
+                      "Activation : BLUESEATRA_G3=1.", F_FOOT, FOOT)
+    c.save("schema-g3.png")
+
+
+# --------------------------------------------------------------------------
+def build_relances_email() -> None:
+    c = Canvas(1400, 470)
+    c.title("Envoi des relances par e-mail", "Depuis la boîte de l'entreprise (SMTP), par clic après relecture "
+                                             "ou automatiquement à l'échéance.")
+    c.box((40, 110, 300, 216), "Devis envoyé", ["relances prévues", "J+3, +7, +14 ouvrés"])
+    c.box((380, 92, 760, 175), "Clic", ["relire, modifier, confirmer"], fill=ACCENT_BG)
+    c.box((380, 188, 760, 292), "Automatique (option)", ["balayage toutes les 5 min,", "échues après activation"])
+    c.box((840, 110, 1100, 237), "Réservation", ["mise à jour", "conditionnelle :", "jamais deux fois"])
+    c.box((1140, 110, 1360, 216), "Client", ["Reply-To :", "boîte de l'entreprise"], fill=ACCENT_BG)
+    c.arrow([(300, 150), (340, 150), (340, 133), (380, 133)])
+    c.arrow([(300, 176), (340, 176), (340, 240), (380, 240)])
+    c.arrow([(760, 133), (800, 133), (800, 160), (840, 160)])
+    c.arrow([(760, 240), (800, 240), (800, 190), (840, 190)])
+    c.arrow([(1100, 163), (1140, 163)], "SMTP", (1100, 228))
+    c.box((40, 320, 680, 425), "Gardes", ["contact opposé aux relances : jamais d'e-mail ;",
+                                          "ports 465 / 587, serveur public, mot de passe chiffré"])
+    c.box((720, 320, 1360, 425), "Traces", ["relance « faite », journal des échanges, audit ;",
+                                            "échec affiché sur la carte, 3 tentatives au plus"])
+    c.save("schema-relances-email.png")
 
 
 # --------------------------------------------------------------------------
@@ -532,6 +612,9 @@ if __name__ == "__main__":
     build_architecture()
     build_parcours()
     build_routage()
+    build_masquage()
+    build_g3()
+    build_relances_email()
     build_chiffrage()
     build_livraison()
     build_isolation()

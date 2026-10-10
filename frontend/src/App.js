@@ -39,8 +39,7 @@ function App() {
 
   // Remove Emergent badge and fix page title
   useEffect(() => {
-    // Fix title
-    document.title = 'Blueseatra';
+    // Le titre SEO de l'accueil est defini dans public/index.html et dans Landing.js.
 
     // Remove Emergent badge element
     const removeBadge = () => {

@@ -12,11 +12,12 @@ import { apiError } from '@/lib/api';
 import { rechercherFournisseurs, listerFamilles, UTILISER_JEU_EXEMPLE } from '@/lib/fournisseursApi';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import SuggestionsMots from "@/components/SuggestionsMots";
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SupplierFamilyFilter } from '@/components/SupplierFamilyFilter';
 import { Spinner, EmptyState } from '@/components/Spinner';
-import { SupplierSearchSummary, RecognizedTerms } from '@/components/SupplierSearchSummary';
+import { SupplierSearchSummary, RecognizedTerms, NegationsExclues } from '@/components/SupplierSearchSummary';
 import { SupplierCheapestPanel } from '@/components/SupplierCheapestPanel';
 import { SupplierResultsTable } from '@/components/SupplierResultsTable';
 import { SupplierProductGroups } from '@/components/SupplierProductGroups';
@@ -201,16 +202,18 @@ export default function SupplierSearch() {
             {t('fo.question')}
           </Label>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              id="fournisseurs-q"
-              ref={champRef}
+            <SuggestionsMots
               value={saisie}
-              onChange={(e) => setSaisie(e.target.value)}
-              placeholder="disjoncteur 16a courbe c ph+n"
-              autoComplete="off"
-              enterKeyHint="search"
-              className="flex-1"
-              data-testid="fournisseurs-search-input"
+              onValueChange={setSaisie}
+              portee="comparateur"
+              inputProps={{
+                ref: champRef,
+                id: 'fournisseurs-q', placeholder: 'disjoncteur 16a courbe c ph+n',
+                autoComplete: 'off', enterKeyHint: 'search', className: 'flex-1',
+                'data-testid': 'fournisseurs-search-input',
+                // Entrée sans suggestion surlignée : soumettre la recherche.
+                onKeyDown: (e) => { if (e.key === 'Enter' && !e.defaultPrevented) soumettre(e); },
+              }}
             />
             <Button type="submit" className="gap-2 sm:w-auto" disabled={chargement} data-testid="fournisseurs-search-button">
               {chargement ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -327,6 +330,7 @@ export default function SupplierSearch() {
             )}
             <SupplierSearchSummary reponse={reponse} />
             <RecognizedTerms termes={reponse.termes_reconnus} requete={reponse.requete} />
+            <NegationsExclues rapport={reponse.negations_exclues} />
 
             {aucunResultat ? (
               <EmptyState
@@ -335,7 +339,7 @@ export default function SupplierSearch() {
               />
             ) : (
               <>
-                <SupplierCheapestPanel offres={reponse.moins_cher_par_fournisseur} />
+                <SupplierCheapestPanel offres={reponse.moins_cher_par_fournisseur} ecartes={reponse.fournisseurs_ecartes_pertinence} />
                 <SupplierProductGroups produits={reponse.produits_identiques} />
                 <SupplierResultsTable resultats={resultats} />
               </>

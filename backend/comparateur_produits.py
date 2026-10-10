@@ -66,6 +66,17 @@ def cle_tri(ligne: dict) -> tuple:
     return (p is None, p if p is not None else 0.0, str(ligne.get("id") or ""))
 
 
+def cle_recherche(ligne: dict) -> tuple:
+    """Tri par pertinence décroissante puis prix croissant.
+
+    La pertinence (ligne["_pertinence"], calculée par le chercheur) récompense
+    les désignations qui MÈNENT avec les mots demandés : « bloc porte coupe
+    feu » doit passer devant « gâche pour porte coupe-feu », accessoire
+    moins cher mais qui ne correspond pas à la demande.
+    """
+    return (-float(ligne.get("_pertinence") or 0.0),) + cle_tri(ligne)
+
+
 def enrichir(ligne: dict, norm: dict | None) -> dict:
     """Recopie sur la ligne les champs normalisés de l'offre (en place).
 
@@ -191,9 +202,15 @@ def regrouper_par_produit(offres: list[dict], ids_trouves: set[str] | None = Non
 
 
 def meilleurs_par_fournisseur(lignes: list[dict]) -> list[dict]:
-    """La moins chère de chaque fournisseur, au prix comparable."""
+    """La meilleure correspondance de chaque fournisseur, au prix comparable.
+
+    Parmi les offres d'un fournisseur, on retient la plus PERTINENTE (la
+    désignation qui mène avec les mots demandés) ; à pertinence égale, la
+    moins chère. Sans score de pertinence (lignes brutes), comportement
+    inchangé : la moins chère.
+    """
     meilleurs: dict[str, dict] = {}
-    for ligne in sorted(lignes, key=cle_tri):
+    for ligne in sorted(lignes, key=cle_recherche):
         p = prix_comparable(ligne)
         nom = ligne.get("fournisseur") or "inconnu"
         if p is None or nom in meilleurs:
@@ -206,8 +223,48 @@ def meilleurs_par_fournisseur(lignes: list[dict]) -> list[dict]:
             "qte_par_conditionnement": ligne.get("qte_par_conditionnement"),
             "designation": ligne.get("designation"),
             "id": ligne.get("id"),
+            "pertinence": round(float(ligne.get("_pertinence") or 0.0), 3),
         }
-    return sorted(meilleurs.values(), key=lambda x: x["prix_unite_base_ht"])
+    return sorted(meilleurs.values(),
+                  key=lambda x: (-float(x.get("pertinence") or 0.0),
+                                  x["prix_unite_base_ht"]) )
+
+
+# Rapport de pertinence minimal pour figurer au panneau « la meilleure
+# correspondance » : la MEILLEURE offre d'un fournisseur doit valoir au
+# moins la moitié de la pertinence du leader. En dessous, ce fournisseur
+# ne vend pas le produit demandé — il vend un accessoire qui le mentionne
+# (mesuré le 04/10/2026 sur « porte coupe feu » : portes réelles 1,08 à
+# 1,83 ; panneau PVC Rexel 0,78, déclencheur YESSS 0,62, soit 34-43 % du
+# leader — un écart affiché de +22 593 % entre un panneau à 1,80 € et
+# une porte à 409 € n'a aucun sens de négociation).
+RAPPORT_PERTINENCE_MIN = 0.5
+
+
+def garder_meilleures_correspondances(meilleurs: list[dict],
+                                      rapport: float = RAPPORT_PERTINENCE_MIN) -> tuple[list[dict], list[dict]]:
+    """Fournisseurs dont la meilleure offre EST le produit demandé.
+
+    Renvoie (gardés, écartés). Un fournisseur écarté n'est PAS supprimé
+    du produit : il reste dans les résultats, les produits identiques et
+    le sélecteur du devis ; seul le panneau de négociation l'omet, et il
+    est renvoyé avec fournisseur et désignation pour affichage. Sans
+    pertinences exploitables (toutes nulles ou absentes), tout est gardé.
+    """
+    if not meilleurs:
+        return [], []
+    pmax = max(float(m.get("pertinence") or 0.0) for m in meilleurs)
+    if pmax <= 0:
+        return list(meilleurs), []
+    plancher = rapport * pmax
+    gardes = [m for m in meilleurs
+              if float(m.get("pertinence") or 0.0) >= plancher]
+    ecartes = [{"fournisseur": m.get("fournisseur"),
+                "designation": m.get("designation"),
+                "pertinence": m.get("pertinence")}
+               for m in meilleurs
+               if float(m.get("pertinence") or 0.0) < plancher]
+    return gardes, ecartes
 
 
 def _arrondi(v, n: int = 2):

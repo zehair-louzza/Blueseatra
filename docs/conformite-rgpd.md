@@ -63,3 +63,7 @@ L'anonymisation efface l'identité mais conserve les devis et les montants, qui 
 - [ ] Mettre en place la purge du journal d'audit au-delà d'un an (tâche planifiée, après validation).
 - [ ] Confirmer la région Supabase et le datacenter OVH, puis les inscrire ci-dessus.
 - [ ] Fixer une durée de conservation des photos de demandes (`file_b64`), par exemple 12 mois.
+
+## Appels IA hors du VPS
+
+Masquage obligatoire des informations personnelles avant tout envoi à Mistral ou OpenCode Free : voir [rgpd-masquage-ia-externe.md](rgpd-masquage-ia-externe.md).

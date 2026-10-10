@@ -270,3 +270,49 @@ def test_unites_differentes_pas_d_ecart_dans_le_bloc_prix(monkeypatch):
     res = _lancer(monkeypatch, _Session())
     assert res["prix"]["unites_differentes"] is False
     assert res["prix"]["ecart_pct"] == 36
+
+
+# --- panneau « meilleure correspondance » : garde de pertinence -------------
+# Cas réel du 04/10/2026 (« porte coupe feu ») : pertinences mesurées en
+# production — le panneau PVC Rexel et le déclencheur YESSS sont des
+# accessoires qui mentionnent la demande (34-43 % du leader).
+def _m(f, d, p):
+    return {"fournisseur": f, "designation": d, "pertinence": p,
+            "prix_unite_base_ht": 1.0, "id": f}
+
+
+def test_panneau_garde_les_portes_reelles():
+    meilleurs = [
+        _m("LPB", "porte coupe feu 1/2 h reversible", 1.833),
+        _m("Prolians", "porte metallique coupe feu 1 heure split ce", 1.583),
+        _m("Point.P", "porte simple essential coupe feu ei30", 1.45),
+        _m("Chausson", "bloc porte coupe feu 1 2h premafeu", 1.083),
+        _m("Rexel", "panneau pvc porte coupe feu", 0.783),
+        _m("AFDB", "ensemble western coupe feu pour porte 36 a 44 mm", 0.75),
+        _m("YESSS", "declencheur electromagnetique pour porte coupe feu", 0.617),
+    ]
+    gardes, ecartes = cp.garder_meilleures_correspondances(meilleurs)
+    assert {m["fournisseur"] for m in gardes} == {"LPB", "Prolians", "Point.P", "Chausson"}
+    assert {m["fournisseur"] for m in ecartes} == {"Rexel", "AFDB", "YESSS"}
+    assert ecartes[0]["designation"]  # désignation conservée pour l'affichage
+
+
+def test_panneau_sans_pertinences_tout_garde():
+    gardes, ecartes = cp.garder_meilleures_correspondances([_m("Rexel", "x", 0.0)])
+    assert len(gardes) == 1 and ecartes == []
+
+
+def test_panneau_vide():
+    assert cp.garder_meilleures_correspondances([]) == ([], [])
+
+
+def test_panneau_resultat_unique_toujours_garde():
+    gardes, ecartes = cp.garder_meilleures_correspondances([_m("Rexel", "panneau pvc", 0.783)])
+    assert len(gardes) == 1 and ecartes == []
+
+
+def test_panneau_seuil_personnalise():
+    meilleurs = [_m("A", "porte coupe feu", 1.0), _m("B", "porte coupe feu blinde", 0.7)]
+    gardes, ecartes = cp.garder_meilleures_correspondances(meilleurs, rapport=0.8)
+    assert [m["fournisseur"] for m in gardes] == ["A"]
+    assert [m["fournisseur"] for m in ecartes] == ["B"]

@@ -25,6 +25,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_RIGHT, TA_CENTER, TA_LEFT
 from matching import clean_text, short_title
+import tce_v4
 
 NAVY = colors.HexColor("#1A2B45")
 GREEN = colors.HexColor("#D8EBE3")        # light muted green section bars
@@ -194,6 +195,11 @@ def _intitule(quote: dict) -> str:
 
 
 def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: dict = None) -> bytes:
+    errors = tce_v4.blockers(quote)
+    provisional = quote.get("status") not in ("validated", "sent") or bool(errors)
+    if quote.get("status") in ("validated", "sent") and errors:
+        raise ValueError("Devis incomplet : export final interdit.")
+    quote = tce_v4.client_quote(quote)
     p = _profile(profile, tenant_name)
     cur = quote.get("currency", "EUR")
     buf = io.BytesIO()
@@ -256,8 +262,8 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
 
     # ---- Title block: number / validity (left) + date (right) ----------------
     is_proforma = quote.get("doc_type", "proforma") == "proforma"
-    title_txt = "DEVIS \u2013 FACTURE PRO FORMA" if is_proforma else "DEVIS"
-    validity = p.get("validity") or "3 mois"
+    title_txt = "BROUILLON NON CONTRACTUEL" if provisional else "DEVIS"
+    validity = p.get("validity") or "à préciser"
     date_str = (quote.get("created_at") or "")[:10]
     if date_str:
         y, m, d = (date_str.split("-") + ["", "", ""])[:3]
@@ -272,6 +278,10 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
     ]))
     e.append(title_tbl)
+    if provisional:
+        e.append(_para(
+            "Document de travail non soumis à acceptation. Les quantités, prix et choix techniques "
+            "doivent être vérifiés avant validation.", S["small"]))
     e.append(Spacer(1, 8))
 
     # ---- Reference line (centered, bold) -------------------------------------
@@ -360,6 +370,8 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         for nxt in chunk[idx + 1:]:
             if nxt.get("line_type") in stops:
                 break
+            if nxt.get("line_type") not in tce_v4.STRUCTURE and nxt.get("line_ht") is None:
+                return None
             if nxt.get("line_ht") is not None:
                 try:
                     total += float(nxt["line_ht"])
@@ -429,14 +441,10 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
                 raw_d = short_title(raw_d, 140)
             desig = [_para(raw_d, S["cell"])]
             sub = []
-            if l.get("matched_item_code"):
-                sub.append(f"R\u00e9f. {l['matched_item_code']}")
             if l.get("brand"):
                 sub.append(str(l["brand"]))
-            if l.get("supplier"):
-                sub.append(f"Fourn. {l['supplier']}")
             if sub:
-                desig.append(Paragraph(" \u00b7 ".join(sub), S["code"]))
+                desig.append(_para(" \u00b7 ".join(sub), S["code"]))
             data.append([
                 Paragraph(str(n), S["cell"]), desig,
                 Paragraph(_fmt(l.get("qty")) + (f" {l.get('unit')}" if l.get("unit") else ""), S["cell"]),
@@ -475,7 +483,8 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         e.append(Spacer(1, 10))
 
     # ---- Totals (TVA toujours vide — net = HT) ------------------------------
-    trows = [["Total HT", _money(quote.get("total_ht"), cur)]]
+    trows = [[("Sous-total connu, incomplet" if errors else "Total HT"),
+              _money(quote.get("total_ht"), cur)]]
 
     totals = Table([[r[0], r[1]] for r in trows], colWidths=[doc.width * 0.22, doc.width * 0.18])
     totals.setStyle(TableStyle([
@@ -485,7 +494,9 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         ("LINEBELOW", (0, -1), (-1, -1), 0.4, BORDER),
         ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
-    net = Table([[Paragraph("Net \u00e0 payer", S["net_lbl"]), Paragraph(_money(quote.get("total_ht"), cur), S["net_val"])]],
+    net = Table([[Paragraph("Montant provisoire" if provisional else "Net \u00e0 payer", S["net_lbl"]),
+                  Paragraph(_money(quote.get("total_ttc") if quote.get("total_ttc") is not None
+                                   else quote.get("total_ht"), cur), S["net_val"])]],
                 colWidths=[doc.width * 0.22, doc.width * 0.18])
     net.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), GREEN),
@@ -496,6 +507,16 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
     totals_wrap.hAlign = "RIGHT"
     e.append(totals_wrap)
     e.append(Spacer(1, 14))
+    for heading, values in (
+        ("Réserves et conditions", (quote.get("meta") or {}).get("reserves") or []),
+        ("Hors périmètre", [(quote.get("meta") or {}).get("exclusions") or ""]),
+    ):
+        values = [x for x in values if x]
+        if values:
+            e.append(_para(heading, S["section"]))
+            for value in values:
+                e.append(_para(value, S["small"]))
+            e.append(Spacer(1, 8))
 
     # ---- Required deliverables (from the incoming request) -------------------
     deliverables = (quote.get("meta") or {}).get("required_deliverables") or []
@@ -506,19 +527,20 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
         e.append(Spacer(1, 10))
 
     # ---- Payment terms + acceptance ------------------------------------------
-    pay_terms = p.get("payment_terms") or "\u2022 30 % \u00e0 la signature du devis\n\u2022 40 % en cours de travaux\n\u2022 30 % \u00e0 la livraison"
+    pay_terms = p.get("payment_terms") or "Conditions de paiement à compléter avant validation."
     pay_block = [Paragraph("<b>Modalit\u00e9s de paiement</b>", S["pay"])]
     for ln in pay_terms.split("\n"):
         ln = ln.strip().lstrip("\u2022").strip()
         if ln:
-            pay_block.append(Paragraph("&ndash;&nbsp;" + ln, S["pay"]))
+            pay_block.append(_para(ln, S["pay"]))
 
-    accept_text = p.get("acceptance_text") or "\u00ab Devis re\u00e7u avant l\u2019ex\u00e9cution des travaux. Bon pour accord. \u00bb"
+    accept_text = (p.get("acceptance_text") or "Bon pour accord.") if not provisional else (
+        "Brouillon : aucune acceptation ni signature possible.")
     accept_block = [
-        Paragraph("<b>Le client</b>", S["accept"]),
-        Paragraph("<i>Mention dat\u00e9e et sign\u00e9e :</i>", S["accept"]),
+        Paragraph("<b>Validation préalable requise</b>" if provisional else "<b>Le client</b>", S["accept"]),
+        Paragraph("" if provisional else "Mention datée et signée :", S["accept"]),
         Spacer(1, 4),
-        Paragraph(accept_text, S["accept"]),
+        _para(accept_text, S["accept"]),
         Spacer(1, 24),
     ]
     bottom = Table([[pay_block, accept_block]], colWidths=[doc.width * 0.5, doc.width * 0.5])
@@ -532,18 +554,11 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
     e.append(KeepTogether(bottom))
     e.append(Spacer(1, 6))
     # ---- TVA legal mention (auto-liquidation / franchise 293B) ---------------
+    # Un numéro de TVA ne prouve pas l'autoliquidation ; son absence ne prouve
+    # pas la franchise. Aucune qualification fiscale déduite par le template.
     if p.get("tva_intra"):
-        tva_mention = (f"TVA intracommunautaire : {p['tva_intra']}. "
-                       "TVA due par le preneur assujetti \u2014 auto-liquidation en application de "
-                       "l\u2019article 242 nonies A, I-13 de l\u2019annexe II au CGI.")
-    else:
-        tva_mention = "TVA non applicable, selon l\u2019article 293 B du CGI."
-    e.append(Paragraph(f"<font size=7.5 color='#2C3E50'>{tva_mention}</font>", S["small"]))
+        e.append(_para(f"TVA intracommunautaire : {p['tva_intra']}", S["small"]))
     e.append(Spacer(1, 3))
-    e.append(Paragraph(
-        f"<font size=7 color='#6A7B8A'>Source tarifaire : {quote.get('pricing_snapshot', {}).get('catalog_name', '-')} "
-        f"v{quote.get('pricing_snapshot', {}).get('version_number', '-')}. "
-        "Prix issus du catalogue actif. Document pro forma sans valeur comptable.</font>", S["small"]))
 
     doc.build(e, canvasmaker=_NumberedCanvas)
     return buf.getvalue()

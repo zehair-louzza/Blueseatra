@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import time
 
 from sqlalchemy import text
 
@@ -38,6 +40,8 @@ import asyncio
 
 import catalogue_navigation
 import catalogue_commun
+import pertinence
+import negation_recherche
 from designation_fournisseur import designation_affichee
 from database import get_current_tenant, tenant_context, tenant_session
 from fournisseur_recherche import termes_recherche
@@ -131,10 +135,69 @@ async def basculer(cle: str, actif: bool, utilisateur: str | None = None) -> dic
         await session.commit()
     log.info("source chiffrage %s (%s) par %s (tenant %s)",
              "activee" if actif else "desactivee", cle, utilisateur, tenant)
+    invalider_sources(tenant)
     return {"cle": cle, "actif": actif}
 
 
 # --- Candidats fournisseurs pour le rapprochement d'un devis --------------
+
+# Mots d'une prestation (pas d'un article) : ils ne figurent JAMAIS dans
+# une désignation catalogue et cassent la recherche AND-tous-les-mots.
+# Constat réel du 04/10/2026 (devis BS-2026-0055) : « fourniture et pose de
+# prises 2p+t 16 a, gamme blanche standard » = 10 mots → 0 résultat, alors
+# que le catalogue Rexel vend des prises 2P+T. La requête matériau courte
+# (« prise 2p+t 16 a ») les trouve toutes.
+_MOTS_PRESTATION = re.compile(
+    r"\b(?:fourniture|fournitures|fournir|pose|poses|et|de|des|du|d|un|une|"
+    r"le|la|les|avec|pour|sur|sous|au|aux|en|"
+    r"installation|installe|installee|installer|creation|creations|creer|"
+    r"mise|place|adaptation|protection|proteger|reparation|reparer|"
+    r"remplacement|remplacer|depose|deposer|evacuation|evacuer|"
+    r"raccordement|raccordements|raccorder|essais|essai|verifier|"
+    r"verification|verifications|etiquette|remise|gamme|standard|type|"
+    r"existant|existants|existante|existantes|chantier|appareillage|"
+    r"appareillages|element|elements|dechet|dechets|gravat|gravats|"
+    r"dedie|dediee|dediees|dedie)\b", re.I)
+
+# Mots d'UNE lettre ambigus : « a » et « l » sont tantôt des articles (à
+# retirer), tantôt des UNITÉS après un chiffre (« 16 a » = ampères,
+# « 150 l » = litres — jamais retirés).
+_MOTS_UNE_LETTRE = {"a", "l", "à"}
+
+
+def requete_materielle(label: str) -> str:
+    """Extrait la requête ARTICLE d'un libellé de prestation.
+
+    « fourniture et pose de prises 2p+t 16 a, gamme blanche standard »
+      → « prise 2p+t 16 a »
+    « fourniture et pose d'un chauffe-eau electric vertical 150 l, ... »
+      → « chauffe eau electric vertical 150 l »
+
+    Règles : coupe à la première virgule (les qualificatifs qui suivent
+    décrivent la prestation, pas l'article), retire les mots de prestation
+    (une lettre après un chiffre = une unité, conservée), singulierise les
+    pluriels longs. Le résultat est NORMALISÉ (mêmes règles que
+    pertinence.normalise) : prêt pour une recherche catalogue.
+    """
+    s = str(label or "").strip()
+    if not s:
+        return ""
+    s = s.split(",")[0]
+    s = _MOTS_PRESTATION.sub(" ", s)
+    mots = pertinence.normalise(s).split()
+    gardes = []
+    for i, m in enumerate(mots):
+        if m in _MOTS_UNE_LETTRE:
+            precedent = mots[i - 1] if i > 0 else ""
+            if not (precedent[:-1].isdigit() or precedent.isdigit()):
+                continue  # article, pas une unité
+        gardes.append(m)
+    # Singulier des pluriels longs (prises -> prise) : les désignations
+    # catalogue sont majoritairement au singulier.
+    singuliers = [m[:-1] if len(m) > 4 and m.endswith("s") and not m.endswith("ss") else m
+                  for m in gardes]
+    return " ".join(singuliers)
+
 
 def _libelles_extraits(extraits: dict, maxi: int = 15) -> list[str]:
     """Libelles a chercher dans les catalogues fournisseurs : ceux des lignes
@@ -176,14 +239,22 @@ async def candidats_rapprochement(tenant_id: str, extraits: dict,
         return []
     try:
         async with tenant_context(tenant_id):
-            # Recherches par libellé en parallele (jeton borne : la base est
-            # lointaine et le pool de connexions limite, command_timeout
-            # 30 s) : sequentiel, 15 libelles x 3 s = 45 s ; x3, ~15 s.
+            # 04/10/2026 : la recherche se fait sur la REQUÊTE MATÉRIAU
+            # (mots de l'article, pas de la prestation) — un libellé de
+            # devis de 10 mots ne matche aucune désignation catalogue avec
+            # la sémantique AND-tous-les-mots. Repli sur le libellé complet
+            # si la requête matériau ne trouve rien.
             sem = asyncio.Semaphore(3)
 
             async def une_recherche(lb):
                 async with sem:
-                    return await rechercher(lb, par_ligne)
+                    for q in (requete_materielle(lb), lb):
+                        if not q:
+                            continue
+                        offres = await rechercher(q, par_ligne)
+                        if offres:
+                            return offres
+                    return []
 
             resultats = await asyncio.gather(*(une_recherche(lb) for lb in libelles),
                                              return_exceptions=True)
@@ -197,6 +268,50 @@ async def candidats_rapprochement(tenant_id: str, extraits: dict,
     except Exception:
         log.exception("candidats fournisseurs indisponibles (tenant %s)", tenant_id)
         return []
+
+
+async def meilleures_offres_par_ligne(tenant_id: str, extraits: dict,
+                                      par_ligne: int = 6) -> dict[str, list[dict]]:
+    """Meilleures offres fournisseurs PAR LIGNE de la demande, pour le menu
+    de choix par ligne dans l'éditeur de devis (04/10/2026).
+
+    Renvoie {libellé_normalisé: [offres]} — chaque offre avec fournisseur,
+    désignation, référence, prix net HT et unité. L'offre de tête est celle
+    que le devis applique par défaut (pertinence puis prix, la recherche
+    classe déjà ainsi) ; les suivantes sont les alternatives du menu.
+
+    Ne lève JAMAIS : sans source active, sans libellé ou en erreur, {}.
+    """
+    libelles = _libelles_extraits(extraits or {})
+    if not libelles:
+        return {}
+    try:
+        async with tenant_context(tenant_id):
+            sem = asyncio.Semaphore(3)
+
+            async def une_recherche(lb):
+                async with sem:
+                    for q in (requete_materielle(lb), lb):
+                        if not q or len(q) < 3:
+                            continue
+                        offres = await rechercher(q, par_ligne)
+                        if offres:
+                            return lb, offres
+                    return lb, []
+
+            resultats = await asyncio.gather(*(une_recherche(lb) for lb in libelles),
+                                             return_exceptions=True)
+            sortie: dict[str, list[dict]] = {}
+            for res in resultats:
+                if not isinstance(res, tuple):
+                    continue
+                lb, offres = res
+                if offres:
+                    sortie[lb.lower()] = offres
+            return sortie
+    except Exception:
+        log.exception("offres par ligne indisponibles (tenant %s)", tenant_id)
+        return {}
 
 
 async def a_sources_actives(tenant_id: str) -> bool:
@@ -254,7 +369,132 @@ def _en_article(offre: dict) -> dict:
         "source": "fournisseur",
         "source_fournisseur": fournisseur,
         "url_produit": offre.get("url_produit"),
+        # 04/10/2026 : pertinence de l'offre POUR LA REQUÊTE de la recherche —
+        # la garde anti-accessoire du rapprochement par ligne s'en sert.
+        "_pertinence": offre.get("_pertinence"),
     }
+
+
+# Sources actives et visibles d'une entreprise, gardees 20 s (02/10/2026).
+# Mesure en production : relire les bascules puis la liste des fournisseurs
+# coutait 2 sessions (~400 ms) a CHAQUE frappe dans la recherche d'articles du
+# devis. Invalide aussitot par basculer() et par le masquage du catalogue
+# commun (catalogue_commun.masquer*) ; une activation de version faite par le
+# script d'import (hors API) est prise en compte en 20 s au plus.
+_SOURCES_TTL_S = 20.0
+_cache_sources: dict[str, tuple[float, list[str], dict]] = {}
+
+
+_cache_visibles: dict[str, tuple[float, list[str]]] = {}
+
+
+def invalider_sources(tenant: str | None = None) -> None:
+    if tenant is None:
+        _cache_sources.clear()
+        _cache_visibles.clear()
+    else:
+        _cache_sources.pop(tenant, None)
+        _cache_visibles.pop(tenant, None)
+
+
+async def sources_visibles(tenant: str) -> list[str]:
+    """Cles de toutes les sources VISIBLES (comparateur), gardees 20 s.
+
+    Meme invalidation que _sources_recherche : bascule, masquage du
+    catalogue commun.
+    """
+    entree = _cache_visibles.get(tenant)
+    if entree and entree[0] > time.monotonic():
+        return entree[1]
+    cles = [f["cle"] for f in
+            (await catalogue_navigation.fournisseurs()).get("fournisseurs", []) if f.get("cle")]
+    _cache_visibles[tenant] = (time.monotonic() + _SOURCES_TTL_S, cles)
+    return cles
+
+
+async def _sources_recherche(tenant: str) -> tuple[list[str], dict]:
+    """(cles des sources actives ET visibles, fournisseurs visibles par cle)."""
+    entree = _cache_sources.get(tenant)
+    if entree and entree[0] > time.monotonic():
+        return entree[1], entree[2]
+    actifs = {c for c, a in (await _etats_tenant(tenant)).items() if a}
+    visibles = {}
+    if actifs:
+        visibles = {f["cle"]: f for f in
+                    (await catalogue_navigation.fournisseurs()).get("fournisseurs", [])}
+    cles = [c for c in actifs if c in visibles]
+    _cache_sources[tenant] = (time.monotonic() + _SOURCES_TTL_S, cles, visibles)
+    return cles, visibles
+
+
+# Recherche parallele : au plus 3 groupes, et au plus 4 sessions de recherche
+# simultanees pour tout le processus (pool metier : 5 + 2 connexions), afin de
+# laisser des connexions libres aux autres requetes.
+_GROUPES_MAX = 3
+_SOURCES_PAR_GROUPE_MIN = 3
+_SEUIL_PETITE_SOURCE = 2000
+_sessions_recherche = asyncio.Semaphore(4)
+
+
+def repartir_sources(cles: list[str], visibles: dict) -> list[list[str]]:
+    """Repartit les sources en groupes de cout comparable.
+
+    Le cout d'une source est a peu pres constant au-dela de quelques
+    milliers de references (balayage de l'index trigramme) et quasi nul en
+    dessous (index par version). Plus grosse d'abord, dans le groupe le
+    moins charge ; l'ordre des cles est conserve dans chaque groupe.
+    """
+    if len(cles) <= _SOURCES_PAR_GROUPE_MIN:
+        return [list(cles)]
+    n = min(_GROUPES_MAX, -(-len(cles) // _SOURCES_PAR_GROUPE_MIN))
+    poids = {c: (1.0 if int((visibles.get(c) or {}).get("references") or 0) > _SEUIL_PETITE_SOURCE
+                 else 0.1) for c in cles}
+    charges = [0.0] * n
+    groupes: list[list[str]] = [[] for _ in range(n)]
+    for c in sorted(cles, key=lambda c: -poids[c]):
+        i = charges.index(min(charges))
+        groupes[i].append(c)
+        charges[i] += poids[c]
+    rang = {c: k for k, c in enumerate(cles)}
+    return [sorted(g, key=rang.get) for g in groupes if g]
+
+
+async def _chercher_groupe(cles: list[str], visibles: dict, tenant: str,
+                           termes: list, limite: int) -> list[dict]:
+    """Offres les moins cheres d'un groupe de sources, dans sa propre session."""
+    params = {"tenant_id": tenant, "commun": catalogue_commun.TENANT_COMMUN,
+              "limite": limite, "termes": json.dumps(termes)}
+    # Une branche par source active : blueseatra.offres_candidates
+    # renvoie jusqu'a 200 identifiants par source via l'index
+    # trigramme. Sous RLS, une requete directe ne pouvait pas l'utiliser
+    # (LIKE n'est pas LEAKPROOF) : TimeoutError (command_timeout 30 s)
+    # constate en production le 01/10/2026 sur "prise". La fonction
+    # refuse tout tenant autre que l'entreprise ou le catalogue commun ;
+    # le tenant de chaque branche vient du parcours, jamais du client.
+    branches = []
+    for i, cle in enumerate(cles):
+        params[f"t{i}"] = [catalogue_commun.TENANT_COMMUN
+                           if visibles[cle].get("catalogue_commun") else tenant]
+        params[f"v{i}"] = None if cle.startswith("hist:") else cle
+        params[f"h{i}"] = cle[5:] if cle.startswith("hist:") else None
+        branches.append(
+            f"SELECT c.id FROM blueseatra.offres_candidates("
+            f"CAST(:t{i} AS text[]), CAST(:termes AS jsonb), 200, "
+            f":v{i}, :h{i}, false, false) c")
+    sql = text(f"""
+        WITH sel AS MATERIALIZED ({' UNION ALL '.join(branches)})
+        SELECT {catalogue_navigation.CHAMPS}
+          FROM sel
+          JOIN blueseatra.supplier_offers o ON o.id = sel.id
+          LEFT JOIN blueseatra.suppliers f
+                 ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
+         WHERE (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
+         ORDER BY o.price_ht ASC NULLS LAST, o.id
+         LIMIT :limite
+    """)
+    async with _sessions_recherche:
+        async with tenant_session() as session:
+            return [dict(r) for r in (await session.execute(sql, params)).mappings()]
 
 
 async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
@@ -268,9 +508,6 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         return []
     tenant = _tenant()
     try:
-        actifs = {c for c, a in (await _etats_tenant(tenant)).items() if a}
-        if not actifs:
-            return []
         # Ne garder que les sources encore visibles (resolution securisee),
         # AVEC leur tenant : chaque source appartient soit a l'entreprise,
         # soit au tenant du catalogue commun -- jamais devine, lu sur le
@@ -278,51 +515,45 @@ async def rechercher(q: str, limite: int = LIMITE_RECHERCHE) -> list[dict]:
         # l'index (tenant_id, version_id) de servir chaque branche ; un OR
         # sur deux tenants, lui, l'empêchait et la requête finissait en
         # TimeoutError (command_timeout 30 s, constate en production).
-        visibles = {f["cle"]: f for f in
-                    (await catalogue_navigation.fournisseurs()).get("fournisseurs", [])}
-        cles = [c for c in actifs if c in visibles]
+        cles, visibles = await _sources_recherche(tenant)
         if not cles:
             return []
 
         termes = termes_recherche(q)
         if not termes:
             return []
-        params = {"tenant_id": tenant, "commun": catalogue_commun.TENANT_COMMUN,
-                  "limite": limite, "termes": json.dumps(termes)}
-        # Une branche par source active : blueseatra.offres_candidates
-        # renvoie jusqu'a 200 identifiants par source via l'index
-        # trigramme. Sous RLS, une requete directe ne pouvait pas l'utiliser
-        # (LIKE n'est pas LEAKPROOF) : TimeoutError (command_timeout 30 s)
-        # constate en production le 01/10/2026 sur "prise". La fonction
-        # refuse tout tenant autre que l'entreprise ou le catalogue commun ;
-        # le tenant de chaque branche vient du parcours, jamais du client.
-        branches = []
-        for i, cle in enumerate(cles):
-            params[f"t{i}"] = [catalogue_commun.TENANT_COMMUN
-                               if visibles[cle].get("catalogue_commun") else tenant]
-            # Cle de version : UUID resolu parmi les fournisseurs visibles de
-            # cette entreprise. Cle "hist:" : fournisseur sans catalogue.
-            params[f"v{i}"] = None if cle.startswith("hist:") else cle
-            params[f"h{i}"] = cle[5:] if cle.startswith("hist:") else None
-            branches.append(
-                f"SELECT c.id FROM blueseatra.offres_candidates("
-                f"CAST(:t{i} AS text[]), CAST(:termes AS jsonb), 200, "
-                f":v{i}, :h{i}, false, false) c")
-        # Les fiches sont relues par id SOUS RLS, avec le filtre tenant
-        # explicite (mode repli sous postgres) ; tri par prix sur <= 200 x n.
-        sql = text(f"""
-            WITH sel AS MATERIALIZED ({' UNION ALL '.join(branches)})
-            SELECT {catalogue_navigation.CHAMPS}
-              FROM sel
-              JOIN blueseatra.supplier_offers o ON o.id = sel.id
-              LEFT JOIN blueseatra.suppliers f
-                     ON f.id = o.supplier_id AND f.tenant_id = o.tenant_id
-             WHERE (o.tenant_id = :tenant_id OR o.tenant_id = :commun)
-             ORDER BY o.price_ht ASC NULLS LAST, o.id
-             LIMIT :limite
-        """)
-        async with tenant_session() as session:
-            lignes = [dict(r) for r in (await session.execute(sql, params)).mappings()]
+        # Sources reparties en groupes interroges EN PARALLELE, chacun dans sa
+        # session (02/10/2026). Mesure en production : chaque source paie
+        # ~35 ms d'index trigramme pour un mot long (« disjoncteur »), en
+        # serie dans une seule requete : 9 sources = ~330 ms. Chaque groupe
+        # renvoie ses `limite` offres les moins cheres ; le meilleur
+        # `limite` global est donc exactement le meme qu'en une requete.
+        groupes = repartir_sources(cles, visibles)
+        if len(groupes) == 1:
+            lignes = await _chercher_groupe(groupes[0], visibles, tenant, termes, limite)
+        else:
+            resultats = await asyncio.gather(
+                *(_chercher_groupe(g, visibles, tenant, termes, limite) for g in groupes))
+            lignes = [l for r in resultats for l in r]
+        # RÈGLE PERTINENCE 2/3 — exclusions par négation (04/10/2026, même
+        # règle que le comparateur) : « non coupe-feu » pour une recherche
+        # « coupe feu » contredit la demande, tous les mots y sont mais le
+        # libellé dit le contraire. Ces offres ne doivent jamais prixer une
+        # ligne de devis, même en alternative du menu.
+        lignes, _rapport_negations = negation_recherche.exclure(lignes, q)
+        # Pertinence d'abord, prix ensuite : la designation qui MENE avec les
+        # mots demandes (« bloc porte coupe feu ») passe devant l'accessoire
+        # moins cher qui les mentionne en fin de libelle (« gache pour
+        # porte coupe-feu »). Egalite de score -> prix croissant, comme avant.
+        # Le score est GARDE sur la ligne (_pertinence) : le rapprochement
+        # par ligne l'utilise pour sa garde anti-accessoire.
+        for l in lignes:
+            l["_pertinence"] = pertinence.score(
+                pertinence.normalise(l.get("designation") or ""), q)
+        lignes.sort(key=lambda l: (
+            -pertinence.score(pertinence.normalise(l.get("designation") or ""), q),
+            l.get("prix_net_ht") is None, l.get("prix_net_ht") or 0.0, str(l.get("id"))))
+        lignes = lignes[:limite]
         return [_en_article(l) for l in lignes]
     except Exception:
         log.exception("recherche chiffrage fournisseurs echouee (tenant %s)", tenant)

@@ -87,4 +87,5 @@ def test_consigne_extraction_compacte():
     gabarit = json.loads(ai._SCHEMA_EXTRACTION_TXT)
     assert set(gabarit) == set(ai.SCHEMA_EXTRACTION["properties"])
     assert "moyens_acces_engins" in gabarit["line_items"][0]["famille_poste"]
-    assert ai._STRUCTURING_CASCADE_TIMEOUTS["Qwen2.5-7B"] >= 600
+    # Timeouts indexés par position d'étage (05/10/2026) : étage 1 = prompt full.
+    assert ai._STRUCTURING_CASCADE_TIMEOUTS[0] >= 600

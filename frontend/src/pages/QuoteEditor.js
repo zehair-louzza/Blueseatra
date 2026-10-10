@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api, apiError } from '@/lib/api';
+import { correspondMots } from '@/lib/rechercheMots';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import SuggestionsMots from '@/components/SuggestionsMots';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -13,6 +15,8 @@ import { Spinner } from '@/components/Spinner';
 import { StatusBadge } from '@/components/StatusBadge';
 import QuoteClientPanel from '@/components/clients/QuoteClientPanel';
 import QuoteVersions from '@/components/QuoteVersions';
+import { LineOfferMenu } from '@/components/LineOfferMenu';
+import TceReview from '@/components/TceReview';
 import { toast } from 'sonner';
 import {
   ArrowLeft, Save, CheckCircle2, Download, Send, Info, Loader2, Plus, Trash2,
@@ -46,6 +50,8 @@ export default function QuoteEditor() {
   const [family, setFamily] = useState('__all__');
   const [supplierBy, setSupplierBy] = useState({});
   const [applyingIdx, setApplyingIdx] = useState(null);
+  const [tceReviewed, setTceReviewed] = useState(false);
+  useEffect(() => { setTceReviewed(false); }, [id, q?.lines, q?.object, q?.site, q?.meta?.works_description]);
 
   const load = () => api.get(`/quotes/${id}`).then((r) => setQ(r.data)).catch((err) => {
     toast.error(apiError(err, 'Failed'));
@@ -180,6 +186,10 @@ export default function QuoteEditor() {
   }, [q]);
 
   const persist = async (validate = false) => {
+    if (validate && q.meta?.tce_version && !tceReviewed) {
+      toast.error('Vérifiez et confirmez les points de contrôle TCE avant validation.');
+      return;
+    }
     setBusy(true);
     try {
       const lines = q.lines.map((l) => ({ ...l, qty: num(l.qty), unit_price_ht: num(l.unit_price_ht), vat_rate: num(l.vat_rate), margin: num(l.margin) }));
@@ -188,7 +198,7 @@ export default function QuoteEditor() {
         works_description: (q.meta && q.meta.works_description) || q.works_description || '',
       });
       setQ(data);
-      if (validate) { await api.post(`/quotes/${id}/validate`); toast.success(t('status.validated')); await load(); }
+      if (validate) { await api.post(`/quotes/${id}/validate`, { review_tce: tceReviewed, expected_digest: data.review_digest }); toast.success(t('status.validated')); await load(); }
       else toast.success(t('quote.save'));
     } catch (err) { toast.error(apiError(err, 'Failed')); }
     finally { setBusy(false); }
@@ -217,9 +227,13 @@ export default function QuoteEditor() {
   };
 
   const families = useMemo(() => Array.from(new Set(catalog.map((i) => i.family).filter(Boolean))).sort(), [catalog]);
+  // Composition de mots : chaque mot tape doit etre present, sans etre colle
+  // (« porte coupe feu » doit trouver « porte coupe-feu »). L'ancien test de
+  // sous-chaine contigue masquait la plupart des resultats fournisseurs des
+  // que la requete avait plus d'un mot.
   const filtered = catalog.filter((it) =>
     (family === '__all__' || it.family === family) &&
-    (!search || `${it.item_code} ${it.item_label} ${it.brand} ${it.family} ${Object.values(it.attributes || {}).join(' ')}`.toLowerCase().includes(search.toLowerCase())));
+    (!search || correspondMots(`${it.item_code} ${it.item_label} ${it.brand} ${it.family} ${Object.values(it.attributes || {}).join(' ')}`, search)));
 
   if (!q) return <Spinner />;
   const vatOptions = Array.from(new Set([...VAT_RATES, ...(q.lines || []).map((l) => num(l.vat_rate)).filter((v) => v !== null)])).sort((a, b) => b - a);
@@ -295,10 +309,13 @@ export default function QuoteEditor() {
                               {families.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                             </SelectContent>
                           </Select>
-                          <div className="relative flex-1">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input className="pl-8" placeholder={t('quote.pick_item')} value={search} onChange={(e) => setSearch(e.target.value)} data-testid="catalog-search-input" autoFocus />
-                          </div>
+                          <SuggestionsMots
+                            value={search}
+                            onValueChange={setSearch}
+                            portee="devis"
+                            inputProps={{ className: 'pl-8', placeholder: t('quote.pick_item'), 'data-testid': 'catalog-search-input', autoFocus: true }}
+                            prependIcon={<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />}
+                          />
                         </div>
                         <div className="relative max-h-[55vh] divide-y overflow-auto rounded-lg border" aria-busy={catalogLoading}>
                           {catalogLoading && catalog.length === 0 && (
@@ -358,20 +375,20 @@ export default function QuoteEditor() {
                 <Button variant="secondary" size="sm" className="gap-1.5" onClick={addPageBreak} data-testid="add-page-break-button"><SeparatorHorizontal className="h-4 w-4" />{t('quote.add_page_break')}</Button>
               </div>
             )}
-            <div className="overflow-x-auto">
+            <div className="w-full overflow-x-auto">
               <Table data-testid="quote-lines-table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[180px]">{t('quote.desc')}</TableHead>
-                    <TableHead className="w-20">{t('quote.qty')}</TableHead>
-                    <TableHead className="w-24">{t('quote.unit')}</TableHead>
-                    <TableHead className="w-28">{t('quote.unit_price')}</TableHead>
-                    <TableHead className="w-20">
+                    <TableHead className="w-auto min-w-0">{t('quote.desc')}</TableHead>
+                    <TableHead className="w-16">{t('quote.qty')}</TableHead>
+                    <TableHead className="w-20">{t('quote.unit')}</TableHead>
+                    <TableHead className="w-24">{t('quote.unit_price')}</TableHead>
+                    <TableHead className="w-16">
                       <span className="inline-flex items-center gap-1">{t('quote.margin')}
                         <TooltipProvider><Tooltip><TooltipTrigger asChild><Info className="h-3 w-3 text-muted-foreground" /></TooltipTrigger><TooltipContent><p className="max-w-[180px] text-xs">{t('quote.margin_hint')}</p></TooltipContent></Tooltip></TooltipProvider>
                       </span>
                     </TableHead>
-                    <TableHead className="w-24">{t('quote.vat')}</TableHead>
+                    <TableHead className="w-20">{t('quote.vat')}</TableHead>
                     <TableHead className="w-24 text-right">{t('quote.line_total')}</TableHead>
                     <TableHead className="w-20">{t('quote.match')}</TableHead>
                     {isDraft && <TableHead className="w-20"></TableHead>}
@@ -447,6 +464,18 @@ export default function QuoteEditor() {
                           {l.line_type === 'material' && <span className="mr-1 inline-flex items-center rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Mat.</span>}
                           {isDraft ? <Input value={l.description || ''} onChange={(e) => updateLine(i, 'description', e.target.value)} className="h-8" data-testid="line-description-input" /> : (l.description || l.request_label)}
                           {(l.matched_item_code || l.supplier) && <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">{l.matched_item_code}{l.supplier ? ` \u00b7 ${l.supplier}` : ''}</div>}
+                          {/* Menu de choix du fournisseur (04/10/2026) : la ligne
+                              porte sa meilleure offre (prix figé) et ses
+                              alternatives ; changer d'offre refige le prix et
+                              recalcule les totaux. */}
+                          {l.line_type !== 'labor' && l.line_type !== 'travel' && (
+                            <div className="mt-0.5">
+                              <LineOfferMenu
+                                quoteId={id} lineIndex={i} ligne={l} disabled={!isDraft}
+                                onChosen={(qmaj) => setQ(qmaj)}
+                              />
+                            </div>
+                          )}
                           {!l.matched_item_code && l.suggested_item_code && (
                             <div className="mt-0.5 flex items-start gap-1.5 text-[10px] text-amber-700" data-testid="line-catalog-suggestion">
                               <span>{t('quote.catalog_suggestion', { label: l.suggested_label, code: l.suggested_item_code })}</span>
@@ -504,6 +533,9 @@ export default function QuoteEditor() {
         </div>
 
         <div className="lg:col-span-4">
+          <div className="mb-4">
+            <TceReview meta={q.meta} isDraft={isDraft} checked={tceReviewed} onChange={setTceReviewed} />
+          </div>
           <Card className="card-shadow border-0 p-5" data-testid="quote-totals-panel">
             <div className="space-y-2 text-sm">
               <div className="space-y-1.5">
@@ -516,7 +548,7 @@ export default function QuoteEditor() {
                   <textarea
                     value={(q.meta && q.meta.works_description) || ''}
                     onChange={(e) => setQ({ ...q, meta: { ...(q.meta || {}), works_description: e.target.value } })}
-                    rows={6}
+                    rows={10}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                     data-testid="quote-works-desc"
                   />
