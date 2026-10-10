@@ -81,7 +81,7 @@ Tables and relations are detailed in the [database schema](./schema-base-donnees
 
 | Point | Status | Next step |
 |---|---|---|
-| Append-only audit log | Pull request [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) | Merge, then apply migration `20261001230000` on Supabase |
+| Append-only audit log | Pull request [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) | Merge, then apply migration `20261010030000` on Supabase |
 | Supabase advisor: 10 functions without fixed `search_path` | Warning | Add `SET search_path = ''` to these functions |
 | Supabase advisor: `pg_trgm` and `unaccent` in `public` | Warning | Move the extensions to a dedicated schema, after testing the indexes |
 | Free Render instance | Sleep offset by `pg_cron` | Move to a paid instance before going commercial |

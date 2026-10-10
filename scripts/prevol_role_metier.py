@@ -211,14 +211,22 @@ async def pre_vol(pw, tid):
                 faux, tid)
             note(True, "INSERT audit_logs")
 
-            n = await cx.fetchval(
-                'update blueseatra."audit_logs" set tenant_id = $1 where id = $2 '
-                'returning 1', tid, faux)
-            note(n == 1, "UPDATE audit_logs")
-
-            n = await cx.fetchval(
-                'delete from blueseatra."audit_logs" where id = $1 returning 1', faux)
-            note(n == 1, "DELETE audit_logs")
+            # Journal d'audit en ajout seul (migration 20261010030000) :
+            # UPDATE et DELETE doivent etre REFUSES au role applicatif.
+            for verbe, sql in (
+                ("UPDATE", 'update blueseatra."audit_logs" set tenant_id = $1 where id = $2'),
+                ("DELETE", 'delete from blueseatra."audit_logs" where id = $2 and $1::text is not null'),
+            ):
+                refuse = False
+                sp = cx.transaction()
+                await sp.start()
+                try:
+                    await cx.execute(sql, tid, faux)
+                except asyncpg.exceptions.InsufficientPrivilegeError:
+                    refuse = True
+                finally:
+                    await sp.rollback()
+                note(refuse, f"{verbe} audit_logs refuse (ajout seul)")
         except Exception as e:
             note(False, "ecritures", f"{type(e).__name__}: {e}")
         finally:

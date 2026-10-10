@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-10 — Journal d'audit en ajout seul
+
+- **Écart corrigé** : la documentation présentait `audit_logs` comme un journal en ajout seul, mais la base ne l'imposait pas (le rôle `blueseatra_app` gardait `UPDATE` et `DELETE`, aucun trigger).
+- **Migration `20261010030000_journal_audit_ajout_seul.sql`** : fonction `blueseatra.audit_ajout_seul()` sur le modèle de `registre_ajout_seul()`, triggers `BEFORE UPDATE OR DELETE` (par ligne) et `BEFORE TRUNCATE` (par instruction), retrait de `UPDATE`, `DELETE` et `TRUNCATE` au rôle applicatif et à `authenticated`. Idempotente. Numérotée après la dernière migration de `main` (le numéro d'origine, `20261002040000`, était déjà pris par `vocabulaire_recherche`).
+- **Maintenance explicite** : seul un rôle d'administration, jamais `blueseatra_app`, peut purger des traces de test avec `SET LOCAL blueseatra.maintenance_audit = 'on'`, pour sa seule transaction.
+- **Aucun changement fonctionnel** : l'application n'écrit dans le journal que par insertion ; l'export RGPD le lit seulement.
+- 9 tests sur PostgreSQL 17 jetable (`backend/tests_security/test_journal_audit_ajout_seul_sql.py`), ajoutés aux tests métier de la CI ; le prévol du rôle applicatif vérifie désormais que `UPDATE` et `DELETE` sont refusés.
+
 ## 2026-10-10 — Licence propriétaire 2.0, README complets, nouveaux schémas
 
 - **Licence durcie** (`LICENSE`, version 2.0) :

@@ -104,7 +104,7 @@ Les motifs sont injectés en littéraux échappés (`format %L`), les limites de
 
 1. **L'IA ne fixe jamais un prix.** Elle lit et structure ; les prix viennent du catalogue interne ou des catalogues fournisseurs **activés par l'entreprise pour le chiffrage** (boutons poussoirs, table `chiffrage_sources`), puis les remises, marges et TVA sont calculées par des règles (`matching.py`). Sans catalogue interne, les sources fournisseurs activées prennent le relais ; sans aucune des deux, la génération refuse avec un message explicite — mais jamais à cause d'offres simplement introuvables (le devis est produit, lignes à confirmer).
 2. **Isolation des entreprises à deux niveaux.** Le code filtre `tenant_id`, et PostgreSQL l'impose par RLS sous le rôle `blueseatra_app`. Un identifiant d'une autre entreprise renvoie 404. Les trois fonctions de recherche `SECURITY DEFINER` (ci-dessus) vérifient elles-mêmes le tenant et ne renvoient que des identifiants, relus sous RLS.
-3. **Aucune suppression silencieuse.** Le catalogue commun est masquable mais jamais supprimé. Les clients sont archivés et les contacts anonymisés. Le registre de consommation et les échanges clients sont en ajout seul, protégés par un trigger.
+3. **Aucune suppression silencieuse.** Le catalogue commun est masquable mais jamais supprimé. Les clients sont archivés et les contacts anonymisés. Le registre de consommation, les échanges clients et le journal d'audit sont en ajout seul, protégés par un trigger (`audit_logs` depuis la migration `20261010030000`).
 4. **Validation humaine.** Un devis reste un brouillon tant qu'une personne ne l'a pas validé.
 
 ## Isolation des entreprises

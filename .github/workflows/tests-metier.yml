@@ -1,6 +1,6 @@
 name: Tests métier
 
-# Règles de relance, quotas, module Clients et recherche d'offres sous RLS, exécutés sur un PostgreSQL 17
+# Règles de relance, quotas, module Clients, recherche d'offres sous RLS et journal d'audit en ajout seul, exécutés sur un PostgreSQL 17
 # jetable (même version que Supabase). Aucune donnée ni secret de production.
 
 on:
@@ -62,6 +62,7 @@ jobs:
             backend/tests_security/test_offres_candidates_sql.py \
             backend/tests_security/test_vocabulaire_sql.py \
             backend/tests_security/test_cache_ia_sql.py \
+            backend/tests_security/test_journal_audit_ajout_seul_sql.py \
             -v --tb=short | tee resultat.txt
           # Une suite entièrement ignorée ne doit pas passer pour un succès.
           PASSES=$(grep -oE '[0-9]+ passed' resultat.txt | grep -oE '[0-9]+' || echo 0)
