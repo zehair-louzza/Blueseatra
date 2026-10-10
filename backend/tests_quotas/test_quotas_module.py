@@ -54,7 +54,13 @@ def test_parcours_complet(q, monkeypatch):
             await q.reserver("d1", 1, q.pages_a_compter("pdf_ocr", 4), "a@x")
             await q.reserver("d2", 1, q.pages_a_compter("pdf", 0), "a@x")
             e1 = await q.etat(nb_membres=1)
-            assert e1["jauges"]["devis_ia"] == {"inclus": 10, "utilise": 2, "recharge_restante": 0, "restant": 8}
+            jauge = e1["jauges"]["devis_ia"]
+            compteurs = {k: jauge[k] for k in ("inclus", "utilise", "recharge_restante", "restant")}
+            assert compteurs == {"inclus": 10, "utilise": 2, "recharge_restante": 0, "restant": 8}
+            # Projection de consommation (#89) : présente et cohérente avec les compteurs.
+            assert jauge["rythme_par_jour"] > 0
+            assert jauge["projection_fin_periode"] >= jauge["utilise"]
+            assert "epuisement_prevu_le" in jauge
             assert e1["jauges"]["page_lue"]["restant"] == 26
             assert await q.annuler("d1", "échec") == 2
             e2 = await q.etat(nb_membres=1)

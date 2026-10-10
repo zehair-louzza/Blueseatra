@@ -2146,7 +2146,7 @@ async def update_quote(quote_id: str, body: dict, cu: CurrentUser = Depends(get_
         except (TypeError, ValueError):
             return None
 
-    raw_lines = body.get("lines", q.get("lines", []))
+    raw_lines = (body["lines"] if "lines" in body else q.get("lines")) or []
     lines = []
     for l in raw_lines:
         ltype = l.get("line_type") or "generic"

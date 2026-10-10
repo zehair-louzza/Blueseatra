@@ -261,7 +261,7 @@ def attach_checklists(extracted):
 
 def blockers(quote):
     errors = []
-    lines = [x for x in quote.get("lines", []) if x.get("line_type") not in STRUCTURE]
+    lines = [x for x in (quote.get("lines") or []) if x.get("line_type") not in STRUCTURE]
     if not lines:
         errors.append("Aucune prestation chiffrable.")
     for i, line in enumerate(lines, 1):
@@ -325,7 +325,7 @@ def client_quote(quote):
     result["lines"] = [{k: row.get(k) for k in (
         "line_type", "description", "category", "lot_number", "qty", "unit",
         "unit_price_ht", "vat_rate", "line_ht", "status", "brand",
-    )} for row in quote.get("lines", [])]
+    )} for row in (quote.get("lines") or [])]
     # Le PU interne peut être le prix d'achat avant marge. Le document client
     # affiche exclusivement le PU de vente cohérent avec le montant de la ligne.
     for row in result["lines"]:

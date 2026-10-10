@@ -358,7 +358,7 @@ def generate_quote_pdf(quote: dict, tenant_name: str = "Blueseatra", profile: di
 
     # split into page chunks on page_break lines
     chunks = [[]]
-    for l in quote.get("lines", []):
+    for l in (quote.get("lines") or []):
         if l.get("line_type") == "page_break":
             chunks.append([])
         else:

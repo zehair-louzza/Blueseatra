@@ -335,3 +335,11 @@ def test_delayed_edit_after_validation_is_rejected(monkeypatch):
         asyncio.run(server.update_quote("Q1", {}, actor))
     assert exc.value.status_code == 409
     assert captured == {"id": "Q1", "tenant_id": "T1", "status": "draft", "version": 1}
+
+
+def test_devis_aux_lignes_nulles_bloque_sans_planter():
+    # Un devis inséré sans lignes (colonne lines à NULL) faisait planter
+    # l'envoi : POST /quotes/{id}/send renvoyait 500 au lieu d'un refus 409.
+    devis = {"lines": None, "total_ht": 2400, "total_vat": 0, "total_ttc": 2400}
+    assert tce.blockers(devis) == ["Aucune prestation chiffrable."]
+    assert tce.client_quote(devis)["lines"] == []
