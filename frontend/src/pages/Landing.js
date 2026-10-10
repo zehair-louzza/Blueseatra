@@ -1,4 +1,5 @@
 import React from 'react';
+import { CONTACT_EMAIL, mailtoContact } from '@/lib/contact';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { localeCourante } from '@/lib/locale';
@@ -374,11 +375,20 @@ function Plans({ t }) {
                     </li>
                   ))}
                 </ul>
-                <Link to="/signup" className="mt-8">
-                  <Button className={`h-11 w-full ${p.featured ? '' : 'border border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
-                    {p.key === 'signature' ? t('lp.contact_cta') : t('lp.trial_cta')}
-                  </Button>
-                </Link>
+                {p.key === 'signature' ? (
+                  // Offre sur devis : on écrit à Blueseatra, on ne crée pas d'espace d'essai.
+                  <a href={mailtoContact('offres', { precision: 'Signature' })} className="mt-8" data-testid="pricing-contact">
+                    <Button className={`h-11 w-full ${p.featured ? '' : 'border border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
+                      {t('lp.contact_cta')}
+                    </Button>
+                  </a>
+                ) : (
+                  <Link to="/signup" className="mt-8">
+                    <Button className={`h-11 w-full ${p.featured ? '' : 'border border-white/20 bg-white/10 text-white hover:bg-white/20'}`}>
+                      {t('lp.trial_cta')}
+                    </Button>
+                  </Link>
+                )}
               </article>
             );
           })}
@@ -444,8 +454,8 @@ function Footer({ t }) {
         <div className="md:col-span-5">
           <BrandLogo to="/" imgClassName="h-8 max-w-[170px]" />
           <p className="mt-4 max-w-[36ch] text-sm text-muted-foreground">{t('lp.foot_tag')}</p>
-          <a href="mailto:contact@blueseatra.com" className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary" data-testid="footer-email">
-            <Mail className="h-4 w-4" /> contact@blueseatra.com
+          <a href={mailtoContact('entreprise')} className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary" data-testid="footer-email">
+            <Mail className="h-4 w-4" /> {CONTACT_EMAIL}
           </a>
         </div>
         <div className="grid grid-cols-2 gap-8 text-sm md:col-span-7 md:grid-cols-4">

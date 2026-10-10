@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { localeCourante } from '@/lib/locale';
-import { Check, Loader2, ExternalLink, Zap } from 'lucide-react';
+import { Check, Loader2, ExternalLink, Zap, Mail } from 'lucide-react';
+import { CONTACT_EMAIL, mailtoContact } from '@/lib/contact';
 
 // Ticket #90 : choix de l'offre, recharges et portail Stripe.
 const OFFRES = [
@@ -73,7 +74,14 @@ export default function ChoixOffre({ offreActuelle, peutPayer }) {
           );
         })}
       </div>
-      {!stripe.paiement_disponible && <p className="text-sm text-muted-foreground">{t('cl.p_bientot')}</p>}
+      {!stripe.paiement_disponible && (
+        <p className="text-sm text-muted-foreground" data-testid="offre-contact">
+          {t('cl.p_bientot')}{' '}
+          <a className="inline-flex items-center gap-1 font-medium text-primary hover:underline" href={mailtoContact('offres')}>
+            <Mail className="h-3.5 w-3.5" />{CONTACT_EMAIL}
+          </a>
+        </p>
+      )}
       {stripe.paiement_disponible && peutPayer && (
         <Card className="card-shadow border-0 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">

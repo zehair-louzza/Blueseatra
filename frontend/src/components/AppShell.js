@@ -13,9 +13,10 @@ import {
 import {
   LayoutDashboard, Inbox, BookOpen, FileText, Users, ScrollText,
   Settings as SettingsIcon, CreditCard, Menu, LogOut, ChevronDown, Store, Library, Building2, BellRing,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, Mail,
 } from 'lucide-react';
 import { BrandLogo } from '@/components/BrandLogo';
+import { mailtoContact } from '@/lib/contact';
 import { cn } from '@/lib/utils';
 
 // Menu groupe par usage : ventes, achats, entreprise.
@@ -141,7 +142,13 @@ export const AppShell = ({ children }) => {
       <div className={replie ? 'px-1.5 pb-1' : 'px-3 pb-1'}>{tenantSwitcher}</div>
       <div className="flex-1 overflow-y-auto"><NavList onNavigate={onNavigate} replie={replie} /></div>
       <div className="flex items-center justify-between border-t border-border/70 p-3">
-        {!replie && <span className="text-[11px] text-muted-foreground">Blueseatra</span>}
+        <a
+          href={mailtoContact('aide')}
+          className={cn('inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground', replie && 'justify-center')}
+          title={t('nav2.contact')} aria-label={t('nav2.contact')} data-testid="sidebar-contact"
+        >
+          <Mail className="h-3.5 w-3.5" />{!replie && t('nav2.contact')}
+        </a>
         <Button
           variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground"
           onClick={basculerRepli}
