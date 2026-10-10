@@ -64,7 +64,7 @@ flowchart LR
 - **Volume** : 2,55 Go, dont 2,53 Go pour les 971 676 offres des catalogues fournisseurs (`supplier_offers`).
 - **Isolation** : RLS activée sur les 33 tables ; l'API se connecte sous le rôle `blueseatra_app`, qui ne voit que l'entreprise courante.
 - **Activité de test** : 38 demandes (23 lues, 12 à revoir, 2 échecs, 1 en cours) et 60 devis (49 brouillons, 10 validés, 1 envoyé).
-- **Ajout seul** : registre de consommation et échanges clients protégés par trigger ; journal d'audit en cours de protection (demande de fusion [#153](https://github.com/zehair-louzza/Blueseatra/pull/153)).
+- **Ajout seul** : registre de consommation, échanges clients et journal d'audit protégés par trigger. Pour `audit_logs`, la migration `20261010030000` ([#153](https://github.com/zehair-louzza/Blueseatra/pull/153)) est appliquée en production depuis le 10/10/2026 : le rôle applicatif et `authenticated` n'ont plus que `SELECT` et `INSERT`, et toute modification, suppression ou vidage est refusé.
 
 Le détail des tables et des relations est dans le [schéma de la base de données](./schema-base-donnees.md).
 
@@ -81,7 +81,7 @@ Le détail des tables et des relations est dans le [schéma de la base de donné
 
 | Point | État | Suite |
 |---|---|---|
-| Journal d'audit en ajout seul | Demande de fusion [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) | Fusionner puis appliquer la migration `20261010030000` sur Supabase |
+| Journal d'audit en ajout seul | Fait le 10/10/2026 : [#153](https://github.com/zehair-louzza/Blueseatra/pull/153) fusionnée, migration `20261010030000` appliquée sur Supabase. Vérifié : ajout accepté ; modification, suppression et vidage refusés | Aucune |
 | Conseiller Supabase : 10 fonctions sans `search_path` figé | Avertissement | Ajouter `SET search_path = ''` aux fonctions concernées |
 | Conseiller Supabase : `pg_trgm` et `unaccent` dans `public` | Avertissement | Déplacer les extensions dans un schéma dédié, après test des index |
 | Instance Render gratuite | Mise en veille compensée par `pg_cron` | Passer à une instance payante avant la commercialisation |

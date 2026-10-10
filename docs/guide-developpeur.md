@@ -128,7 +128,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ### Migrations
 
-Les **14 migrations** versionnées dans [`supabase/migrations/`](../supabase/migrations) sont la référence du schéma `blueseatra` (catalogue commun, RLS, quotas, module Clients…). Elles sont **additives et rejouables** (`IF NOT EXISTS`) et contrôlées par la CI (`ci-infra.yml`).
+Les **35 migrations** versionnées dans [`supabase/migrations/`](../supabase/migrations) sont la référence du schéma `blueseatra` (catalogue commun, RLS, quotas, module Clients…). Elles sont **additives et rejouables** (`IF NOT EXISTS`) et contrôlées par la CI (`ci-infra.yml`).
 
 - Production : appliquées sur Supabase, une par une, après relecture. Aucune migration ne supprime de données.
 - Local : appliquer les fichiers dans l'ordre sur un PostgreSQL 17 après `.github/ci/amorce_tests.sql`.
