@@ -1,6 +1,240 @@
-Copyright (c) 2025-2026 Blueseatra. Tous droits réservés.
+LICENCE PROPRIÉTAIRE — TOUS DROITS RÉSERVÉS
+Dépôt : zehair-louzza/Blueseatra
+Version 2.0 du 10 octobre 2026
 
-Ce logiciel, son code source, sa documentation et ses éléments graphiques
-sont la propriété exclusive de Blueseatra. Aucune licence n'est accordée :
-toute copie, modification, distribution ou utilisation, totale ou partielle,
-est interdite sans autorisation écrite préalable du titulaire.
+Copyright © 2025-2026 Zehair Louzza, exploitant le nom commercial
+« Blueseatra », Paris, France. Tous droits réservés.
+
+La version française de cette licence fait foi. La traduction anglaise qui suit
+est fournie à titre d'information.
+
+────────────────────────────────────────────────────────────────────────────────
+1. TITULAIRE ET OBJET
+────────────────────────────────────────────────────────────────────────────────
+1.1  Le titulaire des droits est Zehair Louzza, exploitant le nom commercial
+     « Blueseatra » (ci-après « le Titulaire »).
+1.2  La présente licence s'applique à l'ensemble du contenu du dépôt
+     zehair-louzza/Blueseatra et de son historique (ci-après « le Logiciel »), notamment :
+     a) le code source et objet, les scripts, les migrations et les
+        configurations ;
+     b) la documentation, les schémas, les captures d'écran, les maquettes,
+        les textes, les consignes et les gabarits d'IA ;
+     c) le nom, le logo et les autres signes distinctifs « Blueseatra » ;
+     d) les bases de données, les catalogues normalisés, les jeux de test et
+        les mesures, protégés en outre par le droit des producteurs de bases
+        de données (articles L.341-1 et suivants du Code de la propriété
+        intellectuelle).
+1.3  Le Logiciel est une œuvre protégée par le Code de la propriété
+     intellectuelle (articles L.111-1, L.112-2 et L.122-6) et par les
+     conventions internationales.
+
+────────────────────────────────────────────────────────────────────────────────
+2. AUCUNE LICENCE ACCORDÉE
+────────────────────────────────────────────────────────────────────────────────
+2.1  Aucun droit d'utilisation, de reproduction, de représentation, de
+     modification, d'adaptation, de traduction, de distribution ni de
+     commercialisation n'est concédé, sauf autorisation écrite, préalable et
+     signée du Titulaire.
+2.2  La publication du dépôt sur GitHub ne vaut ni licence ni renonciation à un
+     droit. Le seul droit reconnu à un tiers est celui que les Conditions
+     d'utilisation de GitHub imposent pour un dépôt public : consulter le dépôt
+     et le dupliquer (« fork ») sur la plateforme GitHub. Ce droit ne permet
+     aucun autre usage d'une copie, en particulier aucune exécution, aucune
+     modification et aucune diffusion en dehors de GitHub.
+2.3  Est notamment interdit, sans autorisation écrite :
+     a) toute reproduction ou copie, totale ou partielle, sur tout support ;
+     b) toute exécution, installation ou mise en production du Logiciel, y
+        compris à titre d'essai, interne ou gratuit ;
+     c) toute modification, adaptation, traduction ou création d'une œuvre
+        dérivée ;
+     d) la mise à disposition du Logiciel ou d'une de ses fonctions à des
+        tiers, notamment sous forme de service en ligne (SaaS), d'API, de
+        revente, de location, de prêt ou de sous-licence ;
+     e) le développement, l'entraînement ou la mise au point d'un produit
+        concurrent à partir du Logiciel ;
+     f) l'extraction ou la réutilisation d'une partie substantielle des bases
+        de données et catalogues ;
+     g) la suppression ou la modification des mentions de propriété, de cette
+        licence ou des marques ;
+     h) le contournement des mesures techniques de protection et
+        d'authentification.
+
+────────────────────────────────────────────────────────────────────────────────
+3. INTELLIGENCE ARTIFICIELLE ET FOUILLE DE TEXTES ET DE DONNÉES
+────────────────────────────────────────────────────────────────────────────────
+3.1  Le Titulaire s'oppose expressément, au sens de l'article L.122-5-3 III du
+     Code de la propriété intellectuelle et de l'article 4 de la directive (UE)
+     2019/790, à toute fouille de textes et de données sur le Logiciel.
+3.2  Est donc interdit, sans autorisation écrite, l'usage de tout ou partie du
+     Logiciel pour entraîner, affiner, évaluer ou alimenter un modèle
+     d'intelligence artificielle, un système de recherche ou un jeu de données.
+3.3  Cette opposition s'applique sous la seule réserve des droits que les
+     Conditions d'utilisation de GitHub accordent à GitHub, Inc. pour héberger
+     et exploiter le service sur lequel le dépôt est publié.
+
+────────────────────────────────────────────────────────────────────────────────
+4. EXCEPTIONS LÉGALES
+────────────────────────────────────────────────────────────────────────────────
+     Rien dans la présente licence ne limite les exceptions d'ordre public
+     prévues aux articles L.122-5, L.122-6-1 et L.342-3 du Code de la propriété
+     intellectuelle, dans leurs strictes conditions, au profit de la personne
+     qui a légitimement le droit d'utiliser le Logiciel.
+
+────────────────────────────────────────────────────────────────────────────────
+5. COMPOSANTS ET DONNÉES DE TIERS
+────────────────────────────────────────────────────────────────────────────────
+5.1  Les bibliothèques et composants de tiers restent régis par leurs propres
+     licences, consultables dans les fichiers de dépendances et dans leurs
+     dépôts d'origine.
+5.2  Les marques, désignations, références et tarifs des distributeurs et
+     fabricants cités appartiennent à leurs titulaires respectifs. Aucun droit
+     sur ces éléments n'est concédé.
+
+────────────────────────────────────────────────────────────────────────────────
+6. CONTRIBUTIONS
+────────────────────────────────────────────────────────────────────────────────
+     Toute contribution proposée au dépôt (code, documentation, signalement,
+     correctif) n'est acceptée qu'à la condition que son auteur cède au
+     Titulaire, à titre gratuit, exclusif et pour toute la durée légale des
+     droits, pour le monde entier et pour tous modes d'exploitation, les droits
+     patrimoniaux sur cette contribution. L'auteur garantit être en droit de
+     consentir cette cession.
+
+────────────────────────────────────────────────────────────────────────────────
+7. CONFIDENTIALITÉ ET SÉCURITÉ
+────────────────────────────────────────────────────────────────────────────────
+7.1  Les informations techniques non publiques communiquées par le Titulaire
+     (accès, architecture, données d'exploitation) restent confidentielles.
+7.2  Une vulnérabilité découverte doit être signalée en privé selon le fichier
+     SECURITY.md du dépôt, ou à défaut à contact@blueseatra.com. Elle ne doit
+     être ni exploitée ni divulguée avant correction.
+
+────────────────────────────────────────────────────────────────────────────────
+8. AUTORISATIONS ÉCRITES
+────────────────────────────────────────────────────────────────────────────────
+8.1  Toute demande d'autorisation (évaluation, partenariat, intégration,
+     licence commerciale) est à adresser à contact@blueseatra.com.
+8.2  Une autorisation n'est valable que par écrit et signée par le Titulaire.
+     Elle est personnelle, non exclusive, non cessible et limitée à l'objet,
+     à la durée et au territoire qu'elle indique.
+8.3  L'utilisation du service en ligne Blueseatra est régie par ses propres
+     conditions, et non par la présente licence.
+
+────────────────────────────────────────────────────────────────────────────────
+9. ABSENCE DE GARANTIE ET RESPONSABILITÉ
+────────────────────────────────────────────────────────────────────────────────
+9.1  Dans les limites permises par la loi, le Logiciel est fourni « en
+     l'état », sans garantie d'aucune sorte, expresse ou implicite.
+9.2  Le Titulaire ne saurait être tenu responsable d'un dommage résultant d'un
+     usage non autorisé du Logiciel. Cette clause ne limite pas la
+     responsabilité pour faute lourde ou dolosive, ni toute responsabilité qui
+     ne peut être exclue par la loi.
+
+────────────────────────────────────────────────────────────────────────────────
+10. SANCTIONS
+────────────────────────────────────────────────────────────────────────────────
+     Toute utilisation non autorisée constitue une contrefaçon, sanctionnée
+     notamment par les articles L.335-2, L.335-3 et L.343-4 du Code de la
+     propriété intellectuelle. Elle peut donner lieu à des poursuites civiles et
+     pénales, et à la demande de dommages et intérêts. Toute autorisation
+     éventuellement accordée prend fin de plein droit, sans préavis, en cas de
+     manquement, et toutes les copies doivent alors être détruites.
+
+────────────────────────────────────────────────────────────────────────────────
+11. DROIT APPLICABLE ET JURIDICTION
+────────────────────────────────────────────────────────────────────────────────
+11.1 La présente licence est régie par le droit français.
+11.2 Tout litige relatif à sa validité, à son interprétation ou à son exécution
+     relève, sous réserve des règles impératives de compétence, des tribunaux
+     compétents du ressort de la cour d'appel de Paris.
+11.3 Si une clause est jugée nulle, les autres restent applicables. Le fait de
+     ne pas exercer un droit ne vaut pas renonciation à ce droit.
+
+Contact : contact@blueseatra.com · https://blueseatra.com
+
+
+================================================================================
+ENGLISH TRANSLATION (for information only; the French version prevails)
+================================================================================
+
+PROPRIETARY LICENCE — ALL RIGHTS RESERVED
+Repository: zehair-louzza/Blueseatra
+Version 2.0, 10 October 2026
+
+Copyright © 2025-2026 Zehair Louzza, trading as "Blueseatra", Paris, France.
+All rights reserved.
+
+1. Owner and scope. The rights holder is Zehair Louzza, trading as
+   "Blueseatra" (the "Owner"). This licence covers all content of the
+   zehair-louzza/Blueseatra repository and its history (the "Software"):
+   - source and object code, scripts, migrations and configuration;
+   - documentation, diagrams, screenshots, texts, prompts and AI templates;
+   - the "Blueseatra" name, logo and other distinctive signs;
+   - databases, normalised catalogues, test sets and measurements, which are
+     also protected by the database right (French IP Code, art. L.341-1 ff.).
+
+2. No licence granted. No right to use, copy, display, modify, adapt,
+   translate, distribute or commercialise the Software is granted without the
+   Owner's prior, written and signed permission.
+   - Publishing on GitHub is neither a licence nor a waiver. The only right
+     granted to third parties is the one GitHub's Terms of Service require for
+     public repositories: viewing the repository and forking it on GitHub.
+     That right allows no other use of a copy, in particular no execution, no
+     modification and no distribution outside GitHub.
+   - In particular, the following are prohibited: copying; running, installing
+     or deploying the Software, even for trial, internal or free use;
+     modifying it or creating derivative works; providing it or any of its
+     functions to third parties, including as SaaS, API, resale, rental or
+     sublicence; building a competing product from it; extracting a
+     substantial part of its databases and catalogues; removing proprietary
+     notices; circumventing technical protection measures.
+
+3. AI and text and data mining. The Owner expressly reserves its rights
+   against text and data mining (French IP Code, art. L.122-5-3 III; Article 4
+   of Directive (EU) 2019/790). Using the Software to train, fine-tune,
+   evaluate or feed any AI model, search system or dataset is prohibited
+   without written permission. This reservation applies subject only to the rights that
+   GitHub's Terms of Service grant to GitHub, Inc. to host and operate the
+   service on which the repository is published.
+
+4. Statutory exceptions. Mandatory exceptions under French law (IP Code,
+   art. L.122-5, L.122-6-1 and L.342-3) remain available to lawful users,
+   within their strict conditions.
+
+5. Third parties. Third-party components remain under their own licences.
+   Distributor and manufacturer brands, designations, references and prices
+   belong to their respective owners; no right in them is granted.
+
+6. Contributions. Any contribution is accepted only if its author assigns to
+   the Owner, free of charge and exclusively, worldwide, for the full legal
+   term and for all modes of exploitation, the economic rights in it. The
+   author warrants that they are entitled to make this assignment.
+
+7. Confidentiality and security. Non-public technical information disclosed
+   by the Owner remains confidential. Report vulnerabilities privately, as
+   described in SECURITY.md or to contact@blueseatra.com. Do not exploit or
+   disclose them before they are fixed.
+
+8. Written permissions. Send requests to contact@blueseatra.com. A permission
+   is valid only if it is written and signed by the Owner. It is personal,
+   non-exclusive, non-transferable, and limited to its stated purpose, term
+   and territory. Use of the Blueseatra online service is governed by its own
+   terms, not by this licence.
+
+9. No warranty and liability. To the extent permitted by law, the Software is
+   provided "as is", without warranty of any kind. The Owner is not liable for
+   damage caused by unauthorised use. This does not limit liability for gross
+   negligence or wilful misconduct, or any liability that cannot be excluded
+   by law.
+
+10. Sanctions. Unauthorised use is infringement (French IP Code, art. L.335-2,
+    L.335-3 and L.343-4) and may lead to civil and criminal proceedings and to
+    claims for damages. Any permission granted ends automatically and without
+    notice upon breach; all copies must then be destroyed.
+
+11. Governing law and courts. French law applies. Subject to mandatory rules
+    of jurisdiction, disputes fall under the competent courts within the
+    jurisdiction of the Paris Court of Appeal. If a clause is held invalid,
+    the others remain in force. Failure to exercise a right is not a waiver.
+
+Contact: contact@blueseatra.com · https://blueseatra.com

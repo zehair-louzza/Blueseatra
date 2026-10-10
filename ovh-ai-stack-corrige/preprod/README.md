@@ -164,3 +164,7 @@ Never run it against production resources.
   behaviour, which is exactly its purpose.
 - Add any future container to `preprod_internal`; publish it through the VPS
   reverse proxy only after authentication and TLS are configured.
+
+## Licence
+
+Logiciel propriétaire, tous droits réservés. Titulaire : Zehair Louzza, exploitant le nom commercial « Blueseatra ». Voir [LICENSE](../../LICENSE).

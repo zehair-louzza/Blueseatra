@@ -40,3 +40,7 @@ Fichiers `supabase_queue.sql` (table + `claim_next_job()`) et `supabase_worker.p
 Un VPS CPU ne fait pas 100 inférences en parallèle : la file **accepte tout de suite** et **traite
 au rythme du CPU** (~1 doc / 20-60 s avec `qwen2.5:7b`). Pour du synchrone rapide à 100 users →
 GPU L4 (`docs/GPU-OVH-CHIFFRAGE.md`).
+
+## Licence
+
+Logiciel propriétaire, tous droits réservés. Titulaire : Zehair Louzza, exploitant le nom commercial « Blueseatra ». Voir [LICENSE](../../../LICENSE).

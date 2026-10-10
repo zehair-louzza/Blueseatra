@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-10 — Licence propriétaire 2.0, README complets, nouveaux schémas
+
+- **Licence durcie** (`LICENSE`, version 2.0) :
+  - titulaire identifié : Zehair Louzza, exploitant le nom commercial « Blueseatra » ;
+  - objet protégé : code, documentation, schémas, captures, signes distinctifs, bases de données ;
+  - interdictions détaillées : exécution, SaaS, produit concurrent, extraction des catalogues ;
+  - opposition à la fouille de textes et de données et à l'entraînement d'IA (CPI, art. L.122-5-3), sous réserve des droits accordés à GitHub ;
+  - exceptions légales préservées, composants de tiers, cession des contributions, droit français, cour d'appel de Paris ;
+  - version française faisant foi, traduction anglaise informative.
+  La même licence s'applique aux dépôts Fournisseur-Blueseatra et ovh-ai-stack.
+- **README français et anglais** :
+  - galerie de tous les schémas (18) et des 31 captures d'écran ;
+  - section Licence ;
+  - badges à jour (124 routes, 34 migrations, 690 tests) ;
+  - fonctions récentes ajoutées : relances par e-mail, G3, masquage RGPD, contact.
+- **Nouveaux schémas** :
+  - G3, relances par e-mail, masquage RGPD ;
+  - routage IA mis à jour avec OpenCode Free ;
+  - architecture des dépôts Fournisseur-Blueseatra et ovh-ai-stack (`scripts/docs/generer_schemas_ecosysteme.py`).
+
 ## 2026-10-07 — Bouton Arrêter, tâches IA asynchrones avec point de contrôle
 
 Problème : supprimer une demande en cours ne l'arrêtait pas, et le site attendait le VPS par une connexion ouverte pendant des minutes ; un délai dépassé laissait le calcul tourner sur OVH.

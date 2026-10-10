@@ -48,3 +48,7 @@ La traçabilité complète (actions réalisées, fichiers modifiés, statut de v
 - **P0** : `ollama pull qwen2.5:7b`+`qwen2.5vl:7b` sur le VPS ; coller les env Render ; lancer `scripts/test-extraction-e2e.py` (mesure réelle) et ajuster `OLLAMA_NUM_PARALLEL`.
 - **P1** : déployer `compose.yaml` + `services/extraction/` ; provisionner Redis + worker (`services/queue/`) ; corriger le Bearer Hermes si exposé ; aligner les timeouts inter-couches.
 - **P2** : GPU L4 Gravelines si synchrone rapide requis ; simplifier les cascades restantes ; `OLLAMA_CONTEXT_LENGTH=16384` ; healthcheck `ollama ps` ; limites `cpus:` par conteneur ; observabilité (temps par étape + modèle réellement utilisé) ; router au VLM uniquement les vrais scans.
+
+## Licence
+
+Logiciel propriétaire, tous droits réservés. Titulaire : Zehair Louzza, exploitant le nom commercial « Blueseatra ». Voir [LICENSE](../LICENSE).
