@@ -84,7 +84,9 @@ N'extrais dans line_items QUE les prestations explicitement demandées, pas les
 accessoires implicites. Une ligne par action et ouvrage ; libellé court pour le
 catalogue, action séparée. Le backend construira la checklist métier après cette étape.
 Préserve protection, dépose, déchets, raccordement, essais, nettoyage et documents.
-Ajoute lot_tce (code 00 à 19), action et preuve (citation exacte et unique).
+Ajoute lot_tce (code 00 à 19), action et preuve (citation exacte).
+Lots : 07 isolation, 10 peinture, 11 plomberie, 14 électricité, 16 serrurerie.
+Une quantité verbale un/une vaut 1 seulement pour l’objet explicitement compté.
 qty/quantity est uniquement une quantité explicite, avec quantite_preuve exacte.
 Quantité inconnue = null ; quantite_preuve vide. Ne déduis ni forfait ni minimum.
 150 L, 80 cm, 32 A sont des caractéristiques. Ne calcule aucune surface.
@@ -115,7 +117,7 @@ def positive_number(value):
 def _supports_quantity(value, unit, proof):
     if positive_number(value) is None or not proof:
         return False
-    text = normal(proof).replace(",", ".")
+    text = normal(_proof_text(proof)).replace(",", ".")
     if value == 1 and re.search(r"\b(un|une)\b", text):
         return True
     number = f"{float(value):g}"
@@ -130,16 +132,58 @@ def _supports_quantity(value, unit, proof):
     return True
 
 
+
+def _proof_text(text):
+    """Normalize typography only; do not remove words, negations or accents."""
+    text = unicodedata.normalize("NFC", str(text or ""))
+    return " ".join(text.replace("’", "'").replace("\u00a0", " ").split())
+
+
+def _counted_object_matches(label, proof):
+    text = normal(_proof_text(proof))
+    counted = re.match(r"^(?:d[' ]+)?(?:un|une|\d+(?:[.,]\d+)?)\s+([a-z]+)", text)
+    if not counted:
+        return False
+    noun = counted.group(1).rstrip("s")
+    if noun in {"l", "litre", "cm", "mm", "m", "a", "v", "w", "kw", "piece"}:
+        return False
+    tokens = {x.rstrip("s") for x in re.findall(r"[a-z]+", normal(label))}
+    return noun in tokens
+
+
+def _explicit_quantity(proof):
+    text = normal(_proof_text(proof))
+    found = re.match(r"^(?:d[' ]+)?(un|une|\d+(?:[.,]\d+)?)\s+", text)
+    if not found:
+        return None
+    token = found.group(1)
+    return 1.0 if token in {"un", "une"} else positive_number(token.replace(",", "."))
+
+
+def _supply_quote_context(quote, source_text):
+    """Expand a source fragment only inside an explicit supply/pose line."""
+    target = _proof_text(quote)
+    candidates = []
+    for line in str(source_text or "").splitlines():
+        line = re.sub(r"^\s*[-•]\s*", "", line).strip()
+        if target and target in _proof_text(line) and re.match(
+                r"^fourniture(?: et pose)?\b", normal(line)):
+            candidates.append(line)
+    unique = list(dict.fromkeys(candidates))
+    return unique[0] if len(unique) == 1 else quote
+
+
 def supply_authorized(row):
-    """Conservative text evidence, not a professional approval."""
+    """Explicit source supply only; service and customer supply stay blocked."""
     proof = normal(row.get("preuve"))
     action_text = re.sub(r"^\s*fourniture et pose\b", "fourniture", proof)
+    explicit_supply = bool(re.match(r"^\s*(?:fourniture|fournir)\b", proof))
+    explicit_replacement = bool(re.match(r"^\s*remplacement\b", proof)
+                                and re.search(r"\bpar\s+(?:un|une)\b", proof))
     return bool(
         row.get("preuve_valide") is True
         and row.get("action") in {"fournir", "fournir_et_poser"}
-        and re.match(r"^\s*(?:fourniture|fournir)\b", proof)
-        # Une citation qui mélange actions/objets ou mentionne le client n'est
-        # jamais une autorisation d'achat automatique. Le chiffreur tranche.
+        and (explicit_supply or explicit_replacement)
         and not re.search(r"\bclient\b|sans fourniture|pas de fourniture|existant|"
                           r"raccord|repar|depos|mise en service|et pose\b", action_text)
     )
@@ -161,7 +205,11 @@ def protect_extraction(data, source_text):
             if not isinstance(row, dict):
                 continue
             quote = row.get("preuve")
-            valid = isinstance(quote, str) and bool(quote) and source_text.count(quote) == 1
+            if isinstance(quote, str) and quote:
+                quote = _supply_quote_context(quote, source_text)
+                row["preuve"] = quote
+            valid = (isinstance(quote, str) and bool(_proof_text(quote))
+                     and _proof_text(quote) in _proof_text(source_text))
             row["tce_id"] = f"P{index}"
             row["preuve_valide"] = valid
             row["tce_fourniture_autorisee"] = False
@@ -171,32 +219,43 @@ def protect_extraction(data, source_text):
                 row["action"] = None
             value = row.get("qty") if "qty" in row else row.get("quantity")
             qproof = row.get("quantite_preuve")
-            label = normal(row.get("label") or row.get("description"))
-            # Quantité chiffrée OU verbale : la preuve doit contenir le premier
-            # terme d'objet, pas seulement une dimension ou "une pièce".
-            object_tokens = [x for x in re.findall(r"[a-z]{2,}", label)
-                             if x not in {"fourniture", "fournir", "pose", "de", "du", "des",
-                                          "la", "le", "les", "un", "une", "et", "au", "aux",
-                                          "neuf", "vertical", "standard", "raccordement"}]
-            verbal_object = bool(object_tokens and qproof
-                                 and object_tokens[0] in normal(qproof))
-            if not (valid and isinstance(qproof, str) and qproof and qproof in quote
-                    and verbal_object and _supports_quantity(value, row.get("unit"), qproof)):
+            label = row.get("label") or row.get("description") or ""
+            quantity_valid = (valid and isinstance(qproof, str) and bool(qproof)
+                              and _proof_text(qproof) in _proof_text(quote)
+                              and _counted_object_matches(label, qproof))
+            if value is None and quantity_valid:
+                value = _explicit_quantity(qproof)
+            if quantity_valid and _supports_quantity(value, row.get("unit"), qproof):
+                row["qty"] = row["quantity"] = positive_number(value)
+            else:
                 if value is not None:
                     issues.append(f"Quantité à relever : {row.get('label') or row.get('description') or index}")
                 row["qty"] = row["quantity"] = None
             if not valid:
                 issues.append(f"Périmètre à vérifier : {row.get('label') or row.get('description') or index}")
             row["tce_fourniture_autorisee"] = supply_authorized(row)
+            row["lot_tce"] = detect_lot(row)
     out["_tce_version"] = VERSION
     out["_tce_issues"] = list(dict.fromkeys(issues))
     return out
 
 
 def detect_lot(row, fallback=""):
+    text = normal(" ".join(str(row.get(k) or "") for k in ("label", "description", "category")))
+    decisive = [
+        ("16", r"porte blind|bloc.porte.*blind|serrur|cylindre|verrou"),
+        ("05", r"paumelle.*fenetre|cremone"),
+        ("14", r"tableau electri|installation electri|prises? de courant|eclairage|ligne dediee.*plaque"),
+        ("16", r"detecteur.*fumee"),
+        ("11", r"ballon thermodynamique"),
+    ]
+    # Correct the observed insulation/painting miscoding, not every trade code.
+    if row.get("lot_tce") in {None, "07", "10"}:
+        for code, pattern in decisive:
+            if re.search(pattern, text):
+                return code
     if row.get("lot_tce") in LOTS:
         return row["lot_tce"]
-    text = normal(" ".join(str(row.get(k) or "") for k in ("label", "description", "category")))
     # Dominant object before generic words; never use another line's trade.
     patterns = [
         ("13", r"\bvmc\b|ventilation|bouche.*extraction"),
